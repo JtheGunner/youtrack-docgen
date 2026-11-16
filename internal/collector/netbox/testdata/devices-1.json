@@ -1,0 +1,11 @@
+{"count": 3, "next": "{{BASE}}/api/dcim/devices/?limit=100&offset=2", "previous": null, "results": [
+  {"id": 1, "name": "sw01.example.com", "site": {"id": 1, "name": "Example HQ", "slug": "example-hq"},
+   "role": {"id": 1, "name": "Core Switch", "slug": "core-switch"}, "status": {"value": "active"},
+   "device_type": {"model": "EX-1000"}, "primary_ip4": null, "primary_ip6": null,
+   "description": "", "tags": []},
+  {"id": 2, "name": "srv01.example.com", "site": {"id": 1, "name": "Example HQ", "slug": "example-hq"},
+   "device_role": {"id": 2, "name": "Server", "slug": "server"}, "status": {"value": "active"},
+   "platform": {"id": 1, "name": "Linux", "slug": "linux"},
+   "primary_ip4": {"id": 1, "address": "192.0.2.10/24"}, "primary_ip6": null,
+   "description": "", "tags": [{"slug": "prod"}]}
+]}

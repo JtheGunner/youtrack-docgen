@@ -1,0 +1,4 @@
+{"count": 3, "next": null, "previous": "{{BASE}}/api/dcim/devices/?limit=100", "results": [
+  {"id": 3, "name": null, "site": null, "role": {"id": 2, "name": "Server", "slug": "server"},
+   "status": {"value": "planned"}, "primary_ip4": null, "primary_ip6": null, "description": "", "tags": []}
+]}

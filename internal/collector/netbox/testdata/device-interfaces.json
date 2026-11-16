@@ -1,0 +1,6 @@
+{"count": 2, "next": null, "previous": null, "results": [
+  {"id": 1, "name": "eth0", "device": {"id": 2, "name": "srv01.example.com"}, "enabled": true,
+   "type": {"value": "1000base-t"}, "mac_address": "02:00:00:00:00:01", "mtu": 1500, "description": "", "tags": []},
+  {"id": 2, "name": "mgmt0", "device": {"id": 1, "name": "sw01.example.com"}, "enabled": false,
+   "type": {"value": "1000base-t"}, "mac_address": null, "mtu": null, "description": "Management", "tags": []}
+]}

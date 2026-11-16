@@ -1,0 +1,4 @@
+{"count": 1, "next": null, "previous": null, "results": [
+  {"id": 1, "name": "ens3", "virtual_machine": {"id": 1, "name": "vm01.example.com"}, "enabled": true,
+   "mac_address": "02:00:00:00:00:02", "mtu": null, "description": "", "tags": []}
+]}
