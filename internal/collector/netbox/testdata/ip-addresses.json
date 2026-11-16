@@ -1,0 +1,14 @@
+{"count": 5, "next": null, "previous": null, "results": [
+  {"id": 1, "address": "192.0.2.10/24", "status": {"value": "active"}, "vrf": null,
+   "dns_name": "web.example.com", "assigned_object_type": "dcim.interface", "assigned_object_id": 1,
+   "description": "", "tags": []},
+  {"id": 2, "address": "192.0.2.20/24", "status": {"value": "active"}, "vrf": null,
+   "dns_name": "", "assigned_object_type": "virtualization.vminterface", "assigned_object_id": 1,
+   "description": "", "tags": []},
+  {"id": 3, "address": "2001:db8::10/64", "status": {"value": "reserved"}, "vrf": null,
+   "dns_name": "", "assigned_object_type": null, "assigned_object_id": null, "description": "", "tags": []},
+  {"id": 4, "address": "10.0.5.1/24", "status": {"value": "active"}, "vrf": null,
+   "dns_name": "", "assigned_object_type": null, "assigned_object_id": null, "description": "", "tags": []},
+  {"id": 5, "address": "192.0.2.10/24", "status": {"value": "active"}, "vrf": {"id": 9, "name": "Mgmt", "slug": "mgmt"},
+   "dns_name": "", "assigned_object_type": null, "assigned_object_id": null, "description": "", "tags": []}
+]}

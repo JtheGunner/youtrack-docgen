@@ -1,0 +1,6 @@
+{"count": 1, "next": null, "previous": null, "results": [
+  {"id": 1, "name": "vm01.example.com", "site": null, "cluster": {"id": 1, "name": "k8s-example"},
+   "role": {"id": 4, "name": "Kubernetes Node", "slug": "k8s-node"}, "status": {"value": "active"},
+   "primary_ip4": {"id": 2, "address": "192.0.2.20/24"}, "primary_ip6": null,
+   "description": "", "tags": []}
+]}

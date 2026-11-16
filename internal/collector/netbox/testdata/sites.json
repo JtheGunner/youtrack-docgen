@@ -1,0 +1,5 @@
+{"count": 1, "next": null, "previous": null, "results": [
+  {"id": 1, "name": "Example HQ", "slug": "example-hq", "status": {"value": "active", "label": "Active"},
+   "region": {"id": 7, "name": "EMEA", "slug": "emea"}, "description": "Synthetic primary site",
+   "tags": [{"id": 1, "name": "Production", "slug": "prod"}]}
+]}
