@@ -54,10 +54,17 @@ func (d Document) Markdown() string {
 	var b strings.Builder
 	b.WriteString("# " + inline(d.Title) + "\n")
 	for _, s := range d.Sections {
-		b.WriteString("\n## " + inline(s.Heading) + "\n")
-		for _, blk := range s.Blocks {
-			b.WriteString("\n" + blk.markdown())
-		}
+		b.WriteString("\n" + s.Markdown())
+	}
+	return b.String()
+}
+
+// Markdown renders the heading and blocks of s.
+func (s Section) Markdown() string {
+	var b strings.Builder
+	b.WriteString("## " + inline(s.Heading) + "\n")
+	for _, blk := range s.Blocks {
+		b.WriteString("\n" + blk.markdown())
 	}
 	return b.String()
 }
