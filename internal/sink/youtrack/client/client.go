@@ -139,7 +139,33 @@ func New(baseURL, token string, opts ...Option) (*Client, error) {
 	for _, o := range opts {
 		o(c)
 	}
+	c.http = withSameOriginRedirects(c.http, u)
 	return c, nil
+}
+
+// withSameOriginRedirects returns a copy of h that refuses redirects leaving
+// the base URL's scheme and host (including port), so the bearer token is
+// never sent elsewhere. A CheckRedirect already set on h still applies after
+// this check. The caller's client is not modified.
+func withSameOriginRedirects(h *http.Client, base *url.URL) *http.Client {
+	if h == nil {
+		h = &http.Client{Timeout: 30 * time.Second}
+	}
+	clone := *h
+	inner := h.CheckRedirect
+	clone.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if req.URL.Scheme != base.Scheme || req.URL.Host != base.Host {
+			return fmt.Errorf("youtrack: refusing redirect to a different origin (%s://%s): the token is only sent to the configured base URL", req.URL.Scheme, req.URL.Host)
+		}
+		if inner != nil {
+			return inner(req, via)
+		}
+		if len(via) >= 10 {
+			return errors.New("youtrack: stopped after 10 redirects")
+		}
+		return nil
+	}
+	return &clone
 }
 
 func sleepContext(ctx context.Context, d time.Duration) error {

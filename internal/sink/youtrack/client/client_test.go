@@ -331,6 +331,84 @@ func TestTransportErrorLeaksNoToken(t *testing.T) {
 	}
 }
 
+func TestRedirectToOtherOriginNeverReceivesToken(t *testing.T) {
+	tests := []struct {
+		name string
+		opts []Option
+	}{
+		{"default client", nil},
+		{"supplied client", []Option{WithHTTPClient(&http.Client{})}},
+		{"supplied client that allows all redirects", []Option{WithHTTPClient(&http.Client{
+			CheckRedirect: func(*http.Request, []*http.Request) error { return nil },
+		})}},
+	}
+	for _, status := range []int{http.StatusMovedPermanently, http.StatusTemporaryRedirect, http.StatusPermanentRedirect} {
+		for _, tt := range tests {
+			t.Run(tt.name+"/"+http.StatusText(status), func(t *testing.T) {
+				var targetHits atomic.Int32
+				var leaked atomic.Bool
+				target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					targetHits.Add(1)
+					if strings.Contains(r.Header.Get("Authorization"), fakeToken) {
+						leaked.Store(true)
+					}
+					_, _ = io.WriteString(w, `{"id":"1-1"}`)
+				}))
+				t.Cleanup(target.Close)
+
+				c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+					http.Redirect(w, r, target.URL+"/api/articles/1-1", status)
+				}, tt.opts...)
+				_, err := c.GetArticle(context.Background(), "1-1")
+				if err == nil || !strings.Contains(err.Error(), "refusing redirect") {
+					t.Fatalf("err = %v", err)
+				}
+				if strings.Contains(err.Error(), fakeToken) {
+					t.Errorf("error leaks token: %v", err)
+				}
+				if targetHits.Load() != 0 || leaked.Load() {
+					t.Errorf("redirect target was contacted (hits=%d, leaked=%v)", targetHits.Load(), leaked.Load())
+				}
+			})
+		}
+	}
+}
+
+func TestRedirectToOtherSchemeIsRefused(t *testing.T) {
+	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "https://"+r.Host+"/api/articles/1-1", http.StatusFound)
+	})
+	if _, err := c.GetArticle(context.Background(), "1-1"); err == nil || !strings.Contains(err.Error(), "refusing redirect") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestSameOriginRedirectIsFollowed(t *testing.T) {
+	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/moved" {
+			if r.Header.Get("Authorization") != "Bearer "+fakeToken {
+				t.Error("token missing on same-origin redirect")
+			}
+			_, _ = io.WriteString(w, `{"id":"1-1"}`)
+			return
+		}
+		http.Redirect(w, r, "/moved", http.StatusTemporaryRedirect)
+	})
+	if _, err := c.GetArticle(context.Background(), "1-1"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSuppliedHTTPClientIsNotMutated(t *testing.T) {
+	h := &http.Client{}
+	if _, err := New("https://youtrack.example.com", fakeToken, WithHTTPClient(h)); err != nil {
+		t.Fatal(err)
+	}
+	if h.CheckRedirect != nil {
+		t.Error("caller's client was modified")
+	}
+}
+
 func TestInvalidJSONResponse(t *testing.T) {
 	c, _ := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "<html>") })
 	if _, err := c.GetArticle(context.Background(), "1-1"); err == nil || !strings.Contains(err.Error(), "decode") {
