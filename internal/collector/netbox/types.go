@@ -27,6 +27,7 @@ type site struct {
 	Status      choice `json:"status"`
 	Region      *ref   `json:"region"`
 	Description string `json:"description"`
+	Tenant      *ref   `json:"tenant"`
 	Tags        []tag  `json:"tags"`
 }
 
@@ -36,6 +37,7 @@ type vlan struct {
 	Name   string `json:"name"`
 	Site   *ref   `json:"site"`
 	Status choice `json:"status"`
+	Tenant *ref   `json:"tenant"`
 	Tags   []tag  `json:"tags"`
 }
 
@@ -48,6 +50,7 @@ type prefix struct {
 	VLAN        *ref   `json:"vlan"`
 	Role        *ref   `json:"role"`
 	Description string `json:"description"`
+	Tenant      *ref   `json:"tenant"`
 	Tags        []tag  `json:"tags"`
 }
 
@@ -60,6 +63,7 @@ type ipAddress struct {
 	AssignedObjectType string `json:"assigned_object_type"`
 	AssignedObjectID   *int   `json:"assigned_object_id"`
 	Description        string `json:"description"`
+	Tenant             *ref   `json:"tenant"`
 	Tags               []tag  `json:"tags"`
 }
 
@@ -76,6 +80,7 @@ type machine struct {
 	PrimaryIP4  *ipRef  `json:"primary_ip4"`
 	PrimaryIP6  *ipRef  `json:"primary_ip6"`
 	Description string  `json:"description"`
+	Tenant      *ref    `json:"tenant"`
 	Tags        []tag   `json:"tags"`
 	DeviceType  *struct {
 		Model string `json:"model"`

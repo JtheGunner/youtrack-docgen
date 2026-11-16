@@ -33,7 +33,7 @@ func entity(t *testing.T, source string, kind model.Kind, key string, labels, at
 
 func TestRulesPermits(t *testing.T) {
 	host := entity(t, "netbox", model.KindHost, "web01", map[string]string{
-		LabelTag: "prod, public", LabelRole: "Web", LabelTenant: "acme", "env": "production",
+		LabelTagPrefix + "prod": "true", LabelTagPrefix + "public": "true", LabelRole: "Web", LabelTenant: "acme", "env": "production",
 	}, nil)
 	ns := entity(t, "k8s", model.KindNamespace, "kube-system", nil, nil)
 	pod := entity(t, "k8s", model.KindWorkload, "api", map[string]string{LabelNamespace: "team-a"}, nil)
@@ -268,7 +268,7 @@ func seededGraph(t *testing.T) *model.Graph {
 		return e
 	}
 	web := entity(t, "netbox", model.KindHost, "web01",
-		map[string]string{LabelTag: "prod", LabelTenant: "acme", "note": "token=" + fakePassword},
+		map[string]string{LabelTagPrefix + "prod": "true", LabelTenant: "acme", "note": "token=" + fakePassword},
 		map[string]string{"description": "uses " + fakeBearer + " and " + fakeAWS, "pem": fakePEM})
 	web.Aliases = []string{"web.example.com", "password=" + fakePassword}
 	web.Addresses = []netip.Addr{netip.MustParseAddr("192.0.2.10")}

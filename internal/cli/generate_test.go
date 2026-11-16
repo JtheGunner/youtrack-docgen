@@ -169,6 +169,40 @@ func TestGenerateAppliesDenyRules(t *testing.T) {
 	}
 }
 
+// The deny rules must match what the NetBox collector really emits: tags and
+// tenants come from the fixtures, not from hand-built labels.
+func TestGenerateAppliesTagAndTenantDenyRules(t *testing.T) {
+	tests := []struct {
+		name       string
+		deny       string
+		deniedPage string
+		keptPage   string
+	}{
+		{"tag", "    deny:\n      - kinds: [host]\n        tags: [prod]\n",
+			"netbox-host-srv01-example-com.md", "netbox-host-sw01-example-com.md"},
+		{"tenant", "    deny:\n      - kinds: [host]\n        tenants: [example-*]\n",
+			"netbox-host-sw01-example-com.md", "netbox-host-srv01-example-com.md"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("NETBOX_TOKEN", fakeNetBoxToken)
+			srv := fakeNetBox(t)
+			out := filepath.Join(t.TempDir(), "out")
+
+			if _, stderr, err := runGenerate(t, generateConfig(srv.URL, out, tt.deny)); err != nil {
+				t.Fatalf("generate error = %v\nstderr: %s", err, stderr)
+			}
+			files := readDir(t, out)
+			if _, ok := files[tt.deniedPage]; ok {
+				t.Errorf("%s is denied but still has a page", tt.deniedPage)
+			}
+			if _, ok := files[tt.keptPage]; !ok {
+				t.Errorf("%s is not denied but has no page", tt.keptPage)
+			}
+		})
+	}
+}
+
 func TestGenerateSkipsYouTrackSinkWithNote(t *testing.T) {
 	t.Setenv("NETBOX_TOKEN", fakeNetBoxToken)
 	t.Setenv("YOUTRACK_TOKEN", fakeYouTrackToken)
