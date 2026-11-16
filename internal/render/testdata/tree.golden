@@ -1,0 +1,184 @@
+<!-- document overview:root -->
+# Infrastructure documentation
+
+## Contents
+
+- VLANs
+- IP allocation
+- Services
+- web01
+- db01
+- web01
+
+## Generated
+
+Generated at 2025-01-02T03:04:05Z from k8s, netbox.
+
+<!-- document overview:vlans -->
+# VLANs
+
+## VLANs
+
+| VLAN | Network | Prefix | Hosts | Source |
+| --- | --- | --- | --- | --- |
+| 10 | servers | 10.0.10.0/24 | 2 | netbox |
+| 20 | databases | 10.0.20.0/24 | 1 | netbox |
+| - | management | 192.0.2.0/24 | 0 | netbox |
+
+## Generated
+
+Generated at 2025-01-02T03:04:05Z from netbox.
+
+<!-- document overview:ip-allocation -->
+# IP allocation
+
+## IP allocation
+
+| IP address | Owner | Kind | Network | Source |
+| --- | --- | --- | --- | --- |
+| 10.0.10.5 | web01 | host | servers | k8s |
+| 10.0.10.5 | web01 | host | servers | netbox |
+| 10.0.10.6 | web01 | host | servers | netbox |
+| 10.0.20.5 | db01 | host | databases | netbox |
+| 10.96.0.10 | shop | service | - | k8s |
+| 192.0.2.10 | shop-vip | ipaddress | management | netbox |
+
+## Generated
+
+Generated at 2025-01-02T03:04:05Z from k8s, netbox.
+
+<!-- document overview:services -->
+# Services
+
+## Services
+
+| Service | Runs on | Addresses | Source |
+| --- | --- | --- | --- |
+| cache | db01 | - | k8s |
+| shop | web01 | 10.96.0.10 | k8s |
+
+## Generated
+
+Generated at 2025-01-02T03:04:05Z from k8s.
+
+<!-- document k8s:host:web01 -->
+# web01
+
+## Summary
+
+- Hostname: web01
+- IP addresses: 10.0.10.5
+- Source: k8s
+
+## Network
+
+| IP address | Network | VLAN |
+| --- | --- | --- |
+| 10.0.10.5 | servers | 10 |
+
+## Runs here
+
+Nothing is known to run here.
+
+## Depends on
+
+No dependencies are known.
+
+## Needed by
+
+Nothing is known to depend on this host.
+
+## Links
+
+- Same machine in netbox: web01 (https://netbox.example.com/dcim/devices/1/)
+
+## Generated
+
+Generated at 2025-01-02T03:04:05Z from k8s, netbox.
+
+<!-- document netbox:host:db01 -->
+# db01
+
+## Summary
+
+- Hostname: db01
+- FQDN: db01.example.com
+- IP addresses: 10.0.20.5
+- Source: netbox
+
+## Network
+
+| IP address | Network | VLAN |
+| --- | --- | --- |
+| 10.0.20.5 | databases | 20 |
+
+## Runs here
+
+| Name | Kind | Addresses | Source |
+| --- | --- | --- | --- |
+| cache | service | - | k8s |
+
+## Depends on
+
+No dependencies are known.
+
+## Needed by
+
+| Name | Kind | Addresses | Source |
+| --- | --- | --- | --- |
+| shop | service | 10.96.0.10 | k8s |
+| web01 | host | 10.0.10.5, 10.0.10.6 | netbox |
+
+## Links
+
+No links are known.
+
+## Generated
+
+Generated at 2025-01-02T03:04:05Z from netbox.
+
+<!-- document netbox:host:web01 -->
+# web01
+
+## Summary
+
+- Hostname: web01
+- FQDN: web01.example.com
+- Aliases: shop-front, www
+- IP addresses: 10.0.10.5, 10.0.10.6
+- Role: web server
+- Description: Front-end | web tier second line
+- Source: netbox
+
+## Network
+
+| IP address | Network | VLAN |
+| --- | --- | --- |
+| 10.0.10.5 | servers | 10 |
+| 10.0.10.6 | servers | 10 |
+
+## Runs here
+
+| Name | Kind | Addresses | Source |
+| --- | --- | --- | --- |
+| shop | service | 10.96.0.10 | k8s |
+
+## Depends on
+
+| Name | Kind | Addresses | Source |
+| --- | --- | --- | --- |
+| db01 | host | 10.0.20.5 | netbox |
+
+## Needed by
+
+Nothing is known to depend on this host.
+
+## Links
+
+- Source record (netbox): https://netbox.example.com/dcim/devices/1/
+- Same machine in k8s: web01
+
+## Generated
+
+Generated at 2025-01-02T03:04:05Z from k8s, netbox.
+
