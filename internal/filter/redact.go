@@ -92,10 +92,10 @@ func (r *Redactor) Text(s string) string {
 // secretKey reports whether a value stored under key must be redacted
 // regardless of its content.
 func (r *Redactor) secretKey(key string) bool {
-	if containsAuth(key) {
+	if !isASCII(key) || containsAuth(key) {
 		return true
 	}
-	lower := strings.ToLower(key)
+	lower := asciiLower(key)
 	for _, prefix := range alwaysRedactedPrefixes {
 		if strings.HasPrefix(lower, prefix) {
 			return true
@@ -144,12 +144,37 @@ func (r *Redactor) scrub(in map[string]string) map[string]string {
 	return out
 }
 
+// isASCII reports whether every byte of key is below utf8.RuneSelf.
+func isASCII(key string) bool {
+	for i := 0; i < len(key); i++ {
+		if key[i] >= 0x80 {
+			return false
+		}
+	}
+	return true
+}
+
+// asciiLower folds only A-Z, so the result has the same length as key and
+// byte offsets stay valid for both strings.
+func asciiLower(key string) string {
+	b := []byte(key)
+	for i, c := range b {
+		if isUpper(c) {
+			b[i] = c + ('a' - 'A')
+		}
+	}
+	return string(b)
+}
+
 // containsAuth fails closed: "auth" anywhere in key (oauth, basicauth, authKey,
-// proxyAuth, authn, ...) marks it secret. Only an occurrence that is a whole
-// benign word is exempt: it must start at a word boundary (key start,
-// separator, digit or camelCase hump) and end at one.
+// proxyAuth, authn, ...) marks it secret, and so does any "authoriz" / "authoris"
+// spelling. Only an occurrence that is a whole benign word is exempt: it must
+// start and end at a word boundary. key must be ASCII.
 func containsAuth(key string) bool {
-	lower := strings.ToLower(key)
+	lower := asciiLower(key)
+	if strings.Contains(lower, "authoriz") || strings.Contains(lower, "authoris") {
+		return true
+	}
 	for from := 0; ; {
 		i := strings.Index(lower[from:], "auth")
 		if i < 0 {
@@ -164,7 +189,7 @@ func containsAuth(key string) bool {
 }
 
 func isBenignAuthWord(key, lower string, start int) bool {
-	if start > 0 && !startsWord(key, start) {
+	if !startsWord(key, start) {
 		return false
 	}
 	for _, word := range benignAuthWords {
@@ -177,16 +202,24 @@ func isBenignAuthWord(key, lower string, start int) bool {
 
 func isLetter(b byte) bool { return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' }
 func isUpper(b byte) bool  { return b >= 'A' && b <= 'Z' }
+func isLower(b byte) bool  { return b >= 'a' && b <= 'z' }
 
-// startsWord reports whether a word begins at i: the previous byte is no
-// letter, or i is an upper-case letter following a lower-case one.
+// startsWord reports whether a word begins at i: start of key, a non-letter
+// before it, or an upper-case letter directly after a lower-case one. A run of
+// capitals is never split, so AUTHORKEY is one word.
 func startsWord(key string, i int) bool {
+	if i == 0 {
+		return true
+	}
 	prev := key[i-1]
-	return !isLetter(prev) || (isUpper(key[i]) && !isUpper(prev))
+	return !isLetter(prev) || (isUpper(key[i]) && isLower(prev))
 }
 
-// endsWord reports whether a word ends before index i: end of key, a non-letter
-// or an upper-case hump.
+// endsWord reports whether a word ends before index i: end of key, a non-letter,
+// or an upper-case letter directly after a lower-case one (camelCase hump).
 func endsWord(key string, i int) bool {
-	return i >= len(key) || !isLetter(key[i]) || isUpper(key[i])
+	if i >= len(key) {
+		return true
+	}
+	return !isLetter(key[i]) || (isUpper(key[i]) && isLower(key[i-1]))
 }
