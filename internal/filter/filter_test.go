@@ -113,6 +113,103 @@ func TestRedactorText(t *testing.T) {
 	})
 }
 
+func TestRedactorTextQuotedKeys(t *testing.T) {
+	r, err := NewRedactor(RedactConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, in := range map[string]string{
+		"json":         `{"password": "` + fakePassword + `"}`,
+		"json compact": `{"db":{"token":"` + fakePassword + `"}}`,
+		"single quote": `{'token': '` + fakePassword + `'}`,
+		"yaml quoted":  `"api_key": ` + fakePassword,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := r.Text(in); strings.Contains(got, fakePassword) {
+				t.Fatalf("secret survived: %q", got)
+			}
+		})
+	}
+}
+
+func TestRedactorSecretKeys(t *testing.T) {
+	r, err := NewRedactor(RedactConfig{SecretKeys: []string{`^internal-.*`}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		key  string
+		want bool
+	}{
+		{"annotation.example.com/token", true},
+		{"annotation.example.com/auth", true},
+		{"annotation.example.com/auth-token", true},
+		{"annotation.nginx.ingress/auth-secret", true},
+		{"annotation.example.com/Authorization", true},
+		{"annotation.kubectl.kubernetes.io/last-applied-configuration", true},
+		{"env.ANYTHING", true},
+		{"internal-notes", true},
+		{"annotation.author", false},
+		{"annotation.authors", false},
+		{"annotation.example.com/authority", false},
+		{"annotation.example.com/owner", false},
+		{"description", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.key, func(t *testing.T) {
+			if got := r.secretKey(tt.key); got != tt.want {
+				t.Fatalf("secretKey(%q) = %v, want %v", tt.key, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestApplyIsTheRedactionEntryPoint pins the pipeline contract: every entity
+// that leaves Apply has gone through the redactor, even when no rule is
+// configured. Sink-level tests for renderers and sinks build on this.
+func TestApplyIsTheRedactionEntryPoint(t *testing.T) {
+	f, err := New(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := model.NewGraph()
+	e := entity(t, "k8s", model.KindWorkload, "api", nil,
+		map[string]string{"env.TOKEN": fakeEnv, "note": "password=" + fakePassword})
+	if err := g.AddEntity(e); err != nil {
+		t.Fatal(err)
+	}
+	out, err := f.Apply(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := out.Entity(e.ID)
+	for k, v := range got.Attrs {
+		if strings.Contains(v, fakeEnv) || strings.Contains(v, fakePassword) {
+			t.Errorf("attr %q leaked: %q", k, v)
+		}
+	}
+}
+
+func TestMatchValidate(t *testing.T) {
+	tests := []struct {
+		name    string
+		match   Match
+		wantErr bool
+	}{
+		{"valid", Match{Kinds: []string{"host"}, Labels: map[string]string{"a": "b*"}}, false},
+		{"empty", Match{}, true},
+		{"bad kind glob", Match{Kinds: []string{"[x"}}, true},
+		{"bad label glob", Match{Labels: map[string]string{"a": "[x"}}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := tt.match.Validate(); (err != nil) != tt.wantErr {
+				t.Fatalf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestNewRejectsInvalidPatterns(t *testing.T) {
 	for name, cfg := range map[string]RedactConfig{
 		"deny pattern": {DenyPatterns: []string{"("}},
@@ -148,14 +245,14 @@ func seededGraph(t *testing.T) *model.Graph {
 	api := add(entity(t, "k8s", model.KindWorkload, "api",
 		map[string]string{LabelNamespace: "team-a"},
 		map[string]string{
-			"env.DB_HOST":                     fakeEnv,
-			"env.PLAIN":                       fakeEnv,
-			"secret.password":                 fakeSecret,
-			"secretdata.tls.key":              fakeSecret,
-			"annotation.example.com/token":    fakeAnnot,
-			"annotation.example.com/owner":    "team-a",
-			"annotation.note":                 "contact; secret: " + fakePassword,
-			"annotation.kubectl/last-applied": "{\"x\":\"" + fakeCustom + "\"}",
+			"env.DB_HOST":                  fakeEnv,
+			"env.PLAIN":                    fakeEnv,
+			"secret.password":              fakeSecret,
+			"secretdata.tls.key":           fakeSecret,
+			"annotation.example.com/token": fakeAnnot,
+			"annotation.example.com/owner": "team-a",
+			"annotation.note":              "contact; secret: " + fakePassword,
+			"annotation.kubectl.kubernetes.io/last-applied-configuration": "{\"x\":\"harmless\"}",
 		}))
 	kube := add(entity(t, "k8s", model.KindNamespace, "kube-system", nil, nil))
 

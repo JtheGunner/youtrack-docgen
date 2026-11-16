@@ -17,10 +17,14 @@ const Placeholder = "[REDACTED]"
 // and are redacted when their key looks secret.
 var alwaysRedactedPrefixes = []string{"env.", "secret.", "secretdata."}
 
+// alwaysRedactedKeyParts mark attributes that embed whole manifests, such as the
+// kubectl last-applied annotation, which can contain Secret data or env values.
+var alwaysRedactedKeyParts = []string{"last-applied-configuration"}
+
 // Built-in patterns. The text patterns apply to every free-text value; the key
 // pattern decides which attributes, labels and annotations are secret by name.
 var (
-	defaultKeyPattern = regexp.MustCompile(`(?i)(password|passwd|secret|token|api[_-]?key|private[_-]?key|credential|auth)`)
+	defaultKeyPattern = regexp.MustCompile(`(?i)(password|passwd|secret|token|api[_-]?key|private[_-]?key|credential)|(^|[^a-z0-9])auth(orization)?([^a-z0-9]|$)`)
 
 	defaultTextPatterns = []*regexp.Regexp{
 		regexp.MustCompile(`(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(-----END [A-Z ]*PRIVATE KEY-----|$)`),
@@ -29,7 +33,7 @@ var (
 		regexp.MustCompile(`\b(AKIA|ASIA)[A-Z0-9]{16}\b`),
 		regexp.MustCompile(`\b(glpat|ghp|gho|ghs|xox[abp])[-_][A-Za-z0-9_-]{10,}`),
 		regexp.MustCompile(`\bperm:[A-Za-z0-9._=-]{10,}`),
-		regexp.MustCompile(`(?i)\b[\w.-]*(password|passwd|secret|token|api[_-]?key|private[_-]?key)[\w.-]*\s*[=:]\s*("[^"]*"|'[^']*'|\S+)`),
+		regexp.MustCompile(`(?i)["']?\b[\w.-]*(password|passwd|secret|token|api[_-]?key|private[_-]?key)[\w.-]*["']?\s*[=:]\s*("[^"]*"|'[^']*'|\S+)`),
 	}
 )
 
@@ -86,6 +90,11 @@ func (r *Redactor) secretKey(key string) bool {
 	lower := strings.ToLower(key)
 	for _, prefix := range alwaysRedactedPrefixes {
 		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+	for _, part := range alwaysRedactedKeyParts {
+		if strings.Contains(lower, part) {
 			return true
 		}
 	}

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/JtheGunner/youtrackt-docgen/internal/model"
 )
 
 const validYAML = `
@@ -19,9 +21,11 @@ collectors:
     url: https://netbox.example.com
     token: ${NETBOX_TOKEN}
     allow:
-      tags: [documented]
+      - tags: [documented]
     deny:
-      roles: [lab, test]
+      - roles: [lab, test]
+      - kinds: [host]
+        tenants: [lab]
   kubernetes:
     paths: [./kubernetes-config, ./gitops]
 sinks:
@@ -62,10 +66,10 @@ func TestParseValid(t *testing.T) {
 	if nb.URL != "https://netbox.example.com" || nb.Token.Reveal() != "fake-netbox-token" {
 		t.Errorf("netbox = %+v", nb)
 	}
-	if got := nb.Allow["tags"]; len(got) != 1 || got[0] != "documented" {
+	if len(nb.Allow) != 1 || len(nb.Allow[0].Tags) != 1 || nb.Allow[0].Tags[0] != "documented" {
 		t.Errorf("netbox allow = %v", nb.Allow)
 	}
-	if got := nb.Deny["roles"]; len(got) != 2 {
+	if len(nb.Deny) != 2 || len(nb.Deny[0].Roles) != 2 || nb.Deny[1].Tenants[0] != "lab" {
 		t.Errorf("netbox deny = %v", nb.Deny)
 	}
 	if !nb.IsEnabled() {
@@ -90,6 +94,42 @@ func TestParseDoesNotLeakSecretsWhenFormatted(t *testing.T) {
 				t.Errorf("formatted config leaks %q", secret)
 			}
 		}
+	}
+}
+
+func TestConfigFilterAppliesRulesAndRedaction(t *testing.T) {
+	yamlText := validYAML + "redact:\n  deny_patterns: ['CORP-[A-Z]+-[0-9]+']\n"
+	cfg, err := Parse([]byte(yamlText), envMap(fullEnv))
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	f, err := cfg.Filter()
+	if err != nil {
+		t.Fatalf("Filter() error = %v", err)
+	}
+
+	g := model.NewGraph()
+	for _, e := range []model.Entity{
+		{ID: "netbox:host:web01", Kind: model.KindHost, Name: "web01", Source: "netbox",
+			Labels: map[string]string{"tag": "documented"}, Attrs: map[string]string{"note": "see CORP-FAKE-42"}},
+		{ID: "netbox:host:lab01", Kind: model.KindHost, Name: "lab01", Source: "netbox",
+			Labels: map[string]string{"tag": "documented", "role": "lab"}},
+		{ID: "netbox:host:untagged", Kind: model.KindHost, Name: "untagged", Source: "netbox"},
+	} {
+		if err := g.AddEntity(e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, err := f.Apply(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hosts := out.ByKind(model.KindHost)
+	if len(hosts) != 1 || hosts[0].Name != "web01" {
+		t.Fatalf("hosts = %+v, want only web01", hosts)
+	}
+	if got := hosts[0].Attrs["note"]; strings.Contains(got, "CORP-FAKE-42") {
+		t.Errorf("configured deny pattern not applied: %q", got)
 	}
 }
 
@@ -218,7 +258,7 @@ func TestParseInvalid(t *testing.T) {
 		},
 		{
 			name: "typo in a built-in module setting",
-			yaml: strings.Replace(validYAML, "    allow:\n      tags: [documented]", "    alow:\n      tags: [documented]", 1), env: fullEnv,
+			yaml: strings.Replace(validYAML, "    allow:\n      - tags: [documented]", "    alow:\n      - tags: [documented]", 1), env: fullEnv,
 			want: []string{`collectors.netbox: unknown setting "alow"`},
 		},
 		{
@@ -270,12 +310,22 @@ func TestParseInvalid(t *testing.T) {
 			want: []string{`collectors."Net Box": invalid module name`},
 		},
 		{
-			name: "empty filter list",
-			yaml: strings.Replace(validYAML, "tags: [documented]", "tags: []", 1), env: fullEnv,
-			want: []string{"collectors.netbox.allow.tags: must not be empty"},
+			name: "empty match",
+			yaml: strings.Replace(validYAML, "- tags: [documented]", "- tags: []", 1), env: fullEnv,
+			want: []string{"collectors.netbox.allow[0]: match has no criteria"},
 		},
 		{
-			name: "filter is not a map of lists",
+			name: "malformed glob in match",
+			yaml: strings.Replace(validYAML, "tags: [documented]", "tags: ['[doc']", 1), env: fullEnv,
+			want: []string{`collectors.netbox.allow[0]: invalid pattern "[doc"`},
+		},
+		{
+			name: "invalid redact deny pattern",
+			yaml: validYAML + "redact:\n  deny_patterns: ['(']\n", env: fullEnv,
+			want: []string{"redact: filter: invalid deny pattern"},
+		},
+		{
+			name: "filter is not a list of matches",
 			yaml: strings.Replace(validYAML, "tags: [documented]", "tags: documented", 1), env: fullEnv,
 			want: []string{"cannot unmarshal"},
 		},
@@ -338,7 +388,7 @@ collectors:
     url: https://netbox.example.com
     token: ${NETBOX_TOKEN}
     allow:
-      tags: ${NETBOX_TOKEN}
+      - tags: ${NETBOX_TOKEN}
 sinks:
   markdown:
     dir: ./out

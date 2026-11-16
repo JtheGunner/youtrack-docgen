@@ -1,6 +1,8 @@
 package filter
 
 import (
+	"errors"
+	"fmt"
 	"path"
 	"slices"
 	"strings"
@@ -32,6 +34,24 @@ type Match struct {
 func (m Match) isEmpty() bool {
 	return len(m.Kinds) == 0 && len(m.Tags) == 0 && len(m.Roles) == 0 &&
 		len(m.Tenants) == 0 && len(m.Namespaces) == 0 && len(m.Labels) == 0
+}
+
+// Validate reports an empty Match or a malformed glob, so a bad rule fails at
+// load time instead of silently never matching.
+func (m Match) Validate() error {
+	if m.isEmpty() {
+		return errors.New("match has no criteria")
+	}
+	patterns := slices.Concat(m.Kinds, m.Tags, m.Roles, m.Tenants, m.Namespaces)
+	for _, p := range m.Labels {
+		patterns = append(patterns, p)
+	}
+	for _, p := range patterns {
+		if _, err := path.Match(p, ""); err != nil {
+			return fmt.Errorf("invalid pattern %q: %w", p, err)
+		}
+	}
+	return nil
 }
 
 // matches reports whether e satisfies every populated field.

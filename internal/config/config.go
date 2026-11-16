@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/JtheGunner/youtrackt-docgen/internal/filter"
 )
 
 // Config is the parsed and validated docgen.yaml.
@@ -18,6 +20,8 @@ type Config struct {
 	YouTrack YouTrack `yaml:"youtrack"`
 	// Collectors maps a module name to its configuration.
 	Collectors map[string]Module `yaml:"collectors"`
+	// Redact tunes secret redaction on top of the built-in patterns.
+	Redact filter.RedactConfig `yaml:"redact"`
 	// Sinks maps a module name to its configuration.
 	Sinks map[string]Module `yaml:"sinks"`
 }
@@ -36,16 +40,26 @@ type Module struct {
 	Enabled *bool  `yaml:"enabled"`
 	URL     string `yaml:"url"`
 	Token   Secret `yaml:"token"`
-	// Allow and Deny map a filter dimension (tags, roles, namespaces, ...) to
-	// the values to keep or drop.
-	Allow Filter `yaml:"allow"`
-	Deny  Filter `yaml:"deny"`
+	// Allow and Deny are allow/deny rules for the entities of a collector; see
+	// filter.Match. Only collectors use them.
+	Allow []filter.Match `yaml:"allow"`
+	Deny  []filter.Match `yaml:"deny"`
 	// Settings holds the module-specific keys.
 	Settings map[string]any `yaml:",inline"`
 }
 
-// Filter maps a filter dimension to its values.
-type Filter map[string][]string
+// Filter builds the pipeline filter from the per-collector rules and the
+// redaction settings. Rules are keyed by collector name, which must equal the
+// source of the entities the collector emits.
+func (c *Config) Filter() (*filter.Filter, error) {
+	cfg := filter.Config{Collectors: map[string]filter.Rules{}, Redact: c.Redact}
+	for name, m := range c.Collectors {
+		if m.IsEnabled() {
+			cfg.Collectors[name] = filter.Rules{Allow: m.Allow, Deny: m.Deny}
+		}
+	}
+	return filter.New(cfg)
+}
 
 // IsEnabled reports whether the module is active.
 func (m Module) IsEnabled() bool { return m.Enabled == nil || *m.Enabled }
