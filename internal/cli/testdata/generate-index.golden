@@ -1,0 +1,25 @@
+# Infrastructure documentation
+
+## Contents
+
+- VLANs
+- IP allocation
+- Services
+- device-3
+- srv01.example.com
+- sw01.example.com
+- vm01.example.com
+
+## Generated
+
+Generated at 2026-01-02T03:04:05Z from netbox.
+
+## Pages
+
+- [VLANs](overview-vlans.md)
+- [IP allocation](overview-ip-allocation.md)
+- [Services](overview-services.md)
+- [device-3](netbox-host-device-3.md)
+- [srv01.example.com](netbox-host-srv01-example-com.md)
+- [sw01.example.com](netbox-host-sw01-example-com.md)
+- [vm01.example.com](netbox-host-vm01-example-com.md)

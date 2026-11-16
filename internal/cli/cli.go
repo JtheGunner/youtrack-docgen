@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -16,6 +17,10 @@ const defaultConfigPath = "docgen.yaml"
 // NewRootCmd builds the command tree. Output goes to stdout and stderr so
 // tests can capture it.
 func NewRootCmd(stdout, stderr io.Writer) *cobra.Command {
+	return newRootCmd(stdout, stderr, time.Now)
+}
+
+func newRootCmd(stdout, stderr io.Writer, now func() time.Time) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "youtrack-docgen",
 		Short:         "Generate infrastructure documentation for the YouTrack Knowledge Base",
@@ -24,7 +29,7 @@ func NewRootCmd(stdout, stderr io.Writer) *cobra.Command {
 	}
 	root.SetOut(stdout)
 	root.SetErr(stderr)
-	root.AddCommand(newValidateConfigCmd())
+	root.AddCommand(newValidateConfigCmd(), newGenerateCmd(now))
 	return root
 }
 

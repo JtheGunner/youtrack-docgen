@@ -1,0 +1,32 @@
+# device-3
+
+## Summary
+
+- Hostname: device-3
+- Role: server
+- Description: login with \[REDACTED\]
+- Source: netbox
+
+## Network
+
+No IP addresses are known.
+
+## Runs here
+
+Nothing is known to run here.
+
+## Depends on
+
+No dependencies are known.
+
+## Needed by
+
+Nothing is known to depend on this host.
+
+## Links
+
+No links are known.
+
+## Generated
+
+Generated at 2026-01-02T03:04:05Z from netbox.

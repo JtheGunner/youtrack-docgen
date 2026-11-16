@@ -1,0 +1,36 @@
+# srv01.example.com
+
+## Summary
+
+- Hostname: srv01.example.com
+- Aliases: web.example.com
+- IP addresses: 192.0.2.10
+- Role: server
+- Description: login with \[REDACTED\]
+- Source: netbox
+
+## Network
+
+| IP address | Network | VLAN |
+| --- | --- | --- |
+| 192.0.2.10 | - | - |
+
+## Runs here
+
+Nothing is known to run here.
+
+## Depends on
+
+No dependencies are known.
+
+## Needed by
+
+Nothing is known to depend on this host.
+
+## Links
+
+No links are known.
+
+## Generated
+
+Generated at 2026-01-02T03:04:05Z from netbox.

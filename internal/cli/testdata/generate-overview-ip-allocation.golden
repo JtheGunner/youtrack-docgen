@@ -1,0 +1,19 @@
+# IP allocation
+
+## IP allocation
+
+| IP address | Owner | Kind | Network | Source |
+| --- | --- | --- | --- | --- |
+| 10.0.5.1 | 10.0.5.1/24 | ipaddress | - | netbox |
+| 192.0.2.10 | srv01.example.com | host | - | netbox |
+| 192.0.2.10 | srv01.example.com eth0 | interface | - | netbox |
+| 192.0.2.10 | 192.0.2.10/24 | ipaddress | - | netbox |
+| 192.0.2.10 | 192.0.2.10/24 | ipaddress | - | netbox |
+| 192.0.2.20 | vm01.example.com | host | - | netbox |
+| 192.0.2.20 | vm01.example.com ens3 | interface | - | netbox |
+| 192.0.2.20 | 192.0.2.20/24 | ipaddress | - | netbox |
+| 2001:db8::10 | 2001:db8::10/64 | ipaddress | - | netbox |
+
+## Generated
+
+Generated at 2026-01-02T03:04:05Z from netbox.
