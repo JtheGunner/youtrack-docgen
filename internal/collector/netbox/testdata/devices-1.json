@@ -2,6 +2,7 @@
   {"id": 1, "name": "sw01.example.com", "site": {"id": 1, "name": "Example HQ", "slug": "example-hq"},
    "role": {"id": 1, "name": "Core Switch", "slug": "core-switch"}, "status": {"value": "active"},
    "device_type": {"model": "EX-1000"}, "primary_ip4": null, "primary_ip6": null,
+   "tenant": {"id": 1, "name": "Example Corp", "slug": "example-corp"},
    "description": "", "tags": []},
   {"id": 2, "name": "srv01.example.com", "site": {"id": 1, "name": "Example HQ", "slug": "example-hq"},
    "device_role": {"id": 2, "name": "Server", "slug": "server"}, "status": {"value": "active"},

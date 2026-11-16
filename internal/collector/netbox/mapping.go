@@ -113,6 +113,7 @@ func (b *builder) addSites(sites []site) error {
 			setAttr(e, "region", s.Region.Name)
 		}
 		setTags(e, s.Tags)
+		setTenant(e, s.Tenant)
 		b.sites[s.ID] = e.ID
 	}
 	return nil
@@ -132,6 +133,7 @@ func (b *builder) addVLANs(vlans []vlan) error {
 		setAttr(e, "vlan_id", strconv.Itoa(v.VID))
 		setAttr(e, "status", v.Status.Value)
 		setTags(e, v.Tags)
+		setTenant(e, v.Tenant)
 		b.vlans[v.ID] = e.ID
 		if v.Site != nil {
 			b.relateIf(e.ID, b.sites, v.Site.ID, model.RelMemberOf)
@@ -157,6 +159,7 @@ func (b *builder) addPrefixes(prefixes []prefix) error {
 			e.Labels["role"] = firstNonEmpty(p.Role.Slug, p.Role.Name)
 		}
 		setTags(e, p.Tags)
+		setTenant(e, p.Tenant)
 		if p.Site != nil {
 			b.relateIf(e.ID, b.sites, p.Site.ID, model.RelMemberOf)
 		}
@@ -204,6 +207,7 @@ func (b *builder) addMachines(ms []machine, family string) error {
 			e.Labels["role"] = firstNonEmpty(role.Slug, role.Name)
 		}
 		setTags(e, m.Tags)
+		setTenant(e, m.Tenant)
 		b.hosts[objRef{family, m.ID}] = e.ID
 		if m.Site != nil {
 			b.relateIf(e.ID, b.sites, m.Site.ID, model.RelMemberOf)
@@ -274,6 +278,7 @@ func (b *builder) addIPs(ips []ipAddress, prefixes []prefix) error {
 			setAttr(e, "vrf", ip.VRF.Name)
 		}
 		setTags(e, ip.Tags)
+		setTenant(e, ip.Tenant)
 		e.Addresses = []netip.Addr{addr.Addr()}
 		if ip.DNSName != "" {
 			e.Aliases = []string{ip.DNSName}
@@ -389,6 +394,12 @@ func setAttr(e *model.Entity, k, v string) {
 
 func setTags(e *model.Entity, tags []tag) {
 	for _, t := range tags {
-		e.Labels["tag."+t.Slug] = "true"
+		e.Labels[model.LabelTagPrefix+t.Slug] = "true"
+	}
+}
+
+func setTenant(e *model.Entity, tenant *ref) {
+	if tenant != nil {
+		e.Labels[model.LabelTenant] = firstNonEmpty(tenant.Slug, tenant.Name)
 	}
 }

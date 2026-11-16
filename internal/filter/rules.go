@@ -12,10 +12,10 @@ import (
 
 // Label keys that collectors use for the well-known match dimensions.
 const (
-	LabelTag       = "tag"       // comma-separated list of tags
-	LabelRole      = "role"      // device or service role
-	LabelTenant    = "tenant"    // owning tenant
-	LabelNamespace = "namespace" // Kubernetes namespace
+	LabelTagPrefix = model.LabelTagPrefix // one "tag.<slug>" label per tag
+	LabelRole      = "role"               // device or service role
+	LabelTenant    = model.LabelTenant    // owning tenant
+	LabelNamespace = "namespace"          // Kubernetes namespace
 )
 
 // Match selects entities. Every populated field must match (AND); the values
@@ -62,7 +62,7 @@ func (m Match) matches(e model.Entity) bool {
 	if len(m.Kinds) > 0 && !anyGlob(m.Kinds, string(e.Kind)) {
 		return false
 	}
-	if len(m.Tags) > 0 && !anyGlob(m.Tags, splitList(e.Labels[LabelTag])...) {
+	if len(m.Tags) > 0 && !anyGlob(m.Tags, tagsOf(e)...) {
 		return false
 	}
 	if len(m.Roles) > 0 && !anyGlob(m.Roles, e.Labels[LabelRole]) {
@@ -127,12 +127,13 @@ func globMatch(pattern, value string) bool {
 	return err == nil && ok
 }
 
-func splitList(s string) []string {
-	var out []string
-	for _, part := range strings.Split(s, ",") {
-		if part = strings.TrimSpace(part); part != "" {
-			out = append(out, part)
+// tagsOf returns the tag slugs of e, taken from its "tag.<slug>" labels.
+func tagsOf(e model.Entity) []string {
+	var tags []string
+	for key := range e.Labels {
+		if slug, ok := strings.CutPrefix(key, LabelTagPrefix); ok && slug != "" {
+			tags = append(tags, slug)
 		}
 	}
-	return out
+	return tags
 }

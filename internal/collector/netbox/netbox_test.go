@@ -116,7 +116,7 @@ func TestCollectMapsEntities(t *testing.T) {
 			map[string]string{"role": "servers"}},
 		{"netbox:network:2001_db8__/32", "2001:db8::/32", map[string]string{"cidr": "2001:db8::/32"}, nil},
 		{"netbox:host:sw01.example.com", "sw01.example.com",
-			map[string]string{"type": "device", "model": "EX-1000"}, map[string]string{"role": "core-switch"}},
+			map[string]string{"type": "device", "model": "EX-1000"}, map[string]string{"role": "core-switch", "tenant": "example-corp"}},
 		{"netbox:host:srv01.example.com", "srv01.example.com",
 			map[string]string{"primary_ip4": "192.0.2.10/24", "platform": "Linux"},
 			map[string]string{"role": "server", "tag.prod": "true"}},

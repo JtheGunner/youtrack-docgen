@@ -111,9 +111,9 @@ func TestConfigFilterAppliesRulesAndRedaction(t *testing.T) {
 	g := model.NewGraph()
 	for _, e := range []model.Entity{
 		{ID: "netbox:host:web01", Kind: model.KindHost, Name: "web01", Source: "netbox",
-			Labels: map[string]string{"tag": "documented"}, Attrs: map[string]string{"note": "see CORP-FAKE-42"}},
+			Labels: map[string]string{model.LabelTagPrefix + "documented": "true"}, Attrs: map[string]string{"note": "see CORP-FAKE-42"}},
 		{ID: "netbox:host:lab01", Kind: model.KindHost, Name: "lab01", Source: "netbox",
-			Labels: map[string]string{"tag": "documented", "role": "lab"}},
+			Labels: map[string]string{model.LabelTagPrefix + "documented": "true", "role": "lab"}},
 		{ID: "netbox:host:untagged", Kind: model.KindHost, Name: "untagged", Source: "netbox"},
 	} {
 		if err := g.AddEntity(e); err != nil {
