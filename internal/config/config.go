@@ -118,10 +118,10 @@ func Parse(data []byte, env LookupFunc) (*Config, error) {
 		var typeErr *yaml.TypeError
 		if errors.As(err, &typeErr) {
 			for _, msg := range typeErr.Errors {
-				problems = append(problems, stripLine(msg))
+				problems = append(problems, redactDecodeError(stripLine(msg)))
 			}
 		} else {
-			problems = append(problems, stripLine(err.Error()))
+			problems = append(problems, redactDecodeError(stripLine(err.Error())))
 		}
 	}
 	if len(problems) > 0 {
@@ -132,6 +132,18 @@ func Parse(data []byte, env LookupFunc) (*Config, error) {
 		return nil, &ValidationError{Problems: problems}
 	}
 	return &cfg, nil
+}
+
+// decodeValueError matches yaml.v3 type errors that quote the offending value,
+// such as "cannot unmarshal !!str `fake-se...` into []string". The decoder runs
+// after environment expansion, so that value can be (the start of) a secret.
+// Matching up to the last " into " keeps a value that itself contains a
+// backtick or " into " from slipping through.
+var decodeValueError = regexp.MustCompile("(?s)^cannot unmarshal (!!\\w+) `.*` into (.+)$")
+
+// redactDecodeError replaces a quoted value in a decoder message.
+func redactDecodeError(msg string) string {
+	return decodeValueError.ReplaceAllString(msg, "cannot unmarshal a $1 value into $2")
 }
 
 // stripLine drops YAML line numbers: they refer to the re-encoded document,

@@ -329,6 +329,55 @@ func TestParseInvalid(t *testing.T) {
 	}
 }
 
+func TestParseTypeErrorsDoNotLeakExpandedValues(t *testing.T) {
+	const secret = "fake-secret-value-123"
+	// The secret lands in a field that expects a list, so YAML reports a type error.
+	const yamlText = `
+collectors:
+  netbox:
+    url: https://netbox.example.com
+    token: ${NETBOX_TOKEN}
+    allow:
+      tags: ${NETBOX_TOKEN}
+sinks:
+  markdown:
+    dir: ./out
+`
+	_, err := Parse([]byte(yamlText), envMap(map[string]string{"NETBOX_TOKEN": secret}))
+	if err == nil {
+		t.Fatal("Parse() error = nil, want an error")
+	}
+	// YAML shortens values in type errors, so a prefix is already a leak.
+	if strings.Contains(err.Error(), secret[:6]) {
+		t.Errorf("error leaks (part of) the expanded value:\n%s", err)
+	}
+	if !strings.Contains(err.Error(), "into []string") {
+		t.Errorf("error lost the expected type:\n%s", err)
+	}
+}
+
+func TestRedactDecodeError(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "scalar into list", in: "cannot unmarshal !!str `fake-se...` into []string", want: "cannot unmarshal a !!str value into []string"},
+		{name: "scalar into bool", in: "cannot unmarshal !!str `maybe` into bool", want: "cannot unmarshal a !!str value into bool"},
+		{name: "value with backtick", in: "cannot unmarshal !!str `a`b...` into []string", want: "cannot unmarshal a !!str value into []string"},
+		{name: "value containing the word into", in: "cannot unmarshal !!str `x into y` into []string", want: "cannot unmarshal a !!str value into []string"},
+		{name: "no value in message", in: "field colectors not found in type config.Config", want: "field colectors not found in type config.Config"},
+		{name: "collection into scalar", in: "cannot unmarshal !!map into string", want: "cannot unmarshal !!map into string"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := redactDecodeError(tt.in); got != tt.want {
+				t.Errorf("redactDecodeError(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestLoad(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "docgen.yaml")
 	if err := os.WriteFile(path, []byte(validYAML), 0o600); err != nil {
