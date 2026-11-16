@@ -53,7 +53,24 @@ func New(m config.Module, opts ...Option) (*Collector, error) {
 	for _, opt := range opts {
 		opt(c)
 	}
+	c.client.http = restrictRedirects(c.client.http, base)
 	return c, nil
+}
+
+// restrictRedirects returns a copy of h that follows a redirect only when it
+// stays on the configured scheme and host, so the token is never sent to
+// another host or over a downgraded scheme. It replaces any CheckRedirect the
+// caller set, and the caller's client is left unmodified.
+func restrictRedirects(h *http.Client, base *url.URL) *http.Client {
+	restricted := *h
+	restricted.CheckRedirect = func(req *http.Request, _ []*http.Request) error {
+		if req.URL.Scheme != base.Scheme || req.URL.Host != base.Host {
+			return fmt.Errorf("refusing redirect to %s://%s: only %s://%s is allowed",
+				req.URL.Scheme, req.URL.Host, base.Scheme, base.Host)
+		}
+		return nil
+	}
+	return &restricted
 }
 
 // Name returns the source name.

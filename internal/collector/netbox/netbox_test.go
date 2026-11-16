@@ -344,3 +344,92 @@ func TestNewValidatesConfig(t *testing.T) {
 		})
 	}
 }
+
+// redirectTarget records whether any request reached it.
+type redirectTarget struct {
+	*httptest.Server
+	mu   sync.Mutex
+	hits int
+	auth []string
+}
+
+func newRedirectTarget(t *testing.T, useTLS bool) *redirectTarget {
+	t.Helper()
+	rt := &redirectTarget{}
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rt.mu.Lock()
+		rt.hits++
+		rt.auth = append(rt.auth, r.Header.Get("Authorization"))
+		rt.mu.Unlock()
+		_, _ = w.Write([]byte(`{"results": []}`))
+	})
+	if useTLS {
+		rt.Server = httptest.NewTLSServer(h)
+	} else {
+		rt.Server = httptest.NewServer(h)
+	}
+	t.Cleanup(rt.Close)
+	return rt
+}
+
+func TestCollectRefusesRedirectsOffTheConfiguredOrigin(t *testing.T) {
+	tests := []struct {
+		name   string
+		tls    bool
+		client func(target *redirectTarget) *http.Client
+	}{
+		{"other host, default client", false, func(*redirectTarget) *http.Client { return nil }},
+		{"other scheme, default client", true, func(*redirectTarget) *http.Client { return nil }},
+		{"custom client that follows redirects", false, func(*redirectTarget) *http.Client {
+			return &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return nil }}
+		}},
+		{"custom TLS client", true, func(target *redirectTarget) *http.Client { return target.Client() }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			target := newRedirectTarget(t, tt.tls)
+			origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				http.Redirect(w, r, target.URL+r.URL.RequestURI(), http.StatusTemporaryRedirect)
+			}))
+			t.Cleanup(origin.Close)
+
+			var opts []netbox.Option
+			if hc := tt.client(target); hc != nil {
+				opts = append(opts, netbox.WithHTTPClient(hc))
+			}
+			c, err := netbox.New(config.Module{URL: origin.URL, Token: fakeToken}, opts...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = c.Collect(context.Background(), model.NewGraph())
+			if err == nil || !strings.Contains(err.Error(), "refusing redirect") {
+				t.Fatalf("error = %v, want a refused redirect", err)
+			}
+			if strings.Contains(err.Error(), fakeToken) {
+				t.Errorf("error leaks the token: %v", err)
+			}
+			target.mu.Lock()
+			defer target.mu.Unlock()
+			if target.hits != 0 {
+				t.Errorf("redirect target received %d request(s) with Authorization %q", target.hits, target.auth)
+			}
+		})
+	}
+}
+
+func TestCollectFollowsRedirectsOnTheSameOrigin(t *testing.T) {
+	f := newFakeNetBox(t)
+	f.override["/api/dcim/sites/"] = func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/moved/sites/", http.StatusTemporaryRedirect)
+	}
+	f.override["/moved/sites/"] = func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Token "+fakeToken {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		_, _ = w.Write([]byte(`{"results": []}`))
+	}
+	if _, err := collect(t, f.URL, fakeToken); err != nil {
+		t.Fatalf("same-origin redirect should be followed: %v", err)
+	}
+}
