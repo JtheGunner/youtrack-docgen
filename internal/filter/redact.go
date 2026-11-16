@@ -24,7 +24,12 @@ var alwaysRedactedKeyParts = []string{"last-applied-configuration"}
 // Built-in patterns. The text patterns apply to every free-text value; the key
 // pattern decides which attributes, labels and annotations are secret by name.
 var (
-	defaultKeyPattern = regexp.MustCompile(`(?i)(password|passwd|secret|token|api[_-]?key|private[_-]?key|credential)|(^|[^a-z0-9])auth(orization)?([^a-z0-9]|$)`)
+	defaultKeyPattern = regexp.MustCompile(`(?i)(password|passwd|secret|token|api[_-]?key|private[_-]?key|credential)`)
+
+	// benignAuthWords are the only words starting with "auth" that are not
+	// credentials. Longer words come first so that "authority" is not
+	// shortened to "author".
+	benignAuthWords = []string{"authoritative", "authority", "authors", "author"}
 
 	defaultTextPatterns = []*regexp.Regexp{
 		regexp.MustCompile(`(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(-----END [A-Z ]*PRIVATE KEY-----|$)`),
@@ -87,6 +92,9 @@ func (r *Redactor) Text(s string) string {
 // secretKey reports whether a value stored under key must be redacted
 // regardless of its content.
 func (r *Redactor) secretKey(key string) bool {
+	if containsAuth(key) {
+		return true
+	}
 	lower := strings.ToLower(key)
 	for _, prefix := range alwaysRedactedPrefixes {
 		if strings.HasPrefix(lower, prefix) {
@@ -134,4 +142,51 @@ func (r *Redactor) scrub(in map[string]string) map[string]string {
 		out[k] = r.Text(v)
 	}
 	return out
+}
+
+// containsAuth fails closed: "auth" anywhere in key (oauth, basicauth, authKey,
+// proxyAuth, authn, ...) marks it secret. Only an occurrence that is a whole
+// benign word is exempt: it must start at a word boundary (key start,
+// separator, digit or camelCase hump) and end at one.
+func containsAuth(key string) bool {
+	lower := strings.ToLower(key)
+	for from := 0; ; {
+		i := strings.Index(lower[from:], "auth")
+		if i < 0 {
+			return false
+		}
+		i += from
+		if !isBenignAuthWord(key, lower, i) {
+			return true
+		}
+		from = i + len("auth")
+	}
+}
+
+func isBenignAuthWord(key, lower string, start int) bool {
+	if start > 0 && !startsWord(key, start) {
+		return false
+	}
+	for _, word := range benignAuthWords {
+		if strings.HasPrefix(lower[start:], word) && endsWord(key, start+len(word)) {
+			return true
+		}
+	}
+	return false
+}
+
+func isLetter(b byte) bool { return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' }
+func isUpper(b byte) bool  { return b >= 'A' && b <= 'Z' }
+
+// startsWord reports whether a word begins at i: the previous byte is no
+// letter, or i is an upper-case letter following a lower-case one.
+func startsWord(key string, i int) bool {
+	prev := key[i-1]
+	return !isLetter(prev) || (isUpper(key[i]) && !isUpper(prev))
+}
+
+// endsWord reports whether a word ends before index i: end of key, a non-letter
+// or an upper-case hump.
+func endsWord(key string, i int) bool {
+	return i >= len(key) || !isLetter(key[i]) || isUpper(key[i])
 }
