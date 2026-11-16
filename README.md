@@ -35,7 +35,44 @@ Collectors and sinks never depend on each other. They only share the model, so a
 
 ## 🚧 Status
 
-The project is in early development. The repository currently provides the build, lint, and test scaffolding. Collectors, renderers, and the YouTrack sink are being added step by step.
+The project is in early development. The repository currently provides the neutral model, the configuration loader with `validate-config`, and the build, lint, and test scaffolding. Collectors, renderers, and the YouTrack sink are being added step by step.
+
+---
+
+## ⚙️ Configuration
+
+The tool reads `docgen.yaml`. Every collector and sink has its own block, so each module is configured on its own.
+
+```yaml
+youtrack:                      # connection, used by the youtrack sink
+  url: https://youtrack.example.com
+  token: ${YOUTRACK_TOKEN}
+  project: INFRA
+collectors:
+  netbox:
+    url: https://netbox.example.com
+    token: ${NETBOX_TOKEN}
+    allow: { tags: [documented] }
+    deny:  { roles: [lab] }
+  kubernetes:
+    paths: [./kubernetes-config]
+sinks:
+  youtrack:
+    root_article: Infrastructure
+  markdown:
+    enabled: false             # modules can be switched off individually
+    dir: ./out
+```
+
+- **Secrets come from the environment.** `${VAR}` must be set and non-empty. `${VAR:-default}` falls back to a default, and `$$` writes a literal `$`. All missing variables are reported at once, by name and config path, never with a value.
+- **Unknown keys are errors.** Typos in the top level, in `youtrack`, and in the settings of the built-in modules (`netbox`, `kubernetes`, `youtrack`, `markdown`) are caught. Modules with another name, such as one from a private overlay, keep their own settings unchecked.
+- **A disabled module still needs its variables.** Use `${VAR:-}` for a token you do not set while the module is off.
+
+Check a config without running anything:
+
+```text
+youtrack-docgen validate-config --config docgen.yaml
+```
 
 ---
 
