@@ -90,7 +90,7 @@ Nothing is known to depend on this host.
 
 ## Links
 
-- Same machine in netbox: web01 (https://netbox.example.com/dcim/devices/1/)
+- Same machine in netbox: web01, https://netbox.example.com/dcim/devices/1/
 
 ## Generated
 
@@ -147,7 +147,7 @@ Generated at 2025-01-02T03:04:05Z from netbox.
 - Aliases: shop-front, www
 - IP addresses: 10.0.10.5, 10.0.10.6
 - Role: web server
-- Description: Front-end | web tier second line
+- Description: Front-end \| web tier second line
 - Source: netbox
 
 ## Network
@@ -175,7 +175,7 @@ Nothing is known to depend on this host.
 
 ## Links
 
-- Source record (netbox): https://netbox.example.com/dcim/devices/1/
+- Source record in netbox: https://netbox.example.com/dcim/devices/1/
 - Same machine in k8s: web01
 
 ## Generated

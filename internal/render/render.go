@@ -107,8 +107,17 @@ func safeURL(raw string) string {
 		return ""
 	}
 	u.User, u.RawQuery, u.Fragment, u.RawFragment = nil, "", "", ""
-	return u.String()
+	return urlEscaper.Replace(u.String())
 }
+
+// urlEscaper percent-encodes characters that are legal in a URL but carry
+// meaning in Markdown (notably parentheses, which end a link destination), so
+// the result is safe inside Markdown text or a link.
+var urlEscaper = strings.NewReplacer(
+	"(", "%28", ")", "%29", "[", "%5B", "]", "%5D", "<", "%3C", ">", "%3E",
+	"`", "%60", "\\", "%5C", "|", "%7C", "*", "%2A", "_", "%5F", "!", "%21",
+	"\"", "%22", "'", "%27", " ", "%20",
+)
 
 func addrStrings(addrs []netip.Addr) []string {
 	sorted := slices.SortedFunc(slices.Values(addrs), netip.Addr.Compare)

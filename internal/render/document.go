@@ -77,7 +77,7 @@ func (t Table) markdown() string {
 	writeRow := func(cells []string) {
 		b.WriteString("|")
 		for _, c := range cells {
-			b.WriteString(" " + strings.ReplaceAll(inline(c), "|", "\\|") + " |")
+			b.WriteString(" " + inline(c) + " |")
 		}
 		b.WriteString("\n")
 	}
@@ -93,8 +93,20 @@ func (t Table) markdown() string {
 	return b.String()
 }
 
-// inline collapses line breaks so a value cannot break out of its list item,
-// table cell or heading.
+// inlineEscaper neutralizes HTML and Markdown metacharacters. Dots, hyphens,
+// colons and slashes stay untouched so hostnames, FQDNs and IPs remain
+// readable and searchable as plain text. The HTML characters are entity
+// encoded (a backslash does not stop raw HTML); the rest is backslash-escaped.
+var inlineEscaper = strings.NewReplacer(
+	"&", "&amp;", "<", "&lt;", ">", "&gt;",
+	"\\", "\\\\", "`", "\\`", "*", "\\*", "_", "\\_",
+	"[", "\\[", "]", "\\]", "(", "\\(", ")", "\\)",
+	"#", "\\#", "|", "\\|", "!", "\\!",
+)
+
+// inline makes untrusted text safe to embed in a list item, table cell or
+// heading: line breaks collapse so a value cannot start a new block, and
+// Markdown and HTML metacharacters are escaped.
 func inline(s string) string {
-	return strings.Join(strings.Fields(s), " ")
+	return inlineEscaper.Replace(strings.Join(strings.Fields(s), " "))
 }

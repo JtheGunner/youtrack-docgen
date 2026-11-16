@@ -126,12 +126,12 @@ func entityTable(entities []model.Entity, empty string) Block {
 func hostLinks(h model.Entity, sameAs []model.Entity) Block {
 	var items List
 	if u := safeURL(h.Attrs["url"]); u != "" {
-		items = append(items, "Source record ("+h.Source+"): "+u)
+		items = append(items, "Source record in "+h.Source+": "+u)
 	}
 	for _, e := range sameAs {
 		line := "Same machine in " + e.Source + ": " + e.Name
 		if u := safeURL(e.Attrs["url"]); u != "" {
-			line += " (" + u + ")"
+			line += ", " + u
 		}
 		items = append(items, line)
 	}
