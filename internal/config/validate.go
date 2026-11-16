@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"regexp"
 	"slices"
+
+	"github.com/JtheGunner/youtrackt-docgen/internal/filter"
 )
 
 var moduleName = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
@@ -45,6 +47,10 @@ func (c *Config) validate() []string {
 		problems = append(problems, c.validateYouTrack()...)
 	} else if c.YouTrack.URL != "" && !validURL(c.YouTrack.URL) {
 		problems = append(problems, "youtrack.url: "+urlHint)
+	}
+
+	if _, err := filter.NewRedactor(c.Redact); err != nil {
+		problems = append(problems, "redact: "+err.Error())
 	}
 
 	problems = append(problems, validateModules("collectors", c.Collectors, collectorSpecs)...)
@@ -94,8 +100,8 @@ func validateModules(section string, modules map[string]Module, specs map[string
 		if m.URL != "" && !validURL(m.URL) {
 			problems = append(problems, path+".url: "+urlHint)
 		}
-		problems = append(problems, validateFilter(path+".allow", m.Allow)...)
-		problems = append(problems, validateFilter(path+".deny", m.Deny)...)
+		problems = append(problems, validateMatches(path+".allow", m.Allow)...)
+		problems = append(problems, validateMatches(path+".deny", m.Deny)...)
 		if spec, builtin := specs[name]; builtin {
 			problems = append(problems, validateBuiltin(path, m, spec)...)
 		}
@@ -103,11 +109,11 @@ func validateModules(section string, modules map[string]Module, specs map[string
 	return problems
 }
 
-func validateFilter(path string, f Filter) []string {
+func validateMatches(path string, matches []filter.Match) []string {
 	var problems []string
-	for _, dim := range slices.Sorted(maps.Keys(f)) {
-		if len(f[dim]) == 0 {
-			problems = append(problems, fmt.Sprintf("%s.%s: must not be empty", path, dim))
+	for i, m := range matches {
+		if err := m.Validate(); err != nil {
+			problems = append(problems, fmt.Sprintf("%s[%d]: %v", path, i, err))
 		}
 	}
 	return problems

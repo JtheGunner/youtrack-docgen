@@ -52,10 +52,13 @@ collectors:
   netbox:
     url: https://netbox.example.com
     token: ${NETBOX_TOKEN}
-    allow: { tags: [documented] }
-    deny:  { roles: [lab] }
+    allow: [{ tags: [documented] }]       # keep only entities matching one rule
+    deny:  [{ roles: [lab] }]             # drop entities matching any rule; deny wins
   kubernetes:
     paths: [./kubernetes-config]
+redact:                        # optional, adds to the built-in secret patterns
+  deny_patterns: ['CORP-[A-Z]+-\d+']   # regexes removed from free text
+  secret_keys: ['internal-.*']         # attribute/annotation keys whose value is dropped
 sinks:
   youtrack:
     root_article: Infrastructure
@@ -66,6 +69,7 @@ sinks:
 
 - **Secrets come from the environment.** `${VAR}` must be set and non-empty. `${VAR:-default}` falls back to a default, and `$$` writes a literal `$`. All missing variables are reported at once, by name and config path, never with a value.
 - **Unknown keys are errors.** Typos in the top level, in `youtrack`, and in the settings of the built-in modules (`netbox`, `kubernetes`, `youtrack`, `markdown`) are caught. Modules with another name, such as one from a private overlay, keep their own settings unchecked.
+- **Allow/deny rules** are lists. A rule can combine `kinds`, `tags`, `roles`, `tenants`, `namespaces` and `labels` (all must match); values are case-insensitive globs. An empty rule is an error.
 - **A disabled module still needs its variables.** Use `${VAR:-}` for a token you do not set while the module is off.
 
 Check a config without running anything:
