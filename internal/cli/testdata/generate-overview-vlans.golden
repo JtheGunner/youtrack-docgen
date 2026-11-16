@@ -1,0 +1,14 @@
+# VLANs
+
+## VLANs
+
+| VLAN | Network | Prefix | Hosts | Source |
+| --- | --- | --- | --- | --- |
+| - | 10.0.0.0/16 | - | 0 | netbox |
+| - | 192.0.2.0/24 | - | 0 | netbox |
+| - | 2001:db8::/32 | - | 0 | netbox |
+| - | servers | - | 0 | netbox |
+
+## Generated
+
+Generated at 2026-01-02T03:04:05Z from netbox.

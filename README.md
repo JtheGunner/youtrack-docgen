@@ -35,7 +35,7 @@ Collectors and sinks never depend on each other. They only share the model, so a
 
 ## 🚧 Status
 
-The project is in early development. The repository currently provides the neutral model, the configuration loader with `validate-config`, and the build, lint, and test scaffolding. Collectors, renderers, and the YouTrack sink are being added step by step.
+The project is in early development. The pipeline runs end to end from NetBox to a Markdown directory with `generate`. The Kubernetes collector and the YouTrack sink are being added step by step.
 
 ---
 
@@ -77,6 +77,20 @@ Check a config without running anything:
 ```text
 youtrack-docgen validate-config --config docgen.yaml
 ```
+
+---
+
+## ▶️ Generate
+
+`generate` runs the whole pipeline and writes the documentation as Markdown files, so you can review the result before anything touches YouTrack:
+
+```text
+youtrack-docgen generate --config docgen.yaml
+```
+
+- It uses every enabled collector, applies the allow/deny rules and redaction, renders the documents, and writes them with the `markdown` sink into `sinks.markdown.dir`.
+- `index.md` is the entry page. Every other document gets its own file named after its ID, for example `netbox-host-srv01-example-com.md`. Files the tool does not generate are left alone.
+- Only the `netbox` collector is supported so far. Set `enabled: false` on other collectors. An enabled `youtrack` sink is skipped with a note.
 
 ---
 
