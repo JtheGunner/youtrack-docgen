@@ -1,16 +1,17 @@
 --- /dev/null
 +++ b/overview:root
-@@ -0,0 +1,21 @@
+@@ -0,0 +1,22 @@
 +Title: Infrastructure documentation
 +
 +<!-- docgen:doc overview:root -->
 +
-+<!-- docgen:begin contents hash=23c58e276974c42d -->
++<!-- docgen:begin contents hash=4092c7a70b9e4808 -->
 +## Contents
 +
 +- VLANs
 +- IP allocation
 +- Services
++- Network diagram
 +- device-3
 +- srv01.example.com
 +- sw01.example.com
@@ -95,6 +96,35 @@
 +Generated at 2026-01-02T03:04:05Z from no sources.
 +<!-- docgen:end generated -->
 --- /dev/null
++++ b/overview:network-diagram
+@@ -0,0 +1,26 @@
++Title: Network diagram
++Parent: overview:root
++
++<!-- docgen:doc overview:network-diagram -->
++
++<!-- docgen:begin table hash=e578011f1eb9c735 -->
++## Network diagram
++
++No network prefixes are known, so the diagram shows the IP addresses of each host.
++
++```mermaid
++flowchart LR
++    n0["srv01.example.com"]
++    n1["192.0.2.10"]
++    n0 --- n1
++    n2["vm01.example.com"]
++    n3["192.0.2.20"]
++    n2 --- n3
++```
++<!-- docgen:end table -->
++
++<!-- docgen:begin generated hash=4906562d1ceab345 -->
++## Generated
++
++Generated at 2026-01-02T03:04:05Z from netbox.
++<!-- docgen:end generated -->
+--- /dev/null
 +++ b/group:hosts
 @@ -0,0 +1,4 @@
 +Title: Hosts
@@ -103,7 +133,7 @@
 +<!-- docgen:doc group:hosts -->
 --- /dev/null
 +++ b/netbox:host:device-3
-@@ -0,0 +1,49 @@
+@@ -0,0 +1,55 @@
 +Title: device-3
 +Parent: group:hosts
 +
@@ -123,6 +153,12 @@
 +
 +No IP addresses are known.
 +<!-- docgen:end network -->
++
++<!-- docgen:begin diagram hash=973d69efc4295c06 -->
++## Diagram
++
++No relations are known.
++<!-- docgen:end diagram -->
 +
 +<!-- docgen:begin runs-here hash=c9360d019f5fafba -->
 +## Runs here
@@ -155,7 +191,7 @@
 +<!-- docgen:end generated -->
 --- /dev/null
 +++ b/netbox:host:srv01.example.com
-@@ -0,0 +1,53 @@
+@@ -0,0 +1,66 @@
 +Title: srv01.example.com
 +Parent: group:hosts
 +
@@ -179,6 +215,19 @@
 +| --- | --- | --- |
 +| 192.0.2.10 | - | - |
 +<!-- docgen:end network -->
++
++<!-- docgen:begin diagram hash=bd7d7eaa3a0c7866 -->
++## Diagram
++
++```mermaid
++flowchart LR
++    n0["srv01.example.com"]
++    n1["srv01.example.com eth0"]
++    n1 -->|member_of| n0
++    n2["Example HQ"]
++    n0 -->|member_of| n2
++```
++<!-- docgen:end diagram -->
 +
 +<!-- docgen:begin runs-here hash=c9360d019f5fafba -->
 +## Runs here
@@ -211,7 +260,7 @@
 +<!-- docgen:end generated -->
 --- /dev/null
 +++ b/netbox:host:sw01.example.com
-@@ -0,0 +1,49 @@
+@@ -0,0 +1,62 @@
 +Title: sw01.example.com
 +Parent: group:hosts
 +
@@ -231,6 +280,19 @@
 +
 +No IP addresses are known.
 +<!-- docgen:end network -->
++
++<!-- docgen:begin diagram hash=cb7b96bb0c612d45 -->
++## Diagram
++
++```mermaid
++flowchart LR
++    n0["sw01.example.com"]
++    n1["sw01.example.com mgmt0"]
++    n1 -->|member_of| n0
++    n2["Example HQ"]
++    n0 -->|member_of| n2
++```
++<!-- docgen:end diagram -->
 +
 +<!-- docgen:begin runs-here hash=c9360d019f5fafba -->
 +## Runs here
@@ -263,7 +325,7 @@
 +<!-- docgen:end generated -->
 --- /dev/null
 +++ b/netbox:host:vm01.example.com
-@@ -0,0 +1,52 @@
+@@ -0,0 +1,63 @@
 +Title: vm01.example.com
 +Parent: group:hosts
 +
@@ -286,6 +348,17 @@
 +| --- | --- | --- |
 +| 192.0.2.20 | - | - |
 +<!-- docgen:end network -->
++
++<!-- docgen:begin diagram hash=918bb3b694e16f97 -->
++## Diagram
++
++```mermaid
++flowchart LR
++    n0["vm01.example.com"]
++    n1["vm01.example.com ens3"]
++    n1 -->|member_of| n0
++```
++<!-- docgen:end diagram -->
 +
 +<!-- docgen:begin runs-here hash=c9360d019f5fafba -->
 +## Runs here
@@ -316,4 +389,4 @@
 +
 +Generated at 2026-01-02T03:04:05Z from netbox.
 +<!-- docgen:end generated -->
-sink youtrack (dry run): 9 to create, 0 to update, 0 unchanged
+sink youtrack (dry run): 10 to create, 0 to update, 0 unchanged

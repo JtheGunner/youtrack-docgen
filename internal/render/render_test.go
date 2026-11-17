@@ -146,7 +146,7 @@ func TestHostDocumentSearchability(t *testing.T) {
 	for _, s := range web.Sections {
 		headings = append(headings, s.Heading)
 	}
-	want := "Summary,Network,Runs here,Depends on,Needed by,Links,Generated"
+	want := "Summary,Network,Diagram,Runs here,Depends on,Needed by,Links,Generated"
 	if got := strings.Join(headings, ","); got != want {
 		t.Errorf("sections = %s, want %s", got, want)
 	}

@@ -1,0 +1,16 @@
+# Network diagram
+
+## Network diagram
+
+No network prefixes are known, so the diagram shows the IP addresses of each host.
+
+```mermaid
+flowchart LR
+    n0["a"]
+    n1["192.0.2.1"]
+    n0 --- n1
+```
+
+## Generated
+
+Generated at 2025-01-02T03:04:05Z from netbox.

@@ -24,7 +24,7 @@ type Section struct {
 	Blocks  []Block
 }
 
-// Block is a piece of section content: Paragraph, List or Table.
+// Block is a piece of section content: Paragraph, List, Table or Diagram.
 type Block interface {
 	markdown() string
 }
