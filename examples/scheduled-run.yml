@@ -1,0 +1,32 @@
+# Copy to .github/workflows/ in a repository that contains docgen.yaml.
+name: Generate infrastructure docs
+
+on:
+  schedule:
+    - cron: "15 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest # use a self-hosted runner for internal systems
+    env:
+      NETBOX_TOKEN: ${{ secrets.NETBOX_TOKEN }}
+      YOUTRACK_TOKEN: ${{ secrets.YOUTRACK_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Install youtrack-docgen
+        run: go install github.com/JtheGunner/youtrack-docgen/cmd/youtrack-docgen@main
+      - name: Validate config
+        run: youtrack-docgen validate-config --config docgen.yaml
+      - name: Generate Markdown
+        run: youtrack-docgen generate --config docgen.yaml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: docs
+          path: out/ # the value of sinks.markdown.dir
