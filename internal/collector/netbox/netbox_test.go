@@ -12,10 +12,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/JtheGunner/youtrackt-docgen/internal/collector"
-	"github.com/JtheGunner/youtrackt-docgen/internal/collector/netbox"
-	"github.com/JtheGunner/youtrackt-docgen/internal/config"
-	"github.com/JtheGunner/youtrackt-docgen/internal/model"
+	"github.com/JtheGunner/youtrack-docgen/internal/collector"
+	"github.com/JtheGunner/youtrack-docgen/internal/collector/netbox"
+	"github.com/JtheGunner/youtrack-docgen/internal/config"
+	"github.com/JtheGunner/youtrack-docgen/internal/model"
 )
 
 const fakeToken = "fake-netbox-token-0123456789"

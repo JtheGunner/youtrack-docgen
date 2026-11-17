@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/JtheGunner/youtrackt-docgen/internal/diff"
-	"github.com/JtheGunner/youtrackt-docgen/internal/render"
-	"github.com/JtheGunner/youtrackt-docgen/internal/sink/youtrack/client"
+	"github.com/JtheGunner/youtrack-docgen/internal/diff"
+	"github.com/JtheGunner/youtrack-docgen/internal/render"
+	"github.com/JtheGunner/youtrack-docgen/internal/sink/youtrack/client"
 )
 
 const diffContext = 3

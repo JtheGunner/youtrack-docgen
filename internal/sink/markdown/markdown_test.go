@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JtheGunner/youtrackt-docgen/internal/render"
-	"github.com/JtheGunner/youtrackt-docgen/internal/sink/markdown"
-	"github.com/JtheGunner/youtrackt-docgen/internal/testutil/golden"
+	"github.com/JtheGunner/youtrack-docgen/internal/render"
+	"github.com/JtheGunner/youtrack-docgen/internal/sink/markdown"
+	"github.com/JtheGunner/youtrack-docgen/internal/testutil/golden"
 )
 
 func sampleTree() render.Document {

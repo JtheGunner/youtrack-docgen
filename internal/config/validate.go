@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"slices"
 
-	"github.com/JtheGunner/youtrackt-docgen/internal/filter"
+	"github.com/JtheGunner/youtrack-docgen/internal/filter"
 )
 
 var moduleName = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)

@@ -9,9 +9,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/JtheGunner/youtrackt-docgen/internal/model"
-	"github.com/JtheGunner/youtrackt-docgen/internal/render"
-	"github.com/JtheGunner/youtrackt-docgen/internal/sink/youtrack/client"
+	"github.com/JtheGunner/youtrack-docgen/internal/model"
+	"github.com/JtheGunner/youtrack-docgen/internal/render"
+	"github.com/JtheGunner/youtrack-docgen/internal/sink/youtrack/client"
 )
 
 // Keys of the container articles between the root and the pages.

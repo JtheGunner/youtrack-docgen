@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JtheGunner/youtrackt-docgen/internal/sink/youtrack/client"
+	"github.com/JtheGunner/youtrack-docgen/internal/sink/youtrack/client"
 )
 
 // tagState gives fakeAPI in-memory tag support and counts tag writes.

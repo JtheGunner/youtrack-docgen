@@ -9,7 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/JtheGunner/youtrackt-docgen/internal/config"
+	"github.com/JtheGunner/youtrack-docgen/internal/config"
 )
 
 const defaultConfigPath = "docgen.yaml"

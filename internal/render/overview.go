@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/JtheGunner/youtrackt-docgen/internal/model"
+	"github.com/JtheGunner/youtrack-docgen/internal/model"
 )
 
 // vlans lists every network with its VLAN and prefix, ordered by VLAN number.

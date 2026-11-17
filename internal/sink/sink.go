@@ -3,7 +3,7 @@ package sink
 import (
 	"context"
 
-	"github.com/JtheGunner/youtrackt-docgen/internal/render"
+	"github.com/JtheGunner/youtrack-docgen/internal/render"
 )
 
 // Sink persists a rendered document tree.

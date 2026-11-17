@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JtheGunner/youtrackt-docgen/internal/testutil/golden"
+	"github.com/JtheGunner/youtrack-docgen/internal/testutil/golden"
 )
 
 // fakeYouTrack serves an empty Knowledge Base and records every request.

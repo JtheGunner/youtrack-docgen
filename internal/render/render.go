@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/JtheGunner/youtrackt-docgen/internal/model"
+	"github.com/JtheGunner/youtrack-docgen/internal/model"
 )
 
 // Document IDs of the fixed documents.

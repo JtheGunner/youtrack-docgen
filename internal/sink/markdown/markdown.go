@@ -13,8 +13,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/JtheGunner/youtrackt-docgen/internal/render"
-	"github.com/JtheGunner/youtrackt-docgen/internal/sink"
+	"github.com/JtheGunner/youtrack-docgen/internal/render"
+	"github.com/JtheGunner/youtrack-docgen/internal/sink"
 )
 
 // Name is the sink name used in the config.

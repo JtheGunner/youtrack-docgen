@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/JtheGunner/youtrackt-docgen/internal/model"
+	"github.com/JtheGunner/youtrack-docgen/internal/model"
 )
 
 // Placeholder replaces every removed secret value.

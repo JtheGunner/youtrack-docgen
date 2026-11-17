@@ -11,7 +11,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/JtheGunner/youtrackt-docgen/internal/filter"
+	"github.com/JtheGunner/youtrack-docgen/internal/filter"
 )
 
 // Config is the parsed and validated docgen.yaml.

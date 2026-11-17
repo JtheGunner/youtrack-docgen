@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/JtheGunner/youtrackt-docgen/internal/model"
+	"github.com/JtheGunner/youtrack-docgen/internal/model"
 )
 
 // Config is the filter configuration: allow/deny rules per collector (keyed by

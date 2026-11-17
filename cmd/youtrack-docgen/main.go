@@ -5,7 +5,7 @@ package main
 import (
 	"os"
 
-	"github.com/JtheGunner/youtrackt-docgen/internal/cli"
+	"github.com/JtheGunner/youtrack-docgen/internal/cli"
 )
 
 func main() {
