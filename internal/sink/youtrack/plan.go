@@ -168,13 +168,9 @@ func (c *planCollector) document(d render.Document, parentKey string) error {
 	if err := checkMarkerToken(d.ID); err != nil {
 		return err
 	}
-	blocks := make([]block, 0, len(d.Sections))
-	for _, sec := range d.Sections {
-		b, err := newBlock(sec.ID, sec.Markdown())
-		if err != nil {
-			return err
-		}
-		blocks = append(blocks, b)
+	blocks, err := sectionBlocks(d)
+	if err != nil {
+		return err
 	}
 
 	cur, found := c.existing[d.ID]

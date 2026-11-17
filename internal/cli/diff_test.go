@@ -114,8 +114,14 @@ func diffConfig(netboxURL, youtrackURL, outDir string) string {
 
 func runCLI(t *testing.T, cfg string, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
+	return runCLIAt(t, generatedAt, cfg, args...)
+}
+
+// runCLIAt runs the command line as if the clock showed at.
+func runCLIAt(t *testing.T, at time.Time, cfg string, args ...string) (stdout, stderr string, err error) {
+	t.Helper()
 	var out, errOut bytes.Buffer
-	cmd := newRootCmd(&out, &errOut, func() time.Time { return generatedAt })
+	cmd := newRootCmd(&out, &errOut, func() time.Time { return at })
 	cmd.SetArgs(append(args, "--config", writeConfig(t, cfg)))
 	err = cmd.Execute()
 	return out.String(), errOut.String(), err

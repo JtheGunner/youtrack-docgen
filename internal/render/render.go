@@ -85,7 +85,7 @@ func (r *renderer) generated(srcs []string) Section {
 		from = strings.Join(srcs, ", ")
 	}
 	text := fmt.Sprintf("Generated at %s from %s.", r.at.Format(time.RFC3339), from)
-	return Section{ID: "generated", Heading: "Generated", Blocks: []Block{Paragraph(text)}}
+	return Section{ID: "generated", Heading: "Generated", Blocks: []Block{Paragraph(text)}, Volatile: true}
 }
 
 // sources returns the sorted distinct sources of the given entities.

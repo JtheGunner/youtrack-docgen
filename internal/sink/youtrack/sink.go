@@ -169,13 +169,9 @@ func (p *publisher) publish(ctx context.Context, d render.Document, parentID str
 	if err := checkMarkerToken(d.ID); err != nil {
 		return client.Article{}, err
 	}
-	blocks := make([]block, 0, len(d.Sections))
-	for _, sec := range d.Sections {
-		b, err := newBlock(sec.ID, sec.Markdown())
-		if err != nil {
-			return client.Article{}, err
-		}
-		blocks = append(blocks, b)
+	blocks, err := sectionBlocks(d)
+	if err != nil {
+		return client.Article{}, err
 	}
 
 	cur, found := p.existing[d.ID]

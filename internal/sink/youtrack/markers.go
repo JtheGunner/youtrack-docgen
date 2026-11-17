@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/JtheGunner/youtrack-docgen/internal/render"
 )
 
 var (
@@ -18,6 +20,22 @@ type block struct {
 	id   string
 	hash string
 	body string // Markdown of the section
+	// volatile blocks differ on every run; see render.Section.Volatile.
+	volatile bool
+}
+
+// sectionBlocks turns the sections of a document into blocks.
+func sectionBlocks(d render.Document) ([]block, error) {
+	blocks := make([]block, 0, len(d.Sections))
+	for _, sec := range d.Sections {
+		b, err := newBlock(sec.ID, sec.Markdown())
+		if err != nil {
+			return nil, err
+		}
+		b.volatile = sec.Volatile
+		blocks = append(blocks, b)
+	}
+	return blocks, nil
 }
 
 func newBlock(id, markdown string) (block, error) {
@@ -63,11 +81,23 @@ func buildContent(key string, blocks []block) string {
 	return b.String()
 }
 
-// mergeContent replaces the marked blocks of existing whose hash differs from
-// the wanted block with the same ID and appends wanted blocks that are not
-// present yet. Everything outside the markers is kept verbatim. Blocks in
-// existing that are no longer wanted are left alone.
+// mergeContent returns the content an article with the given content should
+// have. A volatile block alone never changes an article: it is only refreshed
+// when another block changes too, or added when the article lacks it. Publish
+// and Plan both decide through this function.
 func mergeContent(existing string, wanted []block) string {
+	if merge(existing, wanted, false) == existing {
+		return existing
+	}
+	return merge(existing, wanted, true)
+}
+
+// merge replaces the marked blocks of existing whose hash differs from the
+// wanted block with the same ID and appends wanted blocks that are not present
+// yet. Volatile blocks are only replaced with refreshVolatile. Everything
+// outside the markers is kept verbatim. Blocks in existing that are no longer
+// wanted are left alone.
+func merge(existing string, wanted []block, refreshVolatile bool) string {
 	byID := make(map[string]block, len(wanted))
 	for _, w := range wanted {
 		byID[w.id] = w
@@ -91,7 +121,7 @@ func mergeContent(existing string, wanted []block) string {
 		blockEnd := loc[1] + end + len(endMarker(id))
 		out.WriteString(rest[:loc[0]])
 		w, wanted := byID[id]
-		if wanted && !seen[id] && w.hash != hash {
+		if wanted && !seen[id] && w.hash != hash && (refreshVolatile || !w.volatile) {
 			out.WriteString(w.render())
 		} else {
 			out.WriteString(rest[loc[0]:blockEnd])

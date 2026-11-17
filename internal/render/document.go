@@ -22,6 +22,10 @@ type Section struct {
 	ID      string
 	Heading string
 	Blocks  []Block
+	// Volatile marks content that differs on every run, such as a timestamp.
+	// A sink that updates in place must not treat a change in a volatile
+	// section alone as a change of the document.
+	Volatile bool
 }
 
 // Block is a piece of section content: Paragraph, List, Table or Diagram.
