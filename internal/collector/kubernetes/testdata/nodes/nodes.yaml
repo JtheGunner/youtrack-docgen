@@ -1,0 +1,55 @@
+apiVersion: v1
+kind: Node
+metadata:
+  name: node-a
+  labels:
+    secret-label: FAKE-LABEL-SECRET
+status:
+  addresses:
+    - type: InternalIP
+      address: 192.0.2.21
+    - type: Hostname
+      address: node-a.example.com
+---
+apiVersion: v1
+kind: Node
+metadata:
+  name: node-lost
+status:
+  addresses:
+    - type: InternalIP
+      address: 198.51.100.99
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: shop
+spec:
+  template:
+    spec:
+      nodeName: node-a
+      containers:
+        - image: registry.example.com/shop/api:1
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: batch
+  namespace: shop
+spec:
+  template:
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: node-ghost
+      containers:
+        - image: registry.example.com/shop/batch:1
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: edge
+  namespace: shop
+spec:
+  clusterIP: 10.96.0.10
+  externalIPs: [192.0.2.21, not-an-ip]

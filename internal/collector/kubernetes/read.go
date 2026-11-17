@@ -25,8 +25,17 @@ type object struct {
 		Namespace string `yaml:"namespace"`
 	} `yaml:"metadata"`
 	// Items is set for kind "List".
-	Items []yaml.Node `yaml:"items"`
-	Spec  spec        `yaml:"spec"`
+	Items  []yaml.Node `yaml:"items"`
+	Spec   spec        `yaml:"spec"`
+	Status status      `yaml:"status"`
+}
+
+// status is the part of a Node status that names the machine's addresses.
+type status struct {
+	Addresses []struct {
+		Type    string `yaml:"type"`
+		Address string `yaml:"address"`
+	} `yaml:"addresses"`
 }
 
 type spec struct {
@@ -63,8 +72,10 @@ type podTemplate struct {
 		Labels map[string]string `yaml:"labels"`
 	} `yaml:"metadata"`
 	Spec struct {
-		Containers     []container `yaml:"containers"`
-		InitContainers []container `yaml:"initContainers"`
+		NodeName       string            `yaml:"nodeName"`
+		NodeSelector   map[string]string `yaml:"nodeSelector"`
+		Containers     []container       `yaml:"containers"`
+		InitContainers []container       `yaml:"initContainers"`
 	} `yaml:"spec"`
 }
 

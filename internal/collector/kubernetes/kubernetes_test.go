@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -262,5 +263,59 @@ func TestNew(t *testing.T) {
 				t.Errorf("Name() = %q", c.Name())
 			}
 		})
+	}
+}
+
+func TestCollectMapsNodesAndPinnedWorkloads(t *testing.T) {
+	g := collect(t, "testdata/nodes")
+
+	node, ok := g.Entity("kubernetes:host:node-a")
+	if !ok {
+		t.Fatal("node-a host missing")
+	}
+	if node.Name != "node-a" || !reflect.DeepEqual(node.Aliases, []string{"node-a.example.com"}) ||
+		!reflect.DeepEqual(node.Addresses, []netip.Addr{netip.MustParseAddr("192.0.2.21")}) {
+		t.Errorf("node-a = %+v", node)
+	}
+	if _, ok := g.Entity("kubernetes:host:node-lost"); !ok {
+		t.Error("manifest node without workloads must still be a host")
+	}
+	if _, ok := g.Entity("kubernetes:host:node-ghost"); !ok {
+		t.Error("node referenced only by a nodeSelector must exist as a name-only host")
+	}
+
+	wantRuns := map[model.ID]model.ID{
+		"kubernetes:workload:shop/deployment/api":   "kubernetes:host:node-a",
+		"kubernetes:workload:shop/deployment/batch": "kubernetes:host:node-ghost",
+	}
+	for w, h := range wantRuns {
+		rel := model.Relation{From: w, To: h, Kind: model.RelRunsOn}
+		if !slices.Contains(g.Relations(), rel) {
+			t.Errorf("relation missing: %+v", rel)
+		}
+	}
+
+	svc, _ := g.Entity("kubernetes:service:shop/edge")
+	if got := svc.Attrs[model.AttrExternalIPs]; got != "192.0.2.21" {
+		t.Errorf("external_ips = %q, want only the valid external IP", got)
+	}
+	for _, e := range g.ByKind(model.KindHost) {
+		for k, v := range e.Attrs {
+			if strings.Contains(k+v, "FAKE-LABEL-SECRET") {
+				t.Errorf("node label leaked into %s", e.ID)
+			}
+		}
+	}
+}
+
+func TestCollectRejectsDuplicateNode(t *testing.T) {
+	dir := t.TempDir()
+	manifest := "apiVersion: v1\nkind: Node\nmetadata:\n  name: n1\n"
+	if err := os.WriteFile(filepath.Join(dir, "a.yaml"), []byte(manifest+"---\n"+manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := NewFromPaths(dir).Collect(context.Background(), model.NewGraph())
+	if !errors.Is(err, model.ErrDuplicateEntity) {
+		t.Errorf("error = %v, want ErrDuplicateEntity", err)
 	}
 }

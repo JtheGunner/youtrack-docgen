@@ -11,7 +11,11 @@ import (
 	"github.com/JtheGunner/youtrack-docgen/internal/model"
 )
 
-const defaultNamespace = "default"
+const (
+	defaultNamespace = "default"
+	// hostnameLabel is the well-known node label a nodeSelector can pin a pod with.
+	hostnameLabel = "kubernetes.io/hostname"
+)
 
 // workloadKinds are the manifest kinds mapped to model workloads.
 var workloadKinds = map[string]bool{
@@ -29,6 +33,8 @@ type builder struct {
 
 	namespaces map[string]model.ID
 	declared   map[string]bool // namespaces with their own manifest
+	nodes      map[string]model.ID
+	nodeSeen   map[string]bool // nodes with their own manifest
 	// podLabels holds the pod template labels per workload, for service selectors.
 	podLabels map[model.ID]map[string]string
 	workloads map[string][]model.ID // namespace -> workload IDs
@@ -40,6 +46,8 @@ func newBuilder() *builder {
 		entities:   map[model.ID]*model.Entity{},
 		namespaces: map[string]model.ID{},
 		declared:   map[string]bool{},
+		nodes:      map[string]model.ID{},
+		nodeSeen:   map[string]bool{},
 		podLabels:  map[model.ID]map[string]string{},
 		workloads:  map[string][]model.ID{},
 		services:   map[string]model.ID{},
@@ -51,6 +59,14 @@ func (b *builder) build(objects []parsed) error {
 	for _, o := range objects {
 		if o.Kind == "Namespace" {
 			if _, err := b.addNamespace(o.Metadata.Name, true); err != nil {
+				return err
+			}
+		}
+	}
+	// Nodes before workloads so a workload can point at its node.
+	for _, o := range objects {
+		if o.Kind == "Node" {
+			if err := b.addNode(o); err != nil {
 				return err
 			}
 		}
@@ -173,9 +189,68 @@ func (b *builder) addWorkload(o parsed) error {
 	}
 	setAttr(e, "images", strings.Join(images(tmpl), ", "))
 	b.podLabels[e.ID] = tmpl.Metadata.Labels
+	if node := pinnedNode(tmpl); node != "" {
+		nodeID, err := b.nodeHost(node)
+		if err != nil {
+			return err
+		}
+		b.relate(e.ID, nodeID, model.RelRunsOn)
+	}
 	b.workloads[ns] = append(b.workloads[ns], e.ID)
 	b.relate(e.ID, nsID, model.RelMemberOf)
 	return nil
+}
+
+// pinnedNode returns the node a pod template is pinned to by nodeName or by a
+// kubernetes.io/hostname nodeSelector, or "" when it is not pinned.
+func pinnedNode(t podTemplate) string {
+	return firstNonEmpty(t.Spec.NodeName, t.Spec.NodeSelector[hostnameLabel])
+}
+
+// addNode maps a Node manifest to a host. Only the name and the reported
+// addresses are read; labels, annotations and node info are not.
+func (b *builder) addNode(o parsed) error {
+	name := o.Metadata.Name
+	if name == "" {
+		return errors.New("node manifest has no name")
+	}
+	if b.nodeSeen[name] {
+		return fmt.Errorf("%w: node %s", model.ErrDuplicateEntity, name)
+	}
+	b.nodeSeen[name] = true
+	id, err := b.nodeHost(name)
+	if err != nil {
+		return err
+	}
+	e := b.entities[id]
+	for _, a := range o.Status.Addresses {
+		switch a.Type {
+		case "InternalIP", "ExternalIP":
+			if addr, err := netip.ParseAddr(a.Address); err == nil && !slices.Contains(e.Addresses, addr) {
+				e.Addresses = append(e.Addresses, addr)
+			}
+		case "Hostname", "InternalDNS", "ExternalDNS":
+			if a.Address != "" && a.Address != name && !slices.Contains(e.Aliases, a.Address) {
+				e.Aliases = append(e.Aliases, a.Address)
+			}
+		}
+	}
+	return nil
+}
+
+// nodeHost returns the host for a node name, creating a name-only host when a
+// workload references a node that has no manifest of its own.
+func (b *builder) nodeHost(name string) (model.ID, error) {
+	if id, ok := b.nodes[name]; ok {
+		return id, nil
+	}
+	e, err := b.add(model.KindHost, name, name)
+	if err != nil {
+		return "", err
+	}
+	e.Attrs["type"] = "kubernetes-node"
+	b.nodes[name] = e.ID
+	return e.ID, nil
 }
 
 func images(t podTemplate) []string {
@@ -204,6 +279,13 @@ func (b *builder) addService(o parsed) error {
 	e.Attrs["namespace"] = ns
 	setAttr(e, "type", firstNonEmpty(o.Spec.Type, "ClusterIP"))
 	setAttr(e, "ports", strings.Join(servicePorts(o.Spec.Ports), ", "))
+	var external []string
+	for _, raw := range o.Spec.ExternalIPs {
+		if addr, err := netip.ParseAddr(raw); err == nil && !slices.Contains(external, addr.String()) {
+			external = append(external, addr.String())
+		}
+	}
+	setAttr(e, model.AttrExternalIPs, strings.Join(external, ","))
 	for _, raw := range append(append([]string{o.Spec.ClusterIP}, o.Spec.ClusterIPs...), o.Spec.ExternalIPs...) {
 		addr, err := netip.ParseAddr(raw)
 		if err != nil || slices.Contains(e.Addresses, addr) {
