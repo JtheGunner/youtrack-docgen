@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/JtheGunner/youtrack-docgen/internal/model"
 )
@@ -757,6 +758,28 @@ func TestApplyScrubsDeniedAddressesInEveryTextForm(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if v := got.Attrs[fmt.Sprintf("k%02d", i)]; v != tt.want {
 				t.Errorf("scrub(%q) = %q, want %q", tt.in, v, tt.want)
+			}
+		})
+	}
+}
+
+// Scrubbing must stay cheap on hostile free text: a long run of digits or hex
+// digits next to an address must not make the scan quadratic.
+func TestScrubTextStaysLinearOnLongRuns(t *testing.T) {
+	d := dependents{addrs: map[netip.Addr]bool{netip.MustParseAddr("192.0.2.50"): true}}
+	for name, in := range map[string]string{
+		"digits":           strings.Repeat("1", 20000) + ".",
+		"hex and colons":   strings.Repeat("a", 20000) + ":",
+		"digits then addr": strings.Repeat("1", 20000) + "192.0.2.50",
+	} {
+		t.Run(name, func(t *testing.T) {
+			start := time.Now()
+			got := d.scrubText(in)
+			if elapsed := time.Since(start); elapsed > 2*time.Second {
+				t.Errorf("scrubText took %v on %d characters", elapsed, len(in))
+			}
+			if strings.Contains(got, "192.0.2.50") {
+				t.Errorf("denied address leaked")
 			}
 		})
 	}

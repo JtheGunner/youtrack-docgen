@@ -225,7 +225,8 @@ func (d dependents) scrubAddressToken(tok string) string {
 // start that is a denied address standing on its own, or start if there is none.
 func (d dependents) deniedWindowEnd(tok string, start int) int {
 	for end := min(len(tok), start+maxAddressLen); end > start+1; end-- {
-		if standsAlone(tok, start, end) && d.isDeniedAddress(tok[start:end]) {
+		// The cheap check first: only a denied address needs a boundary check.
+		if d.isDeniedAddress(tok[start:end]) && standsAlone(tok, start, end) {
 			return end
 		}
 	}
@@ -238,7 +239,8 @@ func (d dependents) deniedWindowEnd(tok string, start int) int {
 // "a2001:db8::50" or "1192.0.2.50" is not an address, so the denied part is
 // hidden: the scrubber may hide too much but must not leak. A colon or dot next
 // to the window is a separator ("ip:", "addr:port", a trailing ":") and never
-// extends it.
+// extends it. The look-around is capped at the longest address literal, so a
+// long run of digits cannot make the scan expensive.
 func standsAlone(tok string, start, end int) bool {
 	set := digitChars
 	if strings.Contains(tok[start:end], ":") {
@@ -247,9 +249,15 @@ func standsAlone(tok string, start, end int) bool {
 	from, to := start, end
 	for from > 0 && strings.ContainsRune(set, rune(tok[from-1])) {
 		from--
+		if to-from > maxAddressLen {
+			return true // longer than any address literal, so not a different address
+		}
 	}
 	for to < len(tok) && strings.ContainsRune(set, rune(tok[to])) {
 		to++
+		if to-from > maxAddressLen {
+			return true
+		}
 	}
 	if from == start && to == end {
 		return true
