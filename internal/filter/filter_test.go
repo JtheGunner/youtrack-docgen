@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/JtheGunner/youtrack-docgen/internal/model"
 )
@@ -571,5 +572,291 @@ func TestApplyHidesDeniedHostFromDependents(t *testing.T) {
 	in, _ := g.Entity(shared.ID)
 	if in.Labels["dns"] != "LAB01.Example.COM" || len(in.Aliases) != 3 || !strings.Contains(in.Attrs["description"], "Lab01") {
 		t.Errorf("input graph was mutated: %+v", in)
+	}
+}
+
+func TestApplyScrubsDeniedHostFromAllEntityKinds(t *testing.T) {
+	const (
+		deniedName = "lab01.example.com"
+		deniedAddr = "192.0.2.50"
+		keptAddr   = "198.51.100.7"
+	)
+	g := model.NewGraph()
+	add := func(e model.Entity) model.Entity {
+		t.Helper()
+		if err := g.AddEntity(e); err != nil {
+			t.Fatal(err)
+		}
+		return e
+	}
+	lab := entity(t, "netbox", model.KindHost, deniedName, map[string]string{LabelTenant: "lab"}, nil)
+	lab.Addresses = []netip.Addr{netip.MustParseAddr(deniedAddr)}
+	lab = add(lab)
+
+	ingress := entity(t, "k8s", model.KindIngress, "shop/web", nil, map[string]string{"hosts": "Lab01.Example.com,shop.example.com"})
+	ingress.Aliases = []string{"LAB01.example.com", "shop.example.com"}
+	ingress = add(ingress)
+
+	service := entity(t, "k8s", model.KindService, "shop/edge", nil, map[string]string{"external_ips": deniedAddr + "," + keptAddr})
+	service.Addresses = []netip.Addr{netip.MustParseAddr(deniedAddr), netip.MustParseAddr(keptAddr)}
+	service = add(service)
+
+	workload := add(entity(t, "k8s", model.KindWorkload, "shop/Deployment/api",
+		map[string]string{"node": deniedName, "tier": "web"}, map[string]string{"note": "pinned to " + deniedName + " at " + deniedAddr}))
+
+	otherHost := entity(t, "netbox", model.KindHost, "web01.example.com", map[string]string{LabelTenant: "acme"}, nil)
+	otherHost.Aliases = []string{deniedName, "web.example.com"}
+	otherHost = add(otherHost)
+
+	f, err := New(Config{Collectors: map[string]Rules{"netbox": {Deny: []Match{{Tenants: []string{"lab"}}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := f.Apply(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok := out.Entity(lab.ID); ok {
+		t.Fatalf("%s should have been removed", lab.ID)
+	}
+	for _, e := range []model.Entity{ingress, service, workload, otherHost} {
+		if _, ok := out.Entity(e.ID); !ok {
+			t.Errorf("%s must be masked, not removed", e.ID)
+		}
+	}
+	for _, kind := range allKinds {
+		for _, e := range out.ByKind(kind) {
+			text := strings.ToLower(fmt.Sprintf("%+v", e))
+			if strings.Contains(text, deniedName) || strings.Contains(text, "lab01") || strings.Contains(text, deniedAddr) {
+				t.Errorf("denied host leaked into %s: %+v", e.ID, e)
+			}
+		}
+	}
+	svc, _ := out.Entity(service.ID)
+	if !slices.Contains(svc.Addresses, netip.MustParseAddr(keptAddr)) || len(svc.Addresses) != 1 {
+		t.Errorf("service addresses = %v, want only %s", svc.Addresses, keptAddr)
+	}
+	if !strings.Contains(svc.Attrs["external_ips"], keptAddr) {
+		t.Errorf("unrelated address was lost: %v", svc.Attrs)
+	}
+	wl, _ := out.Entity(workload.ID)
+	if wl.Labels["tier"] != "web" {
+		t.Errorf("unrelated label changed: %v", wl.Labels)
+	}
+
+	// Masking must not mutate the input graph.
+	in, _ := g.Entity(ingress.ID)
+	if !strings.Contains(in.Attrs["hosts"], "Lab01") || len(in.Aliases) != 2 {
+		t.Errorf("input graph was mutated: %+v", in)
+	}
+}
+
+func TestApplyAnchorsDeniedNamesAtHostnameBoundaries(t *testing.T) {
+	g := model.NewGraph()
+	add := func(e model.Entity) model.Entity {
+		t.Helper()
+		if err := g.AddEntity(e); err != nil {
+			t.Fatal(err)
+		}
+		return e
+	}
+	add(entity(t, "netbox", model.KindHost, "db", map[string]string{LabelTenant: "lab"}, nil))
+	svc := add(entity(t, "k8s", model.KindService, "shop/edge", nil,
+		map[string]string{"upstream": "db2.example.com", "primary": "DB.example.com", "mongodb": "mongodb.example.com"}))
+
+	f, err := New(Config{Collectors: map[string]Rules{"netbox": {Deny: []Match{{Tenants: []string{"lab"}}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := f.Apply(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := out.Entity(svc.ID)
+	if !ok {
+		t.Fatal("service must survive")
+	}
+	want := map[string]string{
+		"upstream": "db2.example.com",
+		"primary":  Placeholder + ".example.com",
+		"mongodb":  "mongodb.example.com",
+	}
+	if fmt.Sprint(got.Attrs) != fmt.Sprint(want) {
+		t.Errorf("Attrs = %v, want %v", got.Attrs, want)
+	}
+}
+
+func TestApplyScrubsDeniedAddressesInEveryTextForm(t *testing.T) {
+	g := model.NewGraph()
+	denied := entity(t, "netbox", model.KindHost, "lab01.example.com", map[string]string{LabelTenant: "lab"}, nil)
+	denied.Addresses = []netip.Addr{
+		netip.MustParseAddr("192.0.2.50"),
+		netip.MustParseAddr("2001:db8::50"),
+		netip.MustParseAddr("::ffff:198.51.100.9"),
+	}
+	if err := g.AddEntity(denied); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct{ name, in, want string }{
+		{"ipv4 with port", "192.0.2.50:8080", Placeholder + ":8080"},
+		{"url with port and path", "http://192.0.2.50:8080/x", "http://" + Placeholder + ":8080/x"},
+		{"cidr", "192.0.2.50/32", Placeholder + "/32"},
+		{"list", "192.0.2.50,192.0.2.50", Placeholder + "," + Placeholder},
+		{"ipv4 mapped into ipv6", "::ffff:192.0.2.50", Placeholder},
+		{"ipv4 mapped, hex form", "::ffff:c000:232", Placeholder},
+		{"denied 4in6 address, hex form", "::FFFF:C633:6409", Placeholder},
+		{"uppercase and non-canonical ipv6", "2001:DB8:0:0:0:0:0:50", Placeholder},
+		{"partly compressed ipv6", "2001:db8:0:0::50", Placeholder},
+		{"ipv6 with zone", "2001:db8::50%eth0", Placeholder + "%eth0"},
+		{"trailing sentence dot", "reachable at 192.0.2.50.", "reachable at " + Placeholder + "."},
+		{"bracketed ipv6 with port", "[2001:db8::50]:443", "[" + Placeholder + "]:443"},
+		{"expanded ipv6", "2001:0db8:0000:0000:0000:0000:0000:0050", Placeholder},
+		{"denied 4in6 address written as ipv4", "198.51.100.9:80", Placeholder + ":80"},
+		{"hex letter right before an ipv4 address", "a192.0.2.50", "a" + Placeholder},
+		// The last six zero groups and the address form the IPv4-compatible literal
+		// ::192.0.2.50, which is replaced as a whole; hiding more is fine, leaking is not.
+		{"oversized token with a trailing address", strings.Repeat("0:", 40) + "192.0.2.50", strings.Repeat("0:", 34) + Placeholder},
+		{"oversized token with a leading address", "192.0.2.50:" + strings.Repeat("0:", 40), Placeholder + ":" + strings.Repeat("0:", 40)},
+		{"nat64 embedding", "64:ff9b::c000:232", Placeholder},
+		{"nat64 embedding in dotted form", "64:ff9b::192.0.2.50", Placeholder},
+		{"ipv6 after a key and colon", "ip:2001:db8::50", "ip:" + Placeholder},
+		{"ipv6 after a leading colon", ":2001:db8::50", ":" + Placeholder},
+		{"ipv6 before a trailing colon", "2001:db8::50:", Placeholder + ":"},
+		{"ipv6 between colons", "x:2001:db8::50:y", "x:" + Placeholder + ":y"},
+		{"hex letter right before an ipv6 address", "a2001:db8::50", "a" + Placeholder},
+		{"several hex digits before an ipv6 address", "cafe2001:db8::50", "cafe" + Placeholder},
+		{"hex digits after an ipv6 address that is not a valid address", "2001:db8::50g", Placeholder + "g"},
+		{"invalid longer ipv4 hides the denied part", "192.0.2.500", Placeholder + "0"},
+		{"shorter ipv4 stays", "192.0.2.5", "192.0.2.5"},
+		{"invalid number around an ipv4 address hides the denied part", "1192.0.2.50", "1" + Placeholder},
+		{"a different valid ipv6 address stays", "2001:db8::50ab", "2001:db8::50ab"},
+		{"longer ipv6 stays", "2001:db8::500", "2001:db8::500"},
+	}
+	attrs := make(map[string]string, len(tests))
+	for i, tt := range tests {
+		attrs[fmt.Sprintf("k%02d", i)] = tt.in
+	}
+	svc := entity(t, "k8s", model.KindService, "shop/edge", nil, attrs)
+	if err := g.AddEntity(svc); err != nil {
+		t.Fatal(err)
+	}
+
+	f, err := New(Config{Collectors: map[string]Rules{"netbox": {Deny: []Match{{Tenants: []string{"lab"}}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := f.Apply(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := out.Entity(svc.ID)
+	if !ok {
+		t.Fatal("service must survive")
+	}
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if v := got.Attrs[fmt.Sprintf("k%02d", i)]; v != tt.want {
+				t.Errorf("scrub(%q) = %q, want %q", tt.in, v, tt.want)
+			}
+		})
+	}
+}
+
+// Scrubbing must stay cheap on hostile free text: a long run of digits or hex
+// digits next to an address must not make the scan quadratic.
+func TestScrubTextStaysLinearOnLongRuns(t *testing.T) {
+	d := dependents{addrs: map[netip.Addr]bool{netip.MustParseAddr("192.0.2.50"): true}}
+	for name, in := range map[string]string{
+		"digits":           strings.Repeat("1", 20000) + ".",
+		"hex and colons":   strings.Repeat("a", 20000) + ":",
+		"digits then addr": strings.Repeat("1", 20000) + "192.0.2.50",
+	} {
+		t.Run(name, func(t *testing.T) {
+			start := time.Now()
+			got := d.scrubText(in)
+			if elapsed := time.Since(start); elapsed > 2*time.Second {
+				t.Errorf("scrubText took %v on %d characters", elapsed, len(in))
+			}
+			if strings.Contains(got, "192.0.2.50") {
+				t.Errorf("denied address leaked")
+			}
+		})
+	}
+}
+
+func TestApplyScrubsAliasesAndMapKeysOfDeniedHosts(t *testing.T) {
+	g := model.NewGraph()
+	denied := entity(t, "netbox", model.KindHost, "lab01.example.com", map[string]string{LabelTenant: "lab"}, nil)
+	denied.Addresses = []netip.Addr{netip.MustParseAddr("192.0.2.50")}
+	if err := g.AddEntity(denied); err != nil {
+		t.Fatal(err)
+	}
+	svc := entity(t, "k8s", model.KindService, "shop/edge",
+		map[string]string{"via.192.0.2.50": "x", "keep": "y"},
+		map[string]string{"uplink.lab01.example.com": "10.0.0.1", "plain": "ok"})
+	svc.Aliases = []string{"192.0.2.50", "[2001:db8::1]", "keep.example.com"}
+	if err := g.AddEntity(svc); err != nil {
+		t.Fatal(err)
+	}
+
+	f, err := New(Config{Collectors: map[string]Rules{"netbox": {Deny: []Match{{Tenants: []string{"lab"}}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := f.Apply(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := out.Entity(svc.ID)
+	if !ok {
+		t.Fatal("service must survive")
+	}
+	if want := []string{"[2001:db8::1]", "keep.example.com"}; !slices.Equal(got.Aliases, want) {
+		t.Errorf("Aliases = %v, want %v", got.Aliases, want)
+	}
+	wantAttrs := map[string]string{"uplink." + Placeholder: "10.0.0.1", "plain": "ok"}
+	if fmt.Sprint(got.Attrs) != fmt.Sprint(wantAttrs) {
+		t.Errorf("Attrs = %v, want %v", got.Attrs, wantAttrs)
+	}
+	wantLabels := map[string]string{"via." + Placeholder: "x", "keep": "y"}
+	if fmt.Sprint(got.Labels) != fmt.Sprint(wantLabels) {
+		t.Errorf("Labels = %v, want %v", got.Labels, wantLabels)
+	}
+}
+
+// Secrets are recognised by their original key: scrubbing a denied hostname out
+// of a key must never turn a secret key into an innocent-looking one.
+func TestApplyRedactsSecretKeysBeforeScrubbingDeniedNames(t *testing.T) {
+	g := model.NewGraph()
+	denied := entity(t, "netbox", model.KindHost, "token", map[string]string{LabelTenant: "lab"}, nil)
+	if err := g.AddEntity(denied); err != nil {
+		t.Fatal(err)
+	}
+	svc := entity(t, "k8s", model.KindService, "shop/edge", nil,
+		map[string]string{"api_token": "fake-secret-value", "plain": "ok"})
+	if err := g.AddEntity(svc); err != nil {
+		t.Fatal(err)
+	}
+
+	f, err := New(Config{Collectors: map[string]Rules{"netbox": {Deny: []Match{{Tenants: []string{"lab"}}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := f.Apply(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := out.Entity(svc.ID)
+	if !ok {
+		t.Fatal("service must survive")
+	}
+	for k, v := range got.Attrs {
+		if strings.Contains(v, "fake-secret-value") {
+			t.Errorf("secret leaked under scrubbed key %q: %q", k, v)
+		}
+	}
+	if got.Attrs["plain"] != "ok" {
+		t.Errorf("plain attr = %q, want ok", got.Attrs["plain"])
 	}
 }
