@@ -291,9 +291,24 @@ func (d dependents) isDeniedAddress(s string) bool {
 	return false
 }
 
+// namesDeniedValue reports whether the name or the ID key of e is, or contains,
+// a denied hostname or address. Name and ID are the article title and key, so
+// such an entity cannot be masked without changing its identity: it is dropped.
+func (d dependents) namesDeniedValue(e model.Entity) bool {
+	if !d.active() {
+		return false
+	}
+	if d.scrubText(e.Name) != e.Name {
+		return true
+	}
+	_, _, key, err := model.ParseID(e.ID)
+	return err != nil || d.scrubText(key) != key
+}
+
 // mask removes the denied hostnames and addresses from e. The entity ID and
-// name are identity and stay untouched; every other field is scrubbed. The
-// input is not modified.
+// name are identity and stay untouched (an entity whose identity names a denied
+// value is dropped by namesDeniedValue instead); every other field is scrubbed.
+// The input is not modified.
 func (d dependents) mask(e model.Entity) model.Entity {
 	if !d.active() {
 		return e

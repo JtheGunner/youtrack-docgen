@@ -860,3 +860,56 @@ func TestApplyRedactsSecretKeysBeforeScrubbingDeniedNames(t *testing.T) {
 		t.Errorf("plain attr = %q, want ok", got.Attrs["plain"])
 	}
 }
+
+// An entity that is itself named after a denied host or address would show that
+// value in its article title and key, so it is removed together with its relations.
+func TestApplyDropsEntitiesNamedAfterDeniedHosts(t *testing.T) {
+	g := model.NewGraph()
+	denied := entity(t, "netbox", model.KindHost, "lab01.example.com", map[string]string{LabelTenant: "lab"}, nil)
+	denied.Addresses = []netip.Addr{netip.MustParseAddr("192.0.2.50")}
+	kept := entity(t, "netbox", model.KindHost, "web01.example.com", nil, nil)
+	byName := entity(t, "k8s", model.KindIngress, "shop/lab01.example.com", nil, nil)
+	byAddress := entity(t, "netbox", model.KindIPAddress, "192.0.2.50", nil, nil)
+	otherDomain := entity(t, "k8s", model.KindIngress, "shop/lab011.example.com", nil, nil)
+	plain := entity(t, "k8s", model.KindService, "shop/edge", nil, nil)
+	for _, e := range []model.Entity{denied, kept, byName, byAddress, otherDomain, plain} {
+		if err := g.AddEntity(e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, r := range []model.Relation{
+		{From: byName.ID, To: plain.ID, Kind: model.RelRoutesTo},
+		{From: plain.ID, To: kept.ID, Kind: model.RelRunsOn},
+	} {
+		if err := g.AddRelation(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	f, err := New(Config{Collectors: map[string]Rules{"netbox": {Deny: []Match{{Tenants: []string{"lab"}}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := f.Apply(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, gone := range []model.Entity{denied, byName, byAddress} {
+		if _, ok := out.Entity(gone.ID); ok {
+			t.Errorf("entity %s must be dropped, it names a denied host or address", gone.ID)
+		}
+	}
+	for _, stays := range []model.Entity{kept, otherDomain, plain} {
+		if _, ok := out.Entity(stays.ID); !ok {
+			t.Errorf("entity %s must stay", stays.ID)
+		}
+	}
+	for _, rel := range out.Relations() {
+		if rel.From == byName.ID || rel.To == byName.ID {
+			t.Errorf("relation %v of a dropped entity must be dropped", rel)
+		}
+	}
+	if len(out.Relations()) != 1 {
+		t.Errorf("relations = %v, want only the one between kept entities", out.Relations())
+	}
+}
