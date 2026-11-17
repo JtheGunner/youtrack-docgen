@@ -111,6 +111,16 @@ youtrack-docgen generate --dry-run --config docgen.yaml
 
 ---
 
+## 📚 Guides
+
+| | Guide | What it covers |
+|---|---|---|
+| ⏰ | [Scheduled runs](docs/scheduled-runs.md) | Run the tool from cron or CI; examples in [`examples/`](examples) |
+| 🔌 | [Write your own collector](docs/write-your-own-collector.md) | The `Collector` interface, the model, testing, wiring |
+| 🧩 | [Overlay pattern](docs/overlay-pattern.md) | Keep site-specific collectors in a private repository |
+
+---
+
 ## 🛠️ Development
 
 Requirements: Go (see `go.mod` for the minimum version) and [golangci-lint](https://golangci-lint.run) v2.
@@ -134,7 +144,7 @@ Released under the [MIT License](LICENSE).
 
 ## 🤝 Contributing
 
-Issues and pull requests are welcome. For a code change:
+Issues and pull requests are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide. For a code change:
 
 1. Open an issue first if the change is larger than a small fix.
 2. Branch off `main` and keep commits focused.
