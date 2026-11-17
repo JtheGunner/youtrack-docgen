@@ -784,3 +784,43 @@ func TestScrubTextStaysLinearOnLongRuns(t *testing.T) {
 		})
 	}
 }
+
+func TestApplyScrubsAliasesAndMapKeysOfDeniedHosts(t *testing.T) {
+	g := model.NewGraph()
+	denied := entity(t, "netbox", model.KindHost, "lab01.example.com", map[string]string{LabelTenant: "lab"}, nil)
+	denied.Addresses = []netip.Addr{netip.MustParseAddr("192.0.2.50")}
+	if err := g.AddEntity(denied); err != nil {
+		t.Fatal(err)
+	}
+	svc := entity(t, "k8s", model.KindService, "shop/edge",
+		map[string]string{"via.192.0.2.50": "x", "keep": "y"},
+		map[string]string{"uplink.lab01.example.com": "10.0.0.1", "plain": "ok"})
+	svc.Aliases = []string{"192.0.2.50", "[2001:db8::1]", "keep.example.com"}
+	if err := g.AddEntity(svc); err != nil {
+		t.Fatal(err)
+	}
+
+	f, err := New(Config{Collectors: map[string]Rules{"netbox": {Deny: []Match{{Tenants: []string{"lab"}}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := f.Apply(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := out.Entity(svc.ID)
+	if !ok {
+		t.Fatal("service must survive")
+	}
+	if want := []string{"[2001:db8::1]", "keep.example.com"}; !slices.Equal(got.Aliases, want) {
+		t.Errorf("Aliases = %v, want %v", got.Aliases, want)
+	}
+	wantAttrs := map[string]string{"uplink." + Placeholder: "10.0.0.1", "plain": "ok"}
+	if fmt.Sprint(got.Attrs) != fmt.Sprint(wantAttrs) {
+		t.Errorf("Attrs = %v, want %v", got.Attrs, wantAttrs)
+	}
+	wantLabels := map[string]string{"via." + Placeholder: "x", "keep": "y"}
+	if fmt.Sprint(got.Labels) != fmt.Sprint(wantLabels) {
+		t.Errorf("Labels = %v, want %v", got.Labels, wantLabels)
+	}
+}

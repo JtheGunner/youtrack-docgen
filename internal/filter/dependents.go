@@ -298,21 +298,28 @@ func (d dependents) mask(e model.Entity) model.Entity {
 	if !d.active() {
 		return e
 	}
+	// Keys are scrubbed too: a key such as "uplink.lab01.example.com" names the
+	// host. Keys are visited in sorted order so a collision after scrubbing is
+	// resolved deterministically (the first original key wins).
 	scrub := func(in map[string]string) map[string]string {
 		if in == nil {
 			return nil
 		}
-		out := maps.Clone(in)
-		for k, v := range out {
-			out[k] = d.scrubText(v)
+		out := make(map[string]string, len(in))
+		for _, k := range slices.Sorted(maps.Keys(in)) {
+			scrubbed := d.scrubText(k)
+			if _, taken := out[scrubbed]; !taken {
+				out[scrubbed] = d.scrubText(in[k])
+			}
 		}
 		return out
 	}
 	e.Labels = scrub(e.Labels)
 	e.Attrs = scrub(e.Attrs)
 	if e.Aliases != nil {
+		// An alias that mentions a denied hostname or address is dropped.
 		e.Aliases = slices.DeleteFunc(slices.Clone(e.Aliases), func(a string) bool {
-			return d.nameRE != nil && d.nameRE.MatchString(a)
+			return d.scrubText(a) != a
 		})
 	}
 	if e.Addresses != nil {
