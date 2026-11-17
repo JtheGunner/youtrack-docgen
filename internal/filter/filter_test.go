@@ -573,3 +573,115 @@ func TestApplyHidesDeniedHostFromDependents(t *testing.T) {
 		t.Errorf("input graph was mutated: %+v", in)
 	}
 }
+
+func TestApplyScrubsDeniedHostFromAllEntityKinds(t *testing.T) {
+	const (
+		deniedName = "lab01.example.com"
+		deniedAddr = "192.0.2.50"
+		keptAddr   = "198.51.100.7"
+	)
+	g := model.NewGraph()
+	add := func(e model.Entity) model.Entity {
+		t.Helper()
+		if err := g.AddEntity(e); err != nil {
+			t.Fatal(err)
+		}
+		return e
+	}
+	lab := entity(t, "netbox", model.KindHost, deniedName, map[string]string{LabelTenant: "lab"}, nil)
+	lab.Addresses = []netip.Addr{netip.MustParseAddr(deniedAddr)}
+	lab = add(lab)
+
+	ingress := entity(t, "k8s", model.KindIngress, "shop/web", nil, map[string]string{"hosts": "Lab01.Example.com,shop.example.com"})
+	ingress.Aliases = []string{"LAB01.example.com", "shop.example.com"}
+	ingress = add(ingress)
+
+	service := entity(t, "k8s", model.KindService, "shop/edge", nil, map[string]string{"external_ips": deniedAddr + "," + keptAddr})
+	service.Addresses = []netip.Addr{netip.MustParseAddr(deniedAddr), netip.MustParseAddr(keptAddr)}
+	service = add(service)
+
+	workload := add(entity(t, "k8s", model.KindWorkload, "shop/Deployment/api",
+		map[string]string{"node": deniedName, "tier": "web"}, map[string]string{"note": "pinned to " + deniedName + " at " + deniedAddr}))
+
+	otherHost := entity(t, "netbox", model.KindHost, "web01.example.com", map[string]string{LabelTenant: "acme"}, nil)
+	otherHost.Aliases = []string{deniedName, "web.example.com"}
+	otherHost = add(otherHost)
+
+	f, err := New(Config{Collectors: map[string]Rules{"netbox": {Deny: []Match{{Tenants: []string{"lab"}}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := f.Apply(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok := out.Entity(lab.ID); ok {
+		t.Fatalf("%s should have been removed", lab.ID)
+	}
+	for _, e := range []model.Entity{ingress, service, workload, otherHost} {
+		if _, ok := out.Entity(e.ID); !ok {
+			t.Errorf("%s must be masked, not removed", e.ID)
+		}
+	}
+	for _, kind := range allKinds {
+		for _, e := range out.ByKind(kind) {
+			text := strings.ToLower(fmt.Sprintf("%+v", e))
+			if strings.Contains(text, deniedName) || strings.Contains(text, "lab01") || strings.Contains(text, deniedAddr) {
+				t.Errorf("denied host leaked into %s: %+v", e.ID, e)
+			}
+		}
+	}
+	svc, _ := out.Entity(service.ID)
+	if !slices.Contains(svc.Addresses, netip.MustParseAddr(keptAddr)) || len(svc.Addresses) != 1 {
+		t.Errorf("service addresses = %v, want only %s", svc.Addresses, keptAddr)
+	}
+	if !strings.Contains(svc.Attrs["external_ips"], keptAddr) {
+		t.Errorf("unrelated address was lost: %v", svc.Attrs)
+	}
+	wl, _ := out.Entity(workload.ID)
+	if wl.Labels["tier"] != "web" {
+		t.Errorf("unrelated label changed: %v", wl.Labels)
+	}
+
+	// Masking must not mutate the input graph.
+	in, _ := g.Entity(ingress.ID)
+	if !strings.Contains(in.Attrs["hosts"], "Lab01") || len(in.Aliases) != 2 {
+		t.Errorf("input graph was mutated: %+v", in)
+	}
+}
+
+func TestApplyAnchorsDeniedNamesAtHostnameBoundaries(t *testing.T) {
+	g := model.NewGraph()
+	add := func(e model.Entity) model.Entity {
+		t.Helper()
+		if err := g.AddEntity(e); err != nil {
+			t.Fatal(err)
+		}
+		return e
+	}
+	add(entity(t, "netbox", model.KindHost, "db", map[string]string{LabelTenant: "lab"}, nil))
+	svc := add(entity(t, "k8s", model.KindService, "shop/edge", nil,
+		map[string]string{"upstream": "db2.example.com", "primary": "DB.example.com", "mongodb": "mongodb.example.com"}))
+
+	f, err := New(Config{Collectors: map[string]Rules{"netbox": {Deny: []Match{{Tenants: []string{"lab"}}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := f.Apply(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := out.Entity(svc.ID)
+	if !ok {
+		t.Fatal("service must survive")
+	}
+	want := map[string]string{
+		"upstream": "db2.example.com",
+		"primary":  Placeholder + ".example.com",
+		"mongodb":  "mongodb.example.com",
+	}
+	if fmt.Sprint(got.Attrs) != fmt.Sprint(want) {
+		t.Errorf("Attrs = %v, want %v", got.Attrs, want)
+	}
+}

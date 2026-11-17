@@ -2,6 +2,7 @@ package filter
 
 import (
 	"maps"
+	"net/netip"
 	"regexp"
 	"slices"
 	"strings"
@@ -43,39 +44,49 @@ func (f *Filter) deniedHosts(g *model.Graph) map[model.ID]model.Entity {
 	return denied
 }
 
+// hostnameChars are the characters a hostname is made of. A denied name only
+// matches when it is not embedded in a longer hostname, so denying "db" hides
+// "db.example.com" but keeps "db2.example.com" and "mongodb.example.com".
+const hostnameChars = `a-z0-9-`
+
+// addressChars are the characters an IP address literal is made of.
+const addressChars = `0-9a-f:`
+
+// maxScrubPasses bounds the repeated replacement that is needed because
+// neighbouring matches share their boundary character.
+const maxScrubPasses = 8
+
 // dependents decides which entities depend on denied hosts.
 //
 // An interface that is a member of a denied host is removed. An IP address
-// assigned only to such interfaces is removed as well. An IP address that is
-// also assigned elsewhere stays, but scrubbed of the denied hosts' names.
+// assigned only to such interfaces is removed as well. Every surviving entity
+// is scrubbed of the denied hosts' names and addresses.
 type dependents struct {
 	removed map[model.ID]bool
-	// names are the denied hostnames (names and aliases) that must not leak.
-	names []string
-	// nameRE matches any of names case-insensitively; nil when names is empty.
+	// nameRE matches any denied hostname (names and aliases) at hostname
+	// boundaries, case-insensitively; nil when there are none.
 	nameRE *regexp.Regexp
-	// masked marks the surviving entities that referenced a denied owner.
-	masked map[model.ID]bool
+	// addrs are the addresses of the denied hosts and of the IP entities removed
+	// with them; addrRE matches them at address boundaries.
+	addrs  map[netip.Addr]bool
+	addrRE *regexp.Regexp
 }
 
 func newDependents(g *model.Graph, denied map[model.ID]model.Entity) dependents {
-	d := dependents{removed: map[model.ID]bool{}, masked: map[model.ID]bool{}}
+	d := dependents{removed: map[model.ID]bool{}, addrs: map[netip.Addr]bool{}}
 	if len(denied) == 0 {
 		return d
 	}
+	var names []string
 	for _, h := range denied {
 		d.removed[h.ID] = true
-		d.names = append(d.names, h.Name)
-		d.names = append(d.names, h.Aliases...)
-	}
-	d.names = slices.DeleteFunc(d.names, func(s string) bool { return strings.TrimSpace(s) == "" })
-	if len(d.names) > 0 {
-		parts := make([]string, len(d.names))
-		for i, n := range d.names {
-			parts[i] = regexp.QuoteMeta(n)
+		names = append(names, h.Name)
+		names = append(names, h.Aliases...)
+		for _, addr := range h.Addresses {
+			d.addrs[addr] = true
 		}
-		d.nameRE = regexp.MustCompile("(?i)" + strings.Join(parts, "|"))
 	}
+	d.nameRE = boundaryRegexp(names, hostnameChars)
 
 	deniedIfaces := map[model.ID]bool{}
 	for _, nic := range g.ByKind(model.KindInterface) {
@@ -98,15 +109,49 @@ func newDependents(g *model.Graph, denied map[model.ID]model.Entity) dependents 
 				others++
 			}
 		}
-		named := d.namesDenied(ip)
-		switch {
-		case (denies > 0 || named) && others == 0:
+		if (denies > 0 || d.namesDenied(ip)) && others == 0 {
 			d.removed[ip.ID] = true
-		case denies > 0 || named:
-			d.masked[ip.ID] = true
+			d.addAddresses(ip)
 		}
 	}
+	d.addrRE = boundaryRegexp(addrStrings(d.addrs), addressChars)
 	return d
+}
+
+// addAddresses records the addresses of a removed IP entity: its name is the
+// address, and it may own further ones.
+func (d dependents) addAddresses(ip model.Entity) {
+	if addr, err := netip.ParseAddr(ip.Name); err == nil {
+		d.addrs[addr] = true
+	}
+	for _, addr := range ip.Addresses {
+		d.addrs[addr] = true
+	}
+}
+
+// addrStrings renders the addresses in a stable order.
+func addrStrings(addrs map[netip.Addr]bool) []string {
+	out := make([]string, 0, len(addrs))
+	for addr := range addrs {
+		out = append(out, addr.String())
+	}
+	slices.Sort(out)
+	return out
+}
+
+// boundaryRegexp matches any of words case-insensitively, but only when the
+// neighbouring characters are not in chars. It returns nil when there is
+// nothing to match. Group 1 and 3 hold the boundaries, group 2 the match.
+func boundaryRegexp(words []string, chars string) *regexp.Regexp {
+	words = slices.DeleteFunc(slices.Clone(words), func(s string) bool { return strings.TrimSpace(s) == "" })
+	if len(words) == 0 {
+		return nil
+	}
+	parts := make([]string, len(words))
+	for i, w := range words {
+		parts[i] = regexp.QuoteMeta(w)
+	}
+	return regexp.MustCompile(`(?i)(^|[^` + chars + `])(` + strings.Join(parts, "|") + `)($|[^` + chars + `])`)
 }
 
 // namesDenied reports whether the DNS name or an alias of e is a denied hostname.
@@ -117,27 +162,53 @@ func (d dependents) namesDenied(e model.Entity) bool {
 	return d.nameRE.MatchString(e.Attrs["dns_name"]) || slices.ContainsFunc(e.Aliases, d.nameRE.MatchString)
 }
 
-// mask removes the denied hostnames from the free-text fields of e.
+// active reports whether there is anything to scrub.
+func (d dependents) active() bool { return d.nameRE != nil || d.addrRE != nil }
+
+// scrubText replaces the denied hostnames and addresses in s.
+func (d dependents) scrubText(s string) string {
+	for _, re := range []*regexp.Regexp{d.nameRE, d.addrRE} {
+		if re == nil {
+			continue
+		}
+		// Neighbouring matches share a boundary character, so repeat until stable.
+		for range maxScrubPasses {
+			next := re.ReplaceAllString(s, "${1}"+Placeholder+"${3}")
+			if next == s {
+				break
+			}
+			s = next
+		}
+	}
+	return s
+}
+
+// mask removes the denied hostnames and addresses from e. The entity ID and
+// name are identity and stay untouched; every other field is scrubbed. The
+// input is not modified.
 func (d dependents) mask(e model.Entity) model.Entity {
-	re := d.nameRE
-	if re == nil {
+	if !d.active() {
 		return e
 	}
-
 	scrub := func(in map[string]string) map[string]string {
 		if in == nil {
 			return nil
 		}
 		out := maps.Clone(in)
 		for k, v := range out {
-			out[k] = re.ReplaceAllString(v, Placeholder)
+			out[k] = d.scrubText(v)
 		}
 		return out
 	}
 	e.Labels = scrub(e.Labels)
 	e.Attrs = scrub(e.Attrs)
 	if e.Aliases != nil {
-		e.Aliases = slices.DeleteFunc(slices.Clone(e.Aliases), re.MatchString)
+		e.Aliases = slices.DeleteFunc(slices.Clone(e.Aliases), func(a string) bool {
+			return d.nameRE != nil && d.nameRE.MatchString(a)
+		})
+	}
+	if e.Addresses != nil {
+		e.Addresses = slices.DeleteFunc(slices.Clone(e.Addresses), func(a netip.Addr) bool { return d.addrs[a] })
 	}
 	return e
 }
