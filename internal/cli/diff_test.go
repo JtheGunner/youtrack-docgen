@@ -21,6 +21,8 @@ type fakeYouTrack struct {
 	mu  sync.Mutex
 	// requests holds "METHOD path" of every call.
 	requests []string
+	// articles is the content of the fake Knowledge Base.
+	articles []map[string]any
 }
 
 func newFakeYouTrack(t *testing.T) *fakeYouTrack {
@@ -39,7 +41,7 @@ func newFakeYouTrack(t *testing.T) *fakeYouTrack {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode([]any{})
+		_ = json.NewEncoder(w).Encode(f.articles)
 	}))
 	t.Cleanup(f.srv.Close)
 	return f
@@ -103,6 +105,33 @@ func TestDiffNeverPrintsSeededSecrets(t *testing.T) {
 		if strings.Contains(stdout+stderr, secret) {
 			t.Errorf("secret %q reached the output", secret)
 		}
+	}
+}
+
+// Article text is written by other people. Control characters in it must be
+// shown escaped and never reach the terminal raw.
+func TestDiffEscapesControlCharactersFromYouTrack(t *testing.T) {
+	t.Setenv("NETBOX_TOKEN", fakeNetBoxToken)
+	t.Setenv("YOUTRACK_TOKEN", fakeYouTrackToken)
+	nb := fakeNetBox(t)
+	yt := newFakeYouTrack(t)
+	yt.articles = []map[string]any{{
+		"id":      "1-1",
+		"summary": "Infra \x1b]0;pwned\x07title",
+		"content": "<!-- docgen:doc overview:root -->\n\nmanual \x1b[2J\rtext\u009b\n",
+	}}
+
+	stdout, _, err := runCLI(t, diffConfig(nb.URL, yt.srv.URL, t.TempDir()), "diff")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range stdout {
+		if r != '\n' && r != '\t' && (r < 0x20 || (r >= 0x7f && r <= 0x9f)) {
+			t.Fatalf("raw control character %U in the output", r)
+		}
+	}
+	if !strings.Contains(stdout, `-Title: Infra \x1b]0;pwned\x07title`) || !strings.Contains(stdout, `manual \x1b[2J\rtext\x9b`) {
+		t.Errorf("escaped article text missing from the output:\n%s", stdout)
 	}
 }
 
