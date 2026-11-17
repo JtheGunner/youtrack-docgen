@@ -20,7 +20,7 @@ func newDiffCmd(now func() time.Time) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "diff",
 		Short: "Show what would change in the YouTrack Knowledge Base",
-		Long: "Runs the pipeline collector -> filter -> render and compares the result with the articles\\n" +
+		Long: "Runs the pipeline collector -> filter -> render and compares the result with the articles\n" +
 			"in YouTrack. It prints a unified diff per changed article and a summary, and never writes.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
