@@ -49,13 +49,14 @@ func (f *Filter) deniedHosts(g *model.Graph) map[model.ID]model.Entity {
 // "db.example.com" but keeps "db2.example.com" and "mongodb.example.com".
 const hostnameChars = `a-z0-9-`
 
-// ipv4Chars and ipv6Chars are the characters an IP address literal of that
-// family is made of. A colon or slash next to an IPv4 address is a port or
-// prefix separator, so it counts as a boundary there but not for IPv6.
-const (
-	ipv4Chars = `0-9`
-	ipv6Chars = `0-9a-f:`
-)
+// addressTokenRE finds the runs of characters an IP address literal is made
+// of. Candidates are parsed, never compared as text, so every way of writing an
+// address is caught: compressed, expanded, upper case, IPv4-mapped, with a zone.
+var addressTokenRE = regexp.MustCompile(`[0-9A-Fa-f:.]+`)
+
+// maxAddressToken bounds the work per candidate; the longest address literal
+// is 45 characters.
+const maxAddressToken = 64
 
 // maxScrubPasses bounds the repeated replacement that is needed because
 // neighbouring matches share their boundary character.
@@ -72,10 +73,8 @@ type dependents struct {
 	// boundaries, case-insensitively; nil when there are none.
 	nameRE *regexp.Regexp
 	// addrs are the (unmapped) addresses of the denied hosts and of the IP
-	// entities removed with them; addrREs match their text forms at address
-	// boundaries, one expression per address family.
-	addrs   map[netip.Addr]bool
-	addrREs []*regexp.Regexp
+	// entities removed with them.
+	addrs map[netip.Addr]bool
 }
 
 func newDependents(g *model.Graph, denied map[model.ID]model.Entity) dependents {
@@ -120,7 +119,6 @@ func newDependents(g *model.Graph, denied map[model.ID]model.Entity) dependents 
 			d.addAddresses(ip)
 		}
 	}
-	d.addrREs = addressRegexps(d.addrs)
 	return d
 }
 
@@ -139,31 +137,6 @@ func (d dependents) addAddresses(ip model.Entity) {
 // and the plain IPv4 address count as the same one.
 func (d dependents) addAddress(addr netip.Addr) {
 	d.addrs[addr.Unmap().WithZone("")] = true
-}
-
-// addressRegexps builds one boundary expression per address family. IPv4
-// addresses match in dotted form (also inside an IPv4-mapped IPv6 literal);
-// IPv6 addresses match in compressed and fully expanded form.
-func addressRegexps(addrs map[netip.Addr]bool) []*regexp.Regexp {
-	var v4, v6 []string
-	for addr := range addrs {
-		if addr.Is4() {
-			v4 = append(v4, addr.String())
-			continue
-		}
-		v6 = append(v6, addr.String(), addr.StringExpanded())
-	}
-	var out []*regexp.Regexp
-	for _, set := range []struct {
-		words []string
-		chars string
-	}{{v4, ipv4Chars}, {v6, ipv6Chars}} {
-		slices.Sort(set.words)
-		if re := boundaryRegexp(slices.Compact(set.words), set.chars); re != nil {
-			out = append(out, re)
-		}
-	}
-	return out
 }
 
 // boundaryRegexp matches any of words case-insensitively, but only when the
@@ -190,24 +163,57 @@ func (d dependents) namesDenied(e model.Entity) bool {
 }
 
 // active reports whether there is anything to scrub.
-func (d dependents) active() bool { return d.nameRE != nil || len(d.addrREs) > 0 }
+func (d dependents) active() bool { return d.nameRE != nil || len(d.addrs) > 0 }
 
 // scrubText replaces the denied hostnames and addresses in s.
 func (d dependents) scrubText(s string) string {
-	for _, re := range append([]*regexp.Regexp{d.nameRE}, d.addrREs...) {
-		if re == nil {
-			continue
-		}
+	if d.nameRE != nil {
 		// Neighbouring matches share a boundary character, so repeat until stable.
 		for range maxScrubPasses {
-			next := re.ReplaceAllString(s, "${1}"+Placeholder+"${3}")
+			next := d.nameRE.ReplaceAllString(s, "${1}"+Placeholder+"${3}")
 			if next == s {
 				break
 			}
 			s = next
 		}
 	}
-	return s
+	if len(d.addrs) == 0 {
+		return s
+	}
+	return addressTokenRE.ReplaceAllStringFunc(s, d.scrubAddressToken)
+}
+
+// scrubAddressToken replaces the denied address inside one candidate token. The
+// token may carry separators around the address: a trailing port (":8080"), a
+// sentence dot, or the colons of a neighbouring literal.
+func (d dependents) scrubAddressToken(tok string) string {
+	if len(tok) > maxAddressToken {
+		return tok
+	}
+	bases := []string{tok}
+	if i := strings.LastIndexByte(tok, ':'); i > 0 && i < len(tok)-1 && isDigits(tok[i+1:]) {
+		bases = append(bases, tok[:i]) // address without its port
+	}
+	for _, base := range bases {
+		lead := len(base) - len(strings.TrimLeft(base, ":."))
+		for l := 0; l <= lead; l++ {
+			rest := base[l:]
+			trail := len(rest) - len(strings.TrimRight(rest, ":."))
+			for r := 0; r <= trail && r < len(rest); r++ {
+				core := rest[:len(rest)-r]
+				addr, err := netip.ParseAddr(core)
+				if err != nil || !d.addrs[addr.Unmap().WithZone("")] {
+					continue
+				}
+				return base[:l] + Placeholder + rest[len(core):] + tok[len(base):]
+			}
+		}
+	}
+	return tok
+}
+
+func isDigits(s string) bool {
+	return s != "" && strings.Trim(s, "0123456789") == ""
 }
 
 // mask removes the denied hostnames and addresses from e. The entity ID and
