@@ -9,6 +9,7 @@ import (
 	"unicode"
 
 	"github.com/JtheGunner/youtrack-docgen/internal/render"
+	"github.com/JtheGunner/youtrack-docgen/internal/sink/youtrack/client"
 )
 
 // The markers are written in one canonical form but read tolerantly: an
@@ -17,39 +18,59 @@ import (
 // as missing, and the block would be appended a second time.
 var (
 	docMarkerRe = regexp.MustCompile(`(?m)^[ \t]*<!--[ \t]*docgen:doc[ \t]+(\S+?)[ \t]*-->[ \t]*\r?$`)
-	beginRe     = regexp.MustCompile(`<!--[ \t]*docgen:begin[ \t]+(\S+?)(?:[ \t]+hash=([0-9a-f]*))?[ \t]*-->[ \t]*(?:\r?\n)?`)
+	beginRe     = regexp.MustCompile(`<!--[ \t]*docgen:begin[ \t]+(\S+?)(?:[ \t]+hash=(\S*?))?[ \t]*-->[ \t]*(?:\r?\n)?`)
+	endRe       = regexp.MustCompile(`<!--[ \t]*docgen:end[ \t]+(\S+?)[ \t]*-->[ \t]*(?:\r?\n)?`)
 )
 
-// endRe matches the end marker of the block with the given ID, including the
-// line break after it.
-func endRe(id string) *regexp.Regexp {
-	return regexp.MustCompile(`<!--[ \t]*docgen:end[ \t]+` + regexp.QuoteMeta(id) + `[ \t]*-->[ \t]*(?:\r?\n)?`)
-}
-
-// span is one marked block found in article content. Offsets are relative to
-// the searched text.
+// span is one marked block found in article content.
 type span struct {
 	id, hash   string
 	start, end int // the whole block, markers included
-	bodyStart  int // first byte after the begin marker
 	closed     bool
 }
 
-// nextBlock finds the first begin marker in s. For a block without end marker
-// closed is false and end is the end of the begin marker.
-func nextBlock(s string) (span, bool) {
-	loc := beginRe.FindStringSubmatchIndex(s)
-	if loc == nil {
-		return span{}, false
+// parseBlocks returns the marked blocks of content in order. A block runs
+// from a begin marker to the next end marker with the same ID; begin markers
+// inside it are part of its body. For a begin marker without end marker,
+// closed is false and the span covers the begin marker only.
+//
+// Article text is written by other people, so this is one pass over the
+// markers: the end markers are collected once and consumed in order.
+func parseBlocks(content string) []span {
+	begins := beginRe.FindAllStringSubmatchIndex(content, -1)
+	if begins == nil {
+		return nil
 	}
-	sp := span{id: s[loc[2]:loc[3]], start: loc[0], bodyStart: loc[1], end: loc[1]}
-	if loc[4] >= 0 {
-		sp.hash = s[loc[4]:loc[5]]
+	ends := map[string][][]int{}
+	for _, loc := range endRe.FindAllStringSubmatchIndex(content, -1) {
+		id := content[loc[2]:loc[3]]
+		ends[id] = append(ends[id], loc)
 	}
-	if end := endRe(sp.id).FindStringIndex(s[loc[1]:]); end != nil {
-		sp.end, sp.closed = loc[1]+end[1], true
+	var out []span
+	pos := 0
+	for _, loc := range begins {
+		if loc[0] < pos {
+			continue // inside the previous block
+		}
+		sp := span{id: content[loc[2]:loc[3]], start: loc[0], end: loc[1]}
+		if loc[4] >= 0 {
+			sp.hash = content[loc[4]:loc[5]]
+		}
+		// Drop end markers that lie before this begin marker; they can never
+		// close a later block either.
+		queue := ends[sp.id]
+		for len(queue) > 0 && queue[0][0] < loc[1] {
+			queue = queue[1:]
+		}
+		if len(queue) > 0 {
+			sp.end, sp.closed = queue[0][1], true
+			queue = queue[1:]
+		}
+		ends[sp.id] = queue
+		out = append(out, sp)
+		pos = sp.end
 	}
-	return sp, true
+	return out
 }
 
 // block is one generated section as it appears in article content.
@@ -106,6 +127,9 @@ const escapedKeyPrefix = "esc:"
 // published before keep their key. Any other ID (a host name with spaces or a
 // double hyphen, for example) is percent-encoded behind a prefix; the encoding
 // is reversible, so two IDs never share a key.
+//
+// Use resolveKey to find the article of a document; docKey alone misses
+// articles stored under a legacy key.
 func docKey(id string) string {
 	if checkMarkerToken(id) == nil && !strings.HasPrefix(id, escapedKeyPrefix) {
 		return id
@@ -126,6 +150,20 @@ func docKey(id string) string {
 		}
 	}
 	return b.String()
+}
+
+// resolveKey returns the key under which the document with the given ID is or
+// will be stored. Earlier versions wrote some IDs unencoded that docKey now
+// encodes (a no-break space or a control character, for example). An article
+// stored that way keeps its key, so it is found again instead of duplicated.
+func resolveKey(existing map[string]client.Article, id string) string {
+	key := docKey(id)
+	if key != id {
+		if _, legacy := existing[id]; legacy {
+			return id
+		}
+	}
+	return key
 }
 
 func docMarker(key string) string { return "<!-- docgen:doc " + key + " -->" }
@@ -172,39 +210,31 @@ func merge(existing string, wanted []block, refreshVolatile bool) string {
 	}
 	seen := make(map[string]bool, len(wanted))
 	var out strings.Builder
-	rest := existing
-	for {
-		sp, ok := nextBlock(rest)
-		if !ok {
-			break
-		}
-		if !sp.closed {
-			// Unterminated block: keep the marker as manual text.
-			out.WriteString(rest[:sp.end])
-			rest = rest[sp.end:]
-			continue
-		}
-		out.WriteString(rest[:sp.start])
+	pos := 0
+	for _, sp := range parseBlocks(existing) {
+		out.WriteString(existing[pos:sp.start])
+		pos = sp.end
 		w, wanted := byID[sp.id]
-		rest = rest[sp.start:]
-		size := sp.end - sp.start
 		switch {
+		case !sp.closed:
+			// Unterminated block: keep the marker as manual text.
+			out.WriteString(existing[sp.start:sp.end])
+			continue
 		case sp.id == staleBlockID:
 			// Managed by the stale handling, not a section of the document.
-			out.WriteString(rest[:size])
+			out.WriteString(existing[sp.start:sp.end])
 		case !wanted || seen[sp.id]:
 			// Obsolete section or second copy: drop it with the blank line
 			// that separated it from what follows.
-			size += len(leadingLineBreak(rest[size:]))
+			pos += len(leadingLineBreak(existing[pos:]))
 		case w.hash != sp.hash && (refreshVolatile || !w.volatile):
 			out.WriteString(w.render())
 		default:
-			out.WriteString(rest[:size])
+			out.WriteString(existing[sp.start:sp.end])
 		}
 		seen[sp.id] = seen[sp.id] || wanted
-		rest = rest[size:]
 	}
-	out.WriteString(rest)
+	out.WriteString(existing[pos:])
 	merged := out.String()
 	for _, w := range wanted {
 		if !seen[w.id] {

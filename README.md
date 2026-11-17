@@ -113,7 +113,7 @@ youtrack-docgen publish --config docgen.yaml
 - Articles are created or updated, never deleted. Only the blocks between the `docgen` markers are replaced; text you add outside them stays.
 - The markers are HTML comments: `<!-- docgen:doc <key> -->` names the document, and `<!-- docgen:begin <section> hash=… -->` to `<!-- docgen:end <section> -->` wraps one generated section. They are still recognised after an editor changed line endings or spacing.
 - A generated section that the tool no longer produces is removed from its article, and so is a second copy of a section.
-- Do not remove the `docgen:doc` line. An article that has generated sections but no such line is left untouched and reported as a warning with the line to restore. If a document of the same title exists, no second article is created for it.
+- Do not remove the `docgen:doc` line. An article that has generated sections but no such line is left untouched and reported as a warning with the line to restore. If a document of the same title exists, no second article is created for it. The title is the only link left: if the title was changed too, the article matches no document, a new article is created, and the old one is reported.
 - Host names with spaces or a double hyphen get an encoded key that starts with `esc:`.
 - An article whose object is gone from the sources gets the `docgen-stale` tag and a banner. Both are removed when the object comes back.
 - A run on unchanged data writes nothing. The "Generated at" line of an article keeps the time of its last real change.

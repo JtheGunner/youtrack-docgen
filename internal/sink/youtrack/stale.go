@@ -30,11 +30,11 @@ type TagAPI interface {
 
 // publishedKeys returns the keys of every article Publish writes for root,
 // including the container articles.
-func publishedKeys(root render.Document) map[string]bool {
+func publishedKeys(root render.Document, existing map[string]client.Article) map[string]bool {
 	keys := map[string]bool{}
 	var walk func(d render.Document)
 	walk = func(d render.Document) {
-		keys[docKey(d.ID)] = true
+		keys[resolveKey(existing, d.ID)] = true
 		for _, c := range d.Children {
 			walk(c)
 		}
@@ -154,17 +154,12 @@ func hasBlock(content, id string) bool {
 
 // findBlock returns the offsets of the closed block with the given ID.
 func findBlock(content, id string) (start, end int, ok bool) {
-	offset := 0
-	for {
-		sp, found := nextBlock(content[offset:])
-		if !found {
-			return 0, 0, false
-		}
+	for _, sp := range parseBlocks(content) {
 		if sp.closed && sp.id == id {
-			return offset + sp.start, offset + sp.end, true
+			return sp.start, sp.end, true
 		}
-		offset += sp.end
 	}
+	return 0, 0, false
 }
 
 // insertBanner places the stale banner block directly below the document

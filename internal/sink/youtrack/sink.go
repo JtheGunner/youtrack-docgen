@@ -86,7 +86,7 @@ func (s *Sink) Publish(ctx context.Context, root render.Document) (Result, error
 	p := &publisher{Sink: s, existing: existing, orphans: lost}
 	rootArticle, err := p.publish(ctx, root, "")
 	if err != nil {
-		return p.res, err
+		return p.failed(err)
 	}
 	groups := map[string]string{} // group key -> article ID
 	for _, child := range root.Children {
@@ -95,18 +95,18 @@ func (s *Sink) Publish(ctx context.Context, root render.Document) (Result, error
 			if _, ok := groups[key]; !ok {
 				g, err := p.publish(ctx, render.Document{ID: key, Title: title}, rootArticle.ID)
 				if err != nil {
-					return p.res, err
+					return p.failed(err)
 				}
 				groups[key] = g.ID
 			}
 			parent = groups[key]
 		}
 		if err := p.publishTree(ctx, child, parent); err != nil {
-			return p.res, err
+			return p.failed(err)
 		}
 	}
 	p.res.Warnings = p.orphans.all()
-	return p.res, p.reconcileStale(ctx, publishedKeys(root))
+	return p.res, p.reconcileStale(ctx, publishedKeys(root, existing))
 }
 
 // groupFor returns the container a document belongs to, or "" for documents
@@ -151,6 +151,13 @@ func (s *Sink) index(ctx context.Context) (map[string]client.Article, *orphans, 
 	return out, lost, nil
 }
 
+// failed returns the result of a run that stopped with err. Only the warnings
+// for articles the run reached are reported: the rest was never looked at.
+func (p *publisher) failed(err error) (Result, error) {
+	p.res.Warnings = p.orphans.claimedWarnings()
+	return p.res, err
+}
+
 type publisher struct {
 	*Sink
 	existing map[string]client.Article
@@ -173,7 +180,7 @@ func (p *publisher) publishTree(ctx context.Context, d render.Document, parentID
 
 // publish creates or updates the article of d and returns it.
 func (p *publisher) publish(ctx context.Context, d render.Document, parentID string) (client.Article, error) {
-	key := docKey(d.ID)
+	key := resolveKey(p.existing, d.ID)
 	blocks, err := sectionBlocks(d)
 	if err != nil {
 		return client.Article{}, err

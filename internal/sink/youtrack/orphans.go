@@ -15,7 +15,12 @@ import (
 // a document whose title an orphan carries: it claims the orphan for that
 // document, leaves it untouched and warns. Restoring the marker line makes the
 // article a normal one again.
+//
+// The title is the only link left. If the title was changed as well, the
+// orphan matches no document: a new article is created for the document and
+// the orphan is reported, so a person can merge the two.
 type orphans struct {
+	list     []client.Article
 	byTitle  map[string]client.Article
 	claimed  map[string]bool // by article ID
 	warnings []string        // for claimed orphans, in document order
@@ -23,10 +28,11 @@ type orphans struct {
 
 // add records a as an orphan if it holds a generated block.
 func (o *orphans) add(a client.Article) {
-	if _, generated := nextBlock(a.Content); !generated {
+	if !beginRe.MatchString(a.Content) {
 		return
 	}
-	// Two orphans with one title: keep the lower ID so runs agree.
+	o.list = append(o.list, a)
+	// Two orphans with one title: the lower ID can be claimed, so runs agree.
 	if prev, dup := o.byTitle[a.Summary]; dup && prev.ID < a.ID {
 		return
 	}
@@ -50,12 +56,15 @@ func (o *orphans) claim(key, title string) (client.Article, bool) {
 	return a, true
 }
 
+// claimedWarnings returns the messages for the orphans claimed so far.
+func (o *orphans) claimedWarnings() []string { return append([]string(nil), o.warnings...) }
+
 // all returns one message per orphan: first the claimed ones, then the
 // rest sorted by article ID.
 func (o *orphans) all() []string {
-	out := append([]string(nil), o.warnings...)
+	out := o.claimedWarnings()
 	var rest []client.Article
-	for _, a := range o.byTitle {
+	for _, a := range o.list {
 		if !o.claimed[a.ID] {
 			rest = append(rest, a)
 		}

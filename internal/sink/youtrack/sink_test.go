@@ -609,3 +609,99 @@ func TestArticleInTheOldFormatIsFoundAgain(t *testing.T) {
 		t.Errorf("result = %+v with %d articles, want the old article unchanged", res, len(api.articles))
 	}
 }
+
+// Before keys were encoded, an ID with a no-break space or a control
+// character was written as the key unchanged. Such an article must be found
+// under that old key: no second article, and the original is not marked stale.
+func TestArticleWithALegacyUnencodedKeyIsFoundAgain(t *testing.T) {
+	for _, id := range []string{"netbox:host:core switch", "netbox:host:odd\x1bname", "netbox:host:line sep"} {
+		api := &fakeAPI{}
+		s := newSink(t, api)
+		doc := render.Document{
+			ID: "overview:root", Title: "Root",
+			Children: []render.Document{{ID: id, Title: "host", Sections: []render.Section{section("summary", "a")}}},
+		}
+		if _, err := s.Publish(context.Background(), doc); err != nil {
+			t.Fatal(err)
+		}
+		// Rewrite the host article the way the old version stored it.
+		host := api.byKey(t, docKey(id))
+		host.Content = strings.Replace(host.Content, docMarker(docKey(id)), "<!-- docgen:doc "+id+" -->", 1)
+		count, updates := len(api.articles), api.updates
+
+		plan, err := newPlanner(t, api).Plan(context.Background(), doc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(plan.Changes) != 0 {
+			t.Errorf("%q: plan shows changes:\n%s", id, plan.Diff())
+		}
+		res, err := s.Publish(context.Background(), doc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(api.articles) != count || api.updates != updates || res.Stale != 0 || res.Unchanged != 3 {
+			t.Errorf("%q: articles %d->%d, updates %d->%d, result %+v: want the old article reused", id, count, len(api.articles), updates, api.updates, res)
+		}
+	}
+}
+
+// Every article without marker is reported, also two with the same title.
+func TestEveryArticleWithoutMarkerIsReported(t *testing.T) {
+	block := "<!-- docgen:begin summary hash=00 -->\nold\n<!-- docgen:end summary -->\n"
+	api := &fakeAPI{articles: []client.Article{
+		{ID: "9-1", IDReadable: "KB-A-901", Summary: "twin", Content: block},
+		{ID: "9-2", IDReadable: "KB-A-902", Summary: "twin", Content: block},
+	}}
+	res, err := newSink(t, api).Publish(context.Background(), render.Document{ID: "overview:root", Title: "Root"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	all := strings.Join(res.Warnings, "\n")
+	if len(res.Warnings) != 2 || !strings.Contains(all, "KB-A-901") || !strings.Contains(all, "KB-A-902") {
+		t.Errorf("warnings = %q, want one per article", res.Warnings)
+	}
+}
+
+// The limit of matching by title: when the marker was removed and the title
+// changed too, the article cannot be recognised. A new article is created, and
+// the old one is reported, so nothing happens silently.
+func TestRenamedArticleWithoutMarkerIsReportedNotMatched(t *testing.T) {
+	api := &fakeAPI{}
+	s := newSink(t, api)
+	doc := tree("web-1.example.com", "a")
+	if _, err := s.Publish(context.Background(), doc); err != nil {
+		t.Fatal(err)
+	}
+	host := api.byKey(t, "netbox:host:web-1")
+	host.Content, host.Summary = lostMarker(host.Content), "renamed by hand"
+	id := host.IDReadable
+
+	res, err := s.Publish(context.Background(), doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Created != 1 || len(res.Warnings) != 1 || !strings.Contains(res.Warnings[0], id) {
+		t.Errorf("result = %+v, want one new article and a warning naming %s", res, id)
+	}
+}
+
+// Warnings collected before a failure are still reported.
+func TestWarningsAreReportedWhenPublishFails(t *testing.T) {
+	api := &fakeAPI{}
+	s := newSink(t, api)
+	doc := tree("web-1.example.com", "a")
+	if _, err := s.Publish(context.Background(), doc); err != nil {
+		t.Fatal(err)
+	}
+	api.articles[0].Content = lostMarker(api.articles[0].Content)
+	doc.Children[2].Sections[0].ID = "bad id-->"
+
+	res, err := s.Publish(context.Background(), doc)
+	if err == nil {
+		t.Fatal("want an error for the invalid section ID")
+	}
+	if len(res.Warnings) != 1 {
+		t.Errorf("warnings = %q, want the one collected before the failure", res.Warnings)
+	}
+}

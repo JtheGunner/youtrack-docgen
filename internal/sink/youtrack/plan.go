@@ -101,11 +101,11 @@ func (pl *Planner) Plan(ctx context.Context, root render.Document) (Plan, error)
 	}
 	groups := map[string]bool{}
 	for _, child := range root.Children {
-		parent := docKey(root.ID)
+		parent := resolveKey(existing, root.ID)
 		if key, title := groupFor(child.ID); key != "" {
 			if !groups[key] {
 				groups[key] = true
-				if err := c.document(render.Document{ID: key, Title: title}, docKey(root.ID)); err != nil {
+				if err := c.document(render.Document{ID: key, Title: title}, resolveKey(existing, root.ID)); err != nil {
 					return Plan{}, err
 				}
 			}
@@ -162,7 +162,7 @@ func (c *planCollector) tree(d render.Document, parentKey string) error {
 		return err
 	}
 	for _, child := range d.Children {
-		if err := c.tree(child, docKey(d.ID)); err != nil {
+		if err := c.tree(child, resolveKey(c.existing, d.ID)); err != nil {
 			return err
 		}
 	}
@@ -172,7 +172,7 @@ func (c *planCollector) tree(d render.Document, parentKey string) error {
 // document mirrors publisher.publish without any write. parentKey is the key
 // of the parent document, or "" for the root.
 func (c *planCollector) document(d render.Document, parentKey string) error {
-	key := docKey(d.ID)
+	key := resolveKey(c.existing, d.ID)
 	blocks, err := sectionBlocks(d)
 	if err != nil {
 		return err

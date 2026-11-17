@@ -3,6 +3,7 @@ package youtrack
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func mustBlock(t *testing.T, id, markdown string) block {
@@ -170,5 +171,42 @@ func TestRemovingAnObsoleteBlockRefreshesVolatileBlocks(t *testing.T) {
 	got := mergeContent(existing, []block{a, later})
 	if strings.Contains(got, "gone") || !strings.Contains(got, "04:00") || strings.Contains(got, "03:00") {
 		t.Errorf("got:\n%s", got)
+	}
+}
+
+// Article text is written by other people. Many begin markers without an end
+// must not make parsing quadratic.
+func TestManyUnterminatedBlocksAreParsedInLinearTime(t *testing.T) {
+	const n = 20000
+	content := "<!-- docgen:doc k -->\n" + strings.Repeat("<!-- docgen:begin x hash=00 -->\nfiller text\n", n)
+	a := mustBlock(t, "a", "text\n")
+	start := time.Now()
+	got := mergeContent(content, []block{a})
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Errorf("merging %d unterminated blocks took %s", n, elapsed)
+	}
+	if !strings.HasPrefix(got, content) || !strings.HasSuffix(got, a.render()) {
+		t.Error("unterminated blocks must stay as manual text and the wanted block must be appended")
+	}
+}
+
+// A begin marker inside a closed block belongs to that block's body.
+func TestBeginMarkerInsideAClosedBlockIsBody(t *testing.T) {
+	a := mustBlock(t, "a", "new\n")
+	existing := "<!-- docgen:begin a hash=00 -->\n<!-- docgen:begin b hash=00 -->\ninner\n<!-- docgen:end b -->\n<!-- docgen:end a -->\ntail\n"
+	if got, want := mergeContent(existing, []block{a}), a.render()+"tail\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// A hash damaged by hand is still a hash attribute: the block is rewritten in
+// place and not appended a second time.
+func TestBlockWithDamagedHashIsRewrittenInPlace(t *testing.T) {
+	a := mustBlock(t, "a", "text\n")
+	for _, hash := range []string{"ABC", "xyz!", ""} {
+		existing := "<!-- docgen:begin a hash=" + hash + " -->\nold\n<!-- docgen:end a -->\ntail\n"
+		if got, want := mergeContent(existing, []block{a}), a.render()+"tail\n"; got != want {
+			t.Errorf("hash=%q: got %q, want %q", hash, got, want)
+		}
 	}
 }
