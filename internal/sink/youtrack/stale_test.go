@@ -91,8 +91,8 @@ func TestVanishedObjectGetsTagAndBanner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Stale != 1 || len(api.articles) != n {
-		t.Fatalf("result %+v, articles %d->%d; want one stale, none deleted", res, n, len(api.articles))
+	if res.Stale != 2 || len(api.articles) != n {
+		t.Fatalf("result %+v, articles %d->%d; want host and its emptied group stale, none deleted", res, n, len(api.articles))
 	}
 	got := api.byKey(t, "netbox:host:web-1")
 	if !isStale(got) {
