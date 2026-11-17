@@ -723,9 +723,13 @@ func TestApplyScrubsDeniedAddressesInEveryTextForm(t *testing.T) {
 		{"ipv6 after a leading colon", ":2001:db8::50", ":" + Placeholder},
 		{"ipv6 before a trailing colon", "2001:db8::50:", Placeholder + ":"},
 		{"ipv6 between colons", "x:2001:db8::50:y", "x:" + Placeholder + ":y"},
-		{"longer ipv4 stays", "192.0.2.500", "192.0.2.500"},
+		{"hex letter right before an ipv6 address", "a2001:db8::50", "a" + Placeholder},
+		{"several hex digits before an ipv6 address", "cafe2001:db8::50", "cafe" + Placeholder},
+		{"hex digits after an ipv6 address that is not a valid address", "2001:db8::50g", Placeholder + "g"},
+		{"invalid longer ipv4 hides the denied part", "192.0.2.500", Placeholder + "0"},
 		{"shorter ipv4 stays", "192.0.2.5", "192.0.2.5"},
-		{"embedded in a longer number stays", "1192.0.2.50", "1192.0.2.50"},
+		{"invalid number around an ipv4 address hides the denied part", "1192.0.2.50", "1" + Placeholder},
+		{"a different valid ipv6 address stays", "2001:db8::50ab", "2001:db8::50ab"},
 		{"longer ipv6 stays", "2001:db8::500", "2001:db8::500"},
 	}
 	attrs := make(map[string]string, len(tests))

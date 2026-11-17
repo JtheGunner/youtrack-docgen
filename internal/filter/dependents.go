@@ -232,18 +232,30 @@ func (d dependents) deniedWindowEnd(tok string, start int) int {
 	return start
 }
 
-// standsAlone reports whether tok[start:end] is not glued to more address
-// digits: a neighbouring digit (IPv4) or hex digit (IPv6) would make it part of
-// a different number. A colon or dot next to the window is a separator ("ip:",
-// "addr:port", a trailing ":") and does not count, so the scrubber errs on
-// the side of hiding too much.
+// standsAlone reports whether tok[start:end] may be replaced. Digits glued to
+// the window only protect it when the longer run is itself a valid, different
+// address ("2001:db8::50ab" is not "2001:db8::50"). Glued junk such as
+// "a2001:db8::50" or "1192.0.2.50" is not an address, so the denied part is
+// hidden: the scrubber may hide too much but must not leak. A colon or dot next
+// to the window is a separator ("ip:", "addr:port", a trailing ":") and never
+// extends it.
 func standsAlone(tok string, start, end int) bool {
 	set := digitChars
 	if strings.Contains(tok[start:end], ":") {
 		set = hexChars
 	}
-	return (start == 0 || !strings.ContainsRune(set, rune(tok[start-1]))) &&
-		(end == len(tok) || !strings.ContainsRune(set, rune(tok[end])))
+	from, to := start, end
+	for from > 0 && strings.ContainsRune(set, rune(tok[from-1])) {
+		from--
+	}
+	for to < len(tok) && strings.ContainsRune(set, rune(tok[to])) {
+		to++
+	}
+	if from == start && to == end {
+		return true
+	}
+	_, err := netip.ParseAddr(tok[from:to])
+	return err != nil
 }
 
 // isDeniedAddress parses s and checks it, unmapped and with any embedded IPv4
