@@ -1,0 +1,106 @@
+package filter
+
+import (
+	"maps"
+	"regexp"
+	"slices"
+	"strings"
+
+	"github.com/JtheGunner/youtrack-docgen/internal/model"
+)
+
+// deniedHosts collects the hosts that the rules exclude, keyed by ID, so that
+// everything that only exists because of them can be removed with them.
+func (f *Filter) deniedHosts(g *model.Graph) map[model.ID]model.Entity {
+	denied := make(map[model.ID]model.Entity)
+	for _, h := range g.ByKind(model.KindHost) {
+		if !f.rules[h.Source].permits(h) {
+			denied[h.ID] = h
+		}
+	}
+	return denied
+}
+
+// dependents decides which entities depend on denied hosts.
+//
+// An interface that is a member of a denied host is removed. An IP address
+// assigned only to such interfaces is removed as well. An IP address that is
+// also assigned elsewhere stays, but scrubbed of the denied hosts' names.
+type dependents struct {
+	removed map[model.ID]bool
+	// names are the denied hostnames (names and aliases) that must not leak.
+	names []string
+	// masked marks the surviving entities that referenced a denied owner.
+	masked map[model.ID]bool
+}
+
+func newDependents(g *model.Graph, denied map[model.ID]model.Entity) dependents {
+	d := dependents{removed: map[model.ID]bool{}, masked: map[model.ID]bool{}}
+	if len(denied) == 0 {
+		return d
+	}
+	for _, h := range denied {
+		d.names = append(d.names, h.Name)
+		d.names = append(d.names, h.Aliases...)
+	}
+	d.names = slices.DeleteFunc(d.names, func(s string) bool { return strings.TrimSpace(s) == "" })
+
+	deniedIfaces := map[model.ID]bool{}
+	for _, nic := range g.ByKind(model.KindInterface) {
+		for _, rel := range g.RelationsFrom(nic.ID) {
+			if _, ok := denied[rel.To]; ok && rel.Kind == model.RelMemberOf {
+				deniedIfaces[nic.ID] = true
+				d.removed[nic.ID] = true
+			}
+		}
+	}
+	for _, ip := range g.ByKind(model.KindIPAddress) {
+		var denies, others int
+		for _, rel := range g.RelationsFrom(ip.ID) {
+			if rel.Kind != model.RelMemberOf {
+				continue
+			}
+			if deniedIfaces[rel.To] {
+				denies++
+			} else if to, ok := g.Entity(rel.To); ok && to.Kind == model.KindInterface {
+				others++
+			}
+		}
+		switch {
+		case denies > 0 && others == 0:
+			d.removed[ip.ID] = true
+		case denies > 0:
+			d.masked[ip.ID] = true
+		}
+	}
+	return d
+}
+
+// mask removes the denied hostnames from the free-text fields of e.
+func (d dependents) mask(e model.Entity) model.Entity {
+	if len(d.names) == 0 {
+		return e
+	}
+	parts := make([]string, len(d.names))
+	for i, n := range d.names {
+		parts[i] = regexp.QuoteMeta(n)
+	}
+	re := regexp.MustCompile("(?i)" + strings.Join(parts, "|"))
+
+	scrub := func(in map[string]string) map[string]string {
+		if in == nil {
+			return nil
+		}
+		out := maps.Clone(in)
+		for k, v := range out {
+			out[k] = re.ReplaceAllString(v, Placeholder)
+		}
+		return out
+	}
+	e.Labels = scrub(e.Labels)
+	e.Attrs = scrub(e.Attrs)
+	if e.Aliases != nil {
+		e.Aliases = slices.DeleteFunc(slices.Clone(e.Aliases), re.MatchString)
+	}
+	return e
+}
