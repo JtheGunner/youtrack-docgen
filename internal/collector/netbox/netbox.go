@@ -10,8 +10,8 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/JtheGunner/youtrackt-docgen/internal/config"
-	"github.com/JtheGunner/youtrackt-docgen/internal/model"
+	"github.com/JtheGunner/youtrack-docgen/internal/config"
+	"github.com/JtheGunner/youtrack-docgen/internal/model"
 )
 
 // Source is the source name used in every entity ID created by this collector.

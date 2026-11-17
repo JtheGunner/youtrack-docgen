@@ -3,7 +3,7 @@ package collector
 import (
 	"context"
 
-	"github.com/JtheGunner/youtrackt-docgen/internal/model"
+	"github.com/JtheGunner/youtrack-docgen/internal/model"
 )
 
 // Collector reads one data source and adds what it finds to a graph.

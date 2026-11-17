@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JtheGunner/youtrackt-docgen/internal/model"
+	"github.com/JtheGunner/youtrack-docgen/internal/model"
 )
 
 func TestInlineEscapesMarkdownAndHTML(t *testing.T) {

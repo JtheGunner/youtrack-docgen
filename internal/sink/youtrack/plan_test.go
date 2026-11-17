@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JtheGunner/youtrackt-docgen/internal/testutil/golden"
+	"github.com/JtheGunner/youtrack-docgen/internal/testutil/golden"
 )
 
 func newPlanner(t *testing.T, api Reader) *Planner {

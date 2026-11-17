@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JtheGunner/youtrackt-docgen/internal/model"
+	"github.com/JtheGunner/youtrack-docgen/internal/model"
 )
 
 const validYAML = `

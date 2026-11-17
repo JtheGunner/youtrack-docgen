@@ -10,7 +10,7 @@
 [![Go](https://img.shields.io/badge/Go-single%20binary-3776ab?style=flat-square&logo=go&logoColor=white)](#-development)
 [![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Linux-0ea5e9?style=flat-square)](#-development)
 [![Status](https://img.shields.io/badge/status-early%20development-f59e0b?style=flat-square)](#-status)
-[![CI](https://img.shields.io/github/actions/workflow/status/JtheGunner/youtrackt-docgen/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/JtheGunner/youtrackt-docgen/actions/workflows/ci.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/JtheGunner/youtrack-docgen/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/JtheGunner/youtrack-docgen/actions/workflows/ci.yml)
 
 </div>
 

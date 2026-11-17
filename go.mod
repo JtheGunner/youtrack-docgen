@@ -1,4 +1,4 @@
-module github.com/JtheGunner/youtrackt-docgen
+module github.com/JtheGunner/youtrack-docgen
 
 go 1.25.0
 

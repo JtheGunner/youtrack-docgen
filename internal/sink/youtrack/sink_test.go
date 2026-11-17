@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JtheGunner/youtrackt-docgen/internal/render"
-	"github.com/JtheGunner/youtrackt-docgen/internal/sink/youtrack/client"
+	"github.com/JtheGunner/youtrack-docgen/internal/render"
+	"github.com/JtheGunner/youtrack-docgen/internal/sink/youtrack/client"
 )
 
 // fakeAPI is an in-memory YouTrack that counts write calls.

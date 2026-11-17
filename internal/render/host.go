@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/JtheGunner/youtrackt-docgen/internal/model"
+	"github.com/JtheGunner/youtrack-docgen/internal/model"
 )
 
 // host builds the article for one host. The title is the hostname; the
