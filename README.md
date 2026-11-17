@@ -112,6 +112,7 @@ youtrack-docgen publish --config docgen.yaml
 - Only articles of that project are read, changed or marked. Articles of other projects are never touched.
 - Articles are created or updated, never deleted. Only the blocks between the `docgen` markers are replaced; text you add outside them stays.
 - An article whose object is gone from the sources gets the `docgen-stale` tag and a banner. Both are removed when the object comes back.
+- A run on unchanged data writes nothing. The "Generated at" line of an article keeps the time of its last real change.
 - If a collector or the filter fails, nothing is sent to YouTrack.
 - The Markdown sink is not used by this command.
 - A summary line closes the output, for example `sink youtrack: 9 created, 0 updated, 0 unchanged, 0 marked stale, 0 restored`.

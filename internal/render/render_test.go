@@ -200,3 +200,21 @@ func TestCompareVLAN(t *testing.T) {
 		}
 	}
 }
+
+// The timestamp changes on every run. Sinks rely on the flag to keep a run on
+// unchanged data from rewriting every article.
+func TestOnlyTheGeneratedSectionIsVolatile(t *testing.T) {
+	root := Render(model.NewGraph(), Options{GeneratedAt: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)})
+	seen := false
+	root.Walk(func(d Document) {
+		for _, s := range d.Sections {
+			if s.Volatile != (s.ID == "generated") {
+				t.Errorf("%s/%s: Volatile = %v", d.ID, s.ID, s.Volatile)
+			}
+			seen = seen || s.Volatile
+		}
+	})
+	if !seen {
+		t.Error("no generated section found")
+	}
+}

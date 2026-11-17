@@ -329,3 +329,79 @@ func TestPublishIgnoresArticlesOfOtherProjects(t *testing.T) {
 		t.Error("an article of another project was changed")
 	}
 }
+
+// stamped is a host document whose "generated" section carries a timestamp.
+func stamped(summary, at string) render.Document {
+	return render.Document{
+		ID: "overview:root", Title: "Root",
+		Sections: []render.Section{
+			section("summary", summary),
+			{ID: "generated", Heading: "Generated", Blocks: []render.Block{render.Paragraph("Generated at " + at)}, Volatile: true},
+		},
+	}
+}
+
+func TestVolatileSectionAloneCausesNoUpdate(t *testing.T) {
+	api := &fakeAPI{}
+	s := newSink(t, api)
+	if _, err := s.Publish(context.Background(), stamped("a", "03:00")); err != nil {
+		t.Fatal(err)
+	}
+	res, err := s.Publish(context.Background(), stamped("a", "04:00"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if api.updates != 0 || res.Unchanged != 1 {
+		t.Errorf("updates = %d, result = %+v, want no update for a new timestamp alone", api.updates, res)
+	}
+	if !strings.Contains(api.articles[0].Content, "Generated at 03:00") {
+		t.Error("the stored timestamp changed without an update")
+	}
+
+	plan, err := newPlanner(t, api).Plan(context.Background(), stamped("a", "05:00"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Changes) != 0 || plan.Unchanged() != 1 {
+		t.Errorf("plan = %s, want no change for a new timestamp alone", plan.Summary())
+	}
+}
+
+func TestVolatileSectionIsRefreshedWhenAnotherSectionChanges(t *testing.T) {
+	api := &fakeAPI{}
+	s := newSink(t, api)
+	if _, err := s.Publish(context.Background(), stamped("a", "03:00")); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := newPlanner(t, api).Plan(context.Background(), stamped("b", "04:00"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Changes) != 1 || !strings.Contains(plan.Diff(), "+Generated at 04:00") {
+		t.Errorf("plan does not show the refreshed timestamp:\n%s", plan.Diff())
+	}
+	if _, err := s.Publish(context.Background(), stamped("b", "04:00")); err != nil {
+		t.Fatal(err)
+	}
+	got := api.articles[0].Content
+	if !strings.Contains(got, "Generated at 04:00") || strings.Contains(got, "Generated at 03:00") {
+		t.Errorf("timestamp was not refreshed with the changed section:\n%s", got)
+	}
+}
+
+func TestMissingVolatileSectionIsAdded(t *testing.T) {
+	api := &fakeAPI{}
+	s := newSink(t, api)
+	doc := stamped("a", "03:00")
+	withoutStamp := doc
+	withoutStamp.Sections = doc.Sections[:1]
+	if _, err := s.Publish(context.Background(), withoutStamp); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Publish(context.Background(), doc); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(api.articles[0].Content, "Generated at 03:00") {
+		t.Error("a volatile section missing from the article was not added")
+	}
+}

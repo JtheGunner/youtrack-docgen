@@ -1,11 +1,13 @@
 package cli
 
 import (
+	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 const fakeProjectID = "0-42"
@@ -265,5 +267,56 @@ func TestDryRunCountsMatchWhatPublishWrites(t *testing.T) {
 	}
 	if !strings.HasPrefix(stdout, "sink youtrack: 0 created, 1 updated, ") {
 		t.Errorf("stdout = %q, want one article updated", stdout)
+	}
+}
+
+// A later run on unchanged data must not rewrite articles just because the
+// "Generated at" line shows a new time.
+func TestPublishLaterOnSameDataWritesNothing(t *testing.T) {
+	publishEnv(t)
+	nb := fakeNetBox(t)
+	yt := newFakeYouTrack(t)
+	cfg := diffConfig(nb.URL, yt.srv.URL, t.TempDir())
+	if _, _, err := runCLI(t, cfg, "publish"); err != nil {
+		t.Fatal(err)
+	}
+	created := strconv.Itoa(len(yt.articles))
+	firstWrites := len(yt.writes())
+	later := generatedAt.Add(24 * time.Hour)
+
+	preview, _, err := runCLIAt(t, later, cfg, "diff")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "sink youtrack (dry run): 0 to create, 0 to update, " + created + " unchanged\n"; preview != want {
+		t.Errorf("diff = %q, want %q", preview, want)
+	}
+	stdout, _, err := runCLIAt(t, later, cfg, "publish")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if extra := yt.writes()[firstWrites:]; len(extra) > 0 {
+		t.Errorf("the later run made write requests: %v", extra)
+	}
+	if want := "sink youtrack: 0 created, 0 updated, " + created + " unchanged, 0 marked stale, 0 restored\n"; stdout != want {
+		t.Errorf("stdout = %q, want %q", stdout, want)
+	}
+}
+
+// The Markdown sink writes whole files, so it keeps showing the time of the run.
+func TestGenerateWritesTheTimeOfTheRun(t *testing.T) {
+	t.Setenv("NETBOX_TOKEN", fakeNetBoxToken)
+	nb := fakeNetBox(t)
+	out := filepath.Join(t.TempDir(), "out")
+	later := generatedAt.Add(24 * time.Hour)
+	if _, _, err := runCLIAt(t, later, generateConfig(nb.URL, out, ""), "generate"); err != nil {
+		t.Fatal(err)
+	}
+	index, err := os.ReadFile(filepath.Join(out, "index.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(index), "Generated at "+later.Format(time.RFC3339)) {
+		t.Errorf("index.md does not show the time of the run:\n%s", index)
 	}
 }
