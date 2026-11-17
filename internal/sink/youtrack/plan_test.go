@@ -10,7 +10,7 @@ import (
 
 func newPlanner(t *testing.T, api Reader) *Planner {
 	t.Helper()
-	p, err := NewPlanner(api, "project: KB")
+	p, err := NewPlanner(api, Config{ProjectID: testProjectID, ProjectQuery: "project: KB"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,10 +108,10 @@ func TestPlanPropagatesReadErrors(t *testing.T) {
 }
 
 func TestNewPlannerValidates(t *testing.T) {
-	if _, err := NewPlanner(nil, "project: KB"); err == nil {
+	if _, err := NewPlanner(nil, Config{ProjectID: testProjectID, ProjectQuery: "project: KB"}); err == nil {
 		t.Error("nil reader accepted")
 	}
-	if _, err := NewPlanner(&fakeAPI{}, ""); err == nil {
+	if _, err := NewPlanner(&fakeAPI{}, Config{ProjectID: testProjectID}); err == nil {
 		t.Error("empty query accepted")
 	}
 }

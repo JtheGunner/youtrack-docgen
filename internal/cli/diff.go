@@ -2,17 +2,14 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
-	"slices"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/JtheGunner/youtrack-docgen/internal/config"
 	"github.com/JtheGunner/youtrack-docgen/internal/sink/youtrack"
-	"github.com/JtheGunner/youtrack-docgen/internal/sink/youtrack/client"
 )
 
 func newDiffCmd(now func() time.Time) *cobra.Command {
@@ -38,18 +35,19 @@ func newDiffCmd(now func() time.Time) *cobra.Command {
 // diffYouTrack prints the unified diff of every article that would change and
 // a summary line. It only reads from YouTrack.
 func diffYouTrack(ctx context.Context, cfg *config.Config, at time.Time, stdout io.Writer) error {
-	if !slices.Contains(cfg.EnabledSinks(), "youtrack") {
-		return errors.New("no youtrack sink to compare with: enable the youtrack sink")
-	}
-	api, err := client.New(cfg.YouTrack.URL, cfg.YouTrack.Token.Reveal())
-	if err != nil {
-		return err
-	}
-	planner, err := youtrack.NewPlanner(api, "project: "+cfg.YouTrack.Project)
+	api, err := newYouTrackClient(cfg)
 	if err != nil {
 		return err
 	}
 	root, err := buildDocuments(ctx, cfg, at)
+	if err != nil {
+		return err
+	}
+	target, err := resolveProject(ctx, api, cfg)
+	if err != nil {
+		return err
+	}
+	planner, err := youtrack.NewPlanner(api, target)
 	if err != nil {
 		return err
 	}

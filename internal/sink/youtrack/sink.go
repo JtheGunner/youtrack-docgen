@@ -34,8 +34,9 @@ type Config struct {
 	// ProjectID is the database ID of the project that owns the articles.
 	ProjectID string
 	// ProjectQuery is the YouTrack search query that lists every article of
-	// that project, for example "project: KB". Documents are looked up among
-	// these articles by their stable key.
+	// that project, for example "project: {KB}". Documents are looked up among
+	// these articles by their stable key; articles of any other project are
+	// ignored, whatever the query returns.
 	ProjectQuery string
 }
 
@@ -127,6 +128,11 @@ func (s *Sink) index(ctx context.Context) (map[string]client.Article, error) {
 	}
 	out := map[string]client.Article{}
 	for _, a := range articles {
+		// The search query is only a hint. An article is ours only if the
+		// server says it belongs to the configured project.
+		if a.Project == nil || a.Project.ID != s.cfg.ProjectID {
+			continue
+		}
 		key, ok := documentKey(a.Content)
 		if !ok {
 			continue

@@ -12,6 +12,10 @@ import (
 )
 
 // fakeAPI is an in-memory YouTrack that counts write calls.
+// testProjectID is the project the sink under test publishes to. Articles the
+// fake holds without a project count as articles of this project.
+const testProjectID = "0-1"
+
 type fakeAPI struct {
 	articles  []client.Article
 	creates   int
@@ -24,7 +28,13 @@ func (f *fakeAPI) SearchArticles(context.Context, string) ([]client.Article, err
 	if f.searchErr != nil {
 		return nil, f.searchErr
 	}
-	return append([]client.Article(nil), f.articles...), nil
+	out := append([]client.Article(nil), f.articles...)
+	for i := range out {
+		if out[i].Project == nil {
+			out[i].Project = &client.Ref{ID: testProjectID}
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeAPI) CreateArticle(_ context.Context, n client.NewArticle) (*client.Article, error) {
@@ -288,4 +298,34 @@ func between(t *testing.T, content, id string) string {
 		t.Fatalf("block %q not found in:\n%s", id, content)
 	}
 	return content[start:end]
+}
+
+// An article of another project must never be touched, even when the search
+// returns it and it carries a docgen key: not updated, not marked stale.
+func TestPublishIgnoresArticlesOfOtherProjects(t *testing.T) {
+	foreign := client.Article{
+		ID: "9-1", IDReadable: "OTHER-A-1", Summary: "foreign",
+		Content: docMarker(render.RootID) + "\nforeign text\n",
+		Project: &client.Ref{ID: "0-999"},
+	}
+	vanished := client.Article{
+		ID: "9-2", IDReadable: "OTHER-A-2", Summary: "foreign host",
+		Content: docMarker("netbox:host:other.example.com") + "\n",
+		Project: &client.Ref{ID: "0-999"},
+	}
+	api := &fakeAPI{articles: []client.Article{foreign, vanished}}
+	s, err := New(api, Config{ProjectID: testProjectID, ProjectQuery: "project: KB"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := s.Publish(context.Background(), render.Document{ID: render.RootID, Title: "Root"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Created != 1 || res.Updated != 0 || res.Stale != 0 {
+		t.Errorf("result = %+v, want the root created and nothing else touched", res)
+	}
+	if api.articles[0].Content != foreign.Content || api.articles[1].Content != vanished.Content {
+		t.Error("an article of another project was changed")
+	}
 }

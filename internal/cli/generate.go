@@ -21,28 +21,22 @@ import (
 
 func newGenerateCmd(now func() time.Time) *cobra.Command {
 	var path string
-	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "generate",
 		Short: "Collect infrastructure data and write the documentation as Markdown files",
 		Long: "Runs the pipeline collector -> filter -> render -> sink with the enabled collectors\n" +
-			"and writes the result with the markdown sink. The youtrack sink is not part of this command.\n\n" +
-			"With --dry-run nothing is written: the command prints what would change in the YouTrack\n" +
-			"Knowledge Base, exactly like the diff command.",
+			"and writes the result with the markdown sink. The youtrack sink is not part of this command;\n" +
+			"use publish to write to the YouTrack Knowledge Base.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, err := config.Load(path)
 			if err != nil {
 				return err
 			}
-			if dryRun {
-				return diffYouTrack(cmd.Context(), cfg, now(), cmd.OutOrStdout())
-			}
 			return generate(cmd.Context(), cfg, now(), cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
 	cmd.Flags().StringVarP(&path, "config", "c", defaultConfigPath, "path to the config file")
-	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "write nothing; print a unified diff of what would change in YouTrack")
 	return cmd
 }
 
@@ -121,7 +115,7 @@ func buildCollectors(cfg *config.Config) ([]collector.Collector, error) {
 }
 
 // buildSinks returns the sinks generate can write to. The youtrack sink is
-// skipped with a note, so one config serves both generate and later commands.
+// skipped with a note, so one config serves both generate and publish.
 func buildSinks(cfg *config.Config, stderr io.Writer) ([]sink.Sink, error) {
 	var out []sink.Sink
 	for _, name := range cfg.EnabledSinks() {
@@ -133,8 +127,8 @@ func buildSinks(cfg *config.Config, stderr io.Writer) ([]sink.Sink, error) {
 				return nil, err
 			}
 			out = append(out, s)
-		case "youtrack":
-			if _, err := fmt.Fprintln(stderr, "note: skipping the youtrack sink; generate only writes Markdown"); err != nil {
+		case youtrackSink:
+			if _, err := fmt.Fprintln(stderr, "note: skipping the youtrack sink; generate only writes Markdown, use publish for YouTrack"); err != nil {
 				return nil, err
 			}
 		default:

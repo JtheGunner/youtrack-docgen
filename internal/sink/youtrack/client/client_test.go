@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -417,3 +418,50 @@ func TestInvalidJSONResponse(t *testing.T) {
 }
 
 func ptr(s string) *string { return &s }
+
+func TestFindProjectMatchesShortNameAcrossPages(t *testing.T) {
+	var skips []string
+	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/admin/projects" {
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer "+fakeToken {
+			t.Errorf("auth header = %q", got)
+		}
+		skip := r.URL.Query().Get("$skip")
+		skips = append(skips, skip)
+		var page []Project
+		if skip == "0" {
+			for i := 0; i < searchPage; i++ {
+				page = append(page, Project{ID: "0-" + strconv.Itoa(i), ShortName: "P" + strconv.Itoa(i)})
+			}
+		} else {
+			page = []Project{{ID: "0-777", ShortName: "INFRA", Name: "Infrastructure"}}
+		}
+		_ = json.NewEncoder(w).Encode(page)
+	})
+
+	p, err := c.FindProject(context.Background(), "infra")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p == nil || p.ID != "0-777" {
+		t.Fatalf("project = %+v, want ID 0-777", p)
+	}
+	if strings.Join(skips, ",") != "0,100" {
+		t.Errorf("skips = %v, want two pages", skips)
+	}
+}
+
+func TestFindProjectReturnsNilWhenUnknown(t *testing.T) {
+	c, _ := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode([]Project{{ID: "0-1", ShortName: "OTHER", Name: "INFRA"}})
+	})
+	p, err := c.FindProject(context.Background(), "INFRA")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p != nil {
+		t.Errorf("project = %+v, want nil: only the short name identifies a project", p)
+	}
+}

@@ -1,3 +1,3 @@
-# Run the documentation generation every night at 03:15.
+# Publish the documentation every night at 03:15.
 # Install as the service user with: crontab -e
 15 3 * * *  /opt/youtrack-docgen/run.sh >>/var/log/youtrack-docgen.log 2>&1

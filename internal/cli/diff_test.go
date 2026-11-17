@@ -3,10 +3,12 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -15,36 +17,94 @@ import (
 	"github.com/JtheGunner/youtrack-docgen/internal/testutil/golden"
 )
 
-// fakeYouTrack serves an empty Knowledge Base and records every request.
+// fakeYouTrack is an in-memory Knowledge Base. It records every request and
+// every request body.
 type fakeYouTrack struct {
 	srv *httptest.Server
 	mu  sync.Mutex
 	// requests holds "METHOD path" of every call.
 	requests []string
+	// queries holds the search query of every article listing.
+	queries []string
+	// bodies holds the raw body of every write call.
+	bodies []string
 	// articles is the content of the fake Knowledge Base.
 	articles []map[string]any
+	// projects is what the project list returns.
+	projects []map[string]any
+	// tags is the list of tags known to the fake.
+	tags   []map[string]any
+	nextID int
 }
 
 func newFakeYouTrack(t *testing.T) *fakeYouTrack {
 	t.Helper()
-	f := &fakeYouTrack{}
+	f := &fakeYouTrack{projects: []map[string]any{{"id": fakeProjectID, "shortName": "INFRA", "name": "Infrastructure"}}}
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
+		defer f.mu.Unlock()
 		f.requests = append(f.requests, r.Method+" "+r.URL.Path)
-		f.mu.Unlock()
 		if r.Header.Get("Authorization") != "Bearer "+fakeYouTrackToken {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		if r.Method != http.MethodGet || r.URL.Path != "/api/articles" {
-			http.Error(w, "unexpected", http.StatusTeapot)
-			return
-		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(f.articles)
+		var body map[string]any
+		if r.Method == http.MethodPost {
+			raw, _ := io.ReadAll(r.Body)
+			f.bodies = append(f.bodies, string(raw))
+			_ = json.Unmarshal(raw, &body)
+		}
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/admin/projects":
+			_ = json.NewEncoder(w).Encode(f.projects)
+		case r.Method == http.MethodGet && r.URL.Path == "/api/articles":
+			f.queries = append(f.queries, r.URL.Query().Get("query"))
+			_ = json.NewEncoder(w).Encode(f.articles)
+		case r.Method == http.MethodPost && r.URL.Path == "/api/articles":
+			f.nextID++
+			body["id"] = "1-" + strconv.Itoa(f.nextID)
+			f.articles = append(f.articles, body)
+			_ = json.NewEncoder(w).Encode(body)
+		case r.Method == http.MethodGet && r.URL.Path == "/api/tags":
+			_ = json.NewEncoder(w).Encode(f.tags)
+		case r.Method == http.MethodPost && r.URL.Path == "/api/tags":
+			body["id"] = "6-" + strconv.Itoa(len(f.tags)+1)
+			f.tags = append(f.tags, body)
+			_ = json.NewEncoder(w).Encode(body)
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/tags"):
+			_ = json.NewEncoder(w).Encode(body)
+		case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/api/articles/"):
+			id := strings.TrimPrefix(r.URL.Path, "/api/articles/")
+			for _, a := range f.articles {
+				if a["id"] == id {
+					for k, v := range body {
+						a[k] = v
+					}
+					_ = json.NewEncoder(w).Encode(a)
+					return
+				}
+			}
+			http.Error(w, "no such article", http.StatusNotFound)
+		default:
+			http.Error(w, "unexpected", http.StatusTeapot)
+		}
 	}))
 	t.Cleanup(f.srv.Close)
 	return f
+}
+
+// writes returns the recorded requests that are not reads.
+func (f *fakeYouTrack) writes() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []string
+	for _, req := range f.requests {
+		if !strings.HasPrefix(req, "GET ") {
+			out = append(out, req)
+		}
+	}
+	return out
 }
 
 func diffConfig(netboxURL, youtrackURL, outDir string) string {
@@ -62,7 +122,7 @@ func runCLI(t *testing.T, cfg string, args ...string) (stdout, stderr string, er
 }
 
 func TestDiffAndDryRunPrintDiffAndWriteNothing(t *testing.T) {
-	for _, args := range [][]string{{"diff"}, {"generate", "--dry-run"}} {
+	for _, args := range [][]string{{"diff"}, {"publish", "--dry-run"}} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			t.Setenv("NETBOX_TOKEN", fakeNetBoxToken)
 			t.Setenv("YOUTRACK_TOKEN", fakeYouTrackToken)
@@ -76,10 +136,8 @@ func TestDiffAndDryRunPrintDiffAndWriteNothing(t *testing.T) {
 			}
 			golden.Assert(t, "diff-empty-kb", []byte(stdout))
 
-			for _, req := range yt.requests {
-				if !strings.HasPrefix(req, "GET ") {
-					t.Errorf("dry run made a write request: %s", req)
-				}
+			if w := yt.writes(); len(w) > 0 {
+				t.Errorf("dry run made write requests: %v", w)
 			}
 			if len(yt.requests) == 0 {
 				t.Error("dry run never read from YouTrack")
@@ -119,6 +177,7 @@ func TestDiffEscapesControlCharactersFromYouTrack(t *testing.T) {
 		"id":      "1-1",
 		"summary": "Infra \x1b]0;pwned\x07title",
 		"content": "<!-- docgen:doc overview:root -->\n\nmanual \x1b[2J\rtext\u009b\n",
+		"project": map[string]any{"id": fakeProjectID},
 	}}
 
 	stdout, _, err := runCLI(t, diffConfig(nb.URL, yt.srv.URL, t.TempDir()), "diff")
@@ -138,7 +197,7 @@ func TestDiffEscapesControlCharactersFromYouTrack(t *testing.T) {
 func TestDiffRequiresYouTrackSink(t *testing.T) {
 	t.Setenv("NETBOX_TOKEN", fakeNetBoxToken)
 	nb := fakeNetBox(t)
-	for _, args := range [][]string{{"diff"}, {"generate", "--dry-run"}} {
+	for _, args := range [][]string{{"diff"}, {"publish", "--dry-run"}} {
 		_, _, err := runCLI(t, generateConfig(nb.URL, t.TempDir(), ""), args...)
 		if err == nil || !strings.Contains(err.Error(), "enable the youtrack sink") {
 			t.Errorf("%v: error = %v, want a hint to enable the youtrack sink", args, err)
