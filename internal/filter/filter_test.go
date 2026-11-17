@@ -824,3 +824,39 @@ func TestApplyScrubsAliasesAndMapKeysOfDeniedHosts(t *testing.T) {
 		t.Errorf("Labels = %v, want %v", got.Labels, wantLabels)
 	}
 }
+
+// Secrets are recognised by their original key: scrubbing a denied hostname out
+// of a key must never turn a secret key into an innocent-looking one.
+func TestApplyRedactsSecretKeysBeforeScrubbingDeniedNames(t *testing.T) {
+	g := model.NewGraph()
+	denied := entity(t, "netbox", model.KindHost, "token", map[string]string{LabelTenant: "lab"}, nil)
+	if err := g.AddEntity(denied); err != nil {
+		t.Fatal(err)
+	}
+	svc := entity(t, "k8s", model.KindService, "shop/edge", nil,
+		map[string]string{"api_token": "fake-secret-value", "plain": "ok"})
+	if err := g.AddEntity(svc); err != nil {
+		t.Fatal(err)
+	}
+
+	f, err := New(Config{Collectors: map[string]Rules{"netbox": {Deny: []Match{{Tenants: []string{"lab"}}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := f.Apply(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := out.Entity(svc.ID)
+	if !ok {
+		t.Fatal("service must survive")
+	}
+	for k, v := range got.Attrs {
+		if strings.Contains(v, "fake-secret-value") {
+			t.Errorf("secret leaked under scrubbed key %q: %q", k, v)
+		}
+	}
+	if got.Attrs["plain"] != "ok" {
+		t.Errorf("plain attr = %q, want ok", got.Attrs["plain"])
+	}
+}

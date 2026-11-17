@@ -52,7 +52,7 @@ func (f *Filter) Apply(g *model.Graph) (*model.Graph, error) {
 			if !f.rules[e.Source].permits(e) || deps.removed[e.ID] {
 				continue
 			}
-			if err := out.AddEntity(f.redactor.Entity(deps.mask(e))); err != nil {
+			if err := out.AddEntity(deps.mask(f.redactor.Entity(e))); err != nil {
 				return nil, fmt.Errorf("filter: %w", err)
 			}
 		}
