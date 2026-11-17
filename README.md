@@ -90,7 +90,24 @@ youtrack-docgen generate --config docgen.yaml
 
 - It uses every enabled collector, applies the allow/deny rules and redaction, renders the documents, and writes them with the `markdown` sink into `sinks.markdown.dir`.
 - `index.md` is the entry page. Every other document gets its own file named after its ID, for example `netbox-host-srv01-example-com.md`. Files the tool does not generate are left alone.
-- Only the `netbox` collector is supported so far. Set `enabled: false` on other collectors. An enabled `youtrack` sink is skipped with a note.
+- Only the `netbox` collector is supported so far. Set `enabled: false` on other collectors. An enabled `youtrack` sink is skipped with a note; use [`diff`](#-dry-run-and-diff) to preview what it would change.
+
+---
+
+## 🔍 Dry run and diff
+
+`diff` shows what a YouTrack update would change, and writes nothing. `generate --dry-run` does the same.
+
+```text
+youtrack-docgen diff --config docgen.yaml
+youtrack-docgen generate --dry-run --config docgen.yaml
+```
+
+- It needs the `youtrack` sink to be enabled and `youtrack.url`, `youtrack.token` and `youtrack.project` to be set.
+- It runs the same pipeline as `generate`, reads the articles of the project once, and compares them with the rendered documents. Only read requests are sent, and no Markdown files are written.
+- Each article that would change gets a unified diff, headed by `--- a/<document key>`, or `--- /dev/null` for a new article. The first lines of the compared text show the title and the parent article. Manual content outside the `docgen` markers never appears as a change.
+- A summary line closes the output, for example `sink youtrack (dry run): 9 to create, 0 to update, 0 unchanged`.
+- The output is plain text, without colour.
 
 ---
 

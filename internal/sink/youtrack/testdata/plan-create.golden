@@ -1,0 +1,71 @@
+--- /dev/null
++++ b/overview:root
+@@ -0,0 +1,9 @@
++Title: Infrastructure documentation
++
++<!-- docgen:doc overview:root -->
++
++<!-- docgen:begin contents hash=650d8fe9c98590c7 -->
++## CONTENTS
++
++index
++<!-- docgen:end contents -->
+--- /dev/null
++++ b/overview:vlans
+@@ -0,0 +1,10 @@
++Title: VLANs
++Parent: overview:root
++
++<!-- docgen:doc overview:vlans -->
++
++<!-- docgen:begin table hash=6c7ee2dfb74e714f -->
++## TABLE
++
++vlans
++<!-- docgen:end table -->
+--- /dev/null
++++ b/group:hosts
+@@ -0,0 +1,4 @@
++Title: Hosts
++Parent: overview:root
++
++<!-- docgen:doc group:hosts -->
+--- /dev/null
++++ b/netbox:host:web-1
+@@ -0,0 +1,16 @@
++Title: web-1.example.com
++Parent: group:hosts
++
++<!-- docgen:doc netbox:host:web-1 -->
++
++<!-- docgen:begin summary hash=bdf5ca691e7eb614 -->
++## SUMMARY
++
++a
++<!-- docgen:end summary -->
++
++<!-- docgen:begin links hash=f893fe2e1666c60f -->
++## LINKS
++
++none
++<!-- docgen:end links -->
+--- /dev/null
++++ b/group:kubernetes
+@@ -0,0 +1,4 @@
++Title: Kubernetes
++Parent: overview:root
++
++<!-- docgen:doc group:kubernetes -->
+--- /dev/null
++++ b/k8s:workload:app
+@@ -0,0 +1,10 @@
++Title: app
++Parent: group:kubernetes
++
++<!-- docgen:doc k8s:workload:app -->
++
++<!-- docgen:begin summary hash=5701f03c456077d5 -->
++## SUMMARY
++
++deployment
++<!-- docgen:end summary -->

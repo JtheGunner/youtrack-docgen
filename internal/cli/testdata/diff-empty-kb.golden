@@ -1,0 +1,319 @@
+--- /dev/null
++++ b/overview:root
+@@ -0,0 +1,21 @@
++Title: Infrastructure documentation
++
++<!-- docgen:doc overview:root -->
++
++<!-- docgen:begin contents hash=23c58e276974c42d -->
++## Contents
++
++- VLANs
++- IP allocation
++- Services
++- device-3
++- srv01.example.com
++- sw01.example.com
++- vm01.example.com
++<!-- docgen:end contents -->
++
++<!-- docgen:begin generated hash=4906562d1ceab345 -->
++## Generated
++
++Generated at 2026-01-02T03:04:05Z from netbox.
++<!-- docgen:end generated -->
+--- /dev/null
++++ b/overview:vlans
+@@ -0,0 +1,21 @@
++Title: VLANs
++Parent: overview:root
++
++<!-- docgen:doc overview:vlans -->
++
++<!-- docgen:begin table hash=a18ae9a54233af24 -->
++## VLANs
++
++| VLAN | Network | Prefix | Hosts | Source |
++| --- | --- | --- | --- | --- |
++| - | 10.0.0.0/16 | - | 0 | netbox |
++| - | 192.0.2.0/24 | - | 0 | netbox |
++| - | 2001:db8::/32 | - | 0 | netbox |
++| - | servers | - | 0 | netbox |
++<!-- docgen:end table -->
++
++<!-- docgen:begin generated hash=4906562d1ceab345 -->
++## Generated
++
++Generated at 2026-01-02T03:04:05Z from netbox.
++<!-- docgen:end generated -->
+--- /dev/null
++++ b/overview:ip-allocation
+@@ -0,0 +1,26 @@
++Title: IP allocation
++Parent: overview:root
++
++<!-- docgen:doc overview:ip-allocation -->
++
++<!-- docgen:begin table hash=7cd5f813bd67efa3 -->
++## IP allocation
++
++| IP address | Owner | Kind | Network | Source |
++| --- | --- | --- | --- | --- |
++| 10.0.5.1 | 10.0.5.1/24 | ipaddress | - | netbox |
++| 192.0.2.10 | srv01.example.com | host | - | netbox |
++| 192.0.2.10 | srv01.example.com eth0 | interface | - | netbox |
++| 192.0.2.10 | 192.0.2.10/24 | ipaddress | - | netbox |
++| 192.0.2.10 | 192.0.2.10/24 | ipaddress | - | netbox |
++| 192.0.2.20 | vm01.example.com | host | - | netbox |
++| 192.0.2.20 | vm01.example.com ens3 | interface | - | netbox |
++| 192.0.2.20 | 192.0.2.20/24 | ipaddress | - | netbox |
++| 2001:db8::10 | 2001:db8::10/64 | ipaddress | - | netbox |
++<!-- docgen:end table -->
++
++<!-- docgen:begin generated hash=4906562d1ceab345 -->
++## Generated
++
++Generated at 2026-01-02T03:04:05Z from netbox.
++<!-- docgen:end generated -->
+--- /dev/null
++++ b/overview:services
+@@ -0,0 +1,16 @@
++Title: Services
++Parent: overview:root
++
++<!-- docgen:doc overview:services -->
++
++<!-- docgen:begin table hash=56e2a2cff01cdad1 -->
++## Services
++
++No services are known.
++<!-- docgen:end table -->
++
++<!-- docgen:begin generated hash=1b1107e4da5225a4 -->
++## Generated
++
++Generated at 2026-01-02T03:04:05Z from no sources.
++<!-- docgen:end generated -->
+--- /dev/null
++++ b/group:hosts
+@@ -0,0 +1,4 @@
++Title: Hosts
++Parent: overview:root
++
++<!-- docgen:doc group:hosts -->
+--- /dev/null
++++ b/netbox:host:device-3
+@@ -0,0 +1,49 @@
++Title: device-3
++Parent: group:hosts
++
++<!-- docgen:doc netbox:host:device-3 -->
++
++<!-- docgen:begin summary hash=989b94c4956b995b -->
++## Summary
++
++- Hostname: device-3
++- Role: server
++- Description: login with \[REDACTED\]
++- Source: netbox
++<!-- docgen:end summary -->
++
++<!-- docgen:begin network hash=6d3d0a9c8abc2f87 -->
++## Network
++
++No IP addresses are known.
++<!-- docgen:end network -->
++
++<!-- docgen:begin runs-here hash=c9360d019f5fafba -->
++## Runs here
++
++Nothing is known to run here.
++<!-- docgen:end runs-here -->
++
++<!-- docgen:begin depends-on hash=a0b3155c7ebc7105 -->
++## Depends on
++
++No dependencies are known.
++<!-- docgen:end depends-on -->
++
++<!-- docgen:begin needed-by hash=b8dabedb314224b9 -->
++## Needed by
++
++Nothing is known to depend on this host.
++<!-- docgen:end needed-by -->
++
++<!-- docgen:begin links hash=f133c5784446c1c5 -->
++## Links
++
++No links are known.
++<!-- docgen:end links -->
++
++<!-- docgen:begin generated hash=4906562d1ceab345 -->
++## Generated
++
++Generated at 2026-01-02T03:04:05Z from netbox.
++<!-- docgen:end generated -->
+--- /dev/null
++++ b/netbox:host:srv01.example.com
+@@ -0,0 +1,53 @@
++Title: srv01.example.com
++Parent: group:hosts
++
++<!-- docgen:doc netbox:host:srv01.example.com -->
++
++<!-- docgen:begin summary hash=01b0b22712a729df -->
++## Summary
++
++- Hostname: srv01.example.com
++- Aliases: web.example.com
++- IP addresses: 192.0.2.10
++- Role: server
++- Description: login with \[REDACTED\]
++- Source: netbox
++<!-- docgen:end summary -->
++
++<!-- docgen:begin network hash=70d6b84c1ae86612 -->
++## Network
++
++| IP address | Network | VLAN |
++| --- | --- | --- |
++| 192.0.2.10 | - | - |
++<!-- docgen:end network -->
++
++<!-- docgen:begin runs-here hash=c9360d019f5fafba -->
++## Runs here
++
++Nothing is known to run here.
++<!-- docgen:end runs-here -->
++
++<!-- docgen:begin depends-on hash=a0b3155c7ebc7105 -->
++## Depends on
++
++No dependencies are known.
++<!-- docgen:end depends-on -->
++
++<!-- docgen:begin needed-by hash=b8dabedb314224b9 -->
++## Needed by
++
++Nothing is known to depend on this host.
++<!-- docgen:end needed-by -->
++
++<!-- docgen:begin links hash=f133c5784446c1c5 -->
++## Links
++
++No links are known.
++<!-- docgen:end links -->
++
++<!-- docgen:begin generated hash=4906562d1ceab345 -->
++## Generated
++
++Generated at 2026-01-02T03:04:05Z from netbox.
++<!-- docgen:end generated -->
+--- /dev/null
++++ b/netbox:host:sw01.example.com
+@@ -0,0 +1,49 @@
++Title: sw01.example.com
++Parent: group:hosts
++
++<!-- docgen:doc netbox:host:sw01.example.com -->
++
++<!-- docgen:begin summary hash=9bf0360ae8e0ac45 -->
++## Summary
++
++- Hostname: sw01.example.com
++- Role: core-switch
++- Description: login with \[REDACTED\]
++- Source: netbox
++<!-- docgen:end summary -->
++
++<!-- docgen:begin network hash=6d3d0a9c8abc2f87 -->
++## Network
++
++No IP addresses are known.
++<!-- docgen:end network -->
++
++<!-- docgen:begin runs-here hash=c9360d019f5fafba -->
++## Runs here
++
++Nothing is known to run here.
++<!-- docgen:end runs-here -->
++
++<!-- docgen:begin depends-on hash=a0b3155c7ebc7105 -->
++## Depends on
++
++No dependencies are known.
++<!-- docgen:end depends-on -->
++
++<!-- docgen:begin needed-by hash=b8dabedb314224b9 -->
++## Needed by
++
++Nothing is known to depend on this host.
++<!-- docgen:end needed-by -->
++
++<!-- docgen:begin links hash=f133c5784446c1c5 -->
++## Links
++
++No links are known.
++<!-- docgen:end links -->
++
++<!-- docgen:begin generated hash=4906562d1ceab345 -->
++## Generated
++
++Generated at 2026-01-02T03:04:05Z from netbox.
++<!-- docgen:end generated -->
+--- /dev/null
++++ b/netbox:host:vm01.example.com
+@@ -0,0 +1,52 @@
++Title: vm01.example.com
++Parent: group:hosts
++
++<!-- docgen:doc netbox:host:vm01.example.com -->
++
++<!-- docgen:begin summary hash=e456729454d4b896 -->
++## Summary
++
++- Hostname: vm01.example.com
++- IP addresses: 192.0.2.20
++- Role: k8s-node
++- Description: login with \[REDACTED\]
++- Source: netbox
++<!-- docgen:end summary -->
++
++<!-- docgen:begin network hash=ba84109799fd7c27 -->
++## Network
++
++| IP address | Network | VLAN |
++| --- | --- | --- |
++| 192.0.2.20 | - | - |
++<!-- docgen:end network -->
++
++<!-- docgen:begin runs-here hash=c9360d019f5fafba -->
++## Runs here
++
++Nothing is known to run here.
++<!-- docgen:end runs-here -->
++
++<!-- docgen:begin depends-on hash=a0b3155c7ebc7105 -->
++## Depends on
++
++No dependencies are known.
++<!-- docgen:end depends-on -->
++
++<!-- docgen:begin needed-by hash=b8dabedb314224b9 -->
++## Needed by
++
++Nothing is known to depend on this host.
++<!-- docgen:end needed-by -->
++
++<!-- docgen:begin links hash=f133c5784446c1c5 -->
++## Links
++
++No links are known.
++<!-- docgen:end links -->
++
++<!-- docgen:begin generated hash=4906562d1ceab345 -->
++## Generated
++
++Generated at 2026-01-02T03:04:05Z from netbox.
++<!-- docgen:end generated -->
+sink youtrack (dry run): 9 to create, 0 to update, 0 unchanged

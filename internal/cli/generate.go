@@ -20,29 +20,32 @@ import (
 
 func newGenerateCmd(now func() time.Time) *cobra.Command {
 	var path string
+	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "generate",
 		Short: "Collect infrastructure data and write the documentation as Markdown files",
 		Long: "Runs the pipeline collector -> filter -> render -> sink with the enabled collectors\n" +
-			"and writes the result with the markdown sink. The youtrack sink is not part of this command.",
+			"and writes the result with the markdown sink. The youtrack sink is not part of this command.\n\n" +
+			"With --dry-run nothing is written: the command prints what would change in the YouTrack\n" +
+			"Knowledge Base, exactly like the diff command.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, err := config.Load(path)
 			if err != nil {
 				return err
 			}
+			if dryRun {
+				return diffYouTrack(cmd.Context(), cfg, now(), cmd.OutOrStdout())
+			}
 			return generate(cmd.Context(), cfg, now(), cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
 	cmd.Flags().StringVarP(&path, "config", "c", defaultConfigPath, "path to the config file")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "write nothing; print a unified diff of what would change in YouTrack")
 	return cmd
 }
 
 func generate(ctx context.Context, cfg *config.Config, at time.Time, stdout, stderr io.Writer) error {
-	collectors, err := buildCollectors(cfg)
-	if err != nil {
-		return err
-	}
 	sinks, err := buildSinks(cfg, stderr)
 	if err != nil {
 		return err
@@ -50,23 +53,10 @@ func generate(ctx context.Context, cfg *config.Config, at time.Time, stdout, std
 	if len(sinks) == 0 {
 		return errors.New("no sink to write to: enable the markdown sink")
 	}
-	flt, err := cfg.Filter()
+	root, err := buildDocuments(ctx, cfg, at)
 	if err != nil {
 		return err
 	}
-
-	graph := model.NewGraph()
-	for _, c := range collectors {
-		if err := c.Collect(ctx, graph); err != nil {
-			return fmt.Errorf("collector %s: %w", c.Name(), err)
-		}
-	}
-	model.Link(graph)
-	filtered, err := flt.Apply(graph)
-	if err != nil {
-		return err
-	}
-	root := render.Render(filtered, render.Options{GeneratedAt: at})
 
 	count := 0
 	root.Walk(func(render.Document) { count++ })
@@ -79,6 +69,31 @@ func generate(ctx context.Context, cfg *config.Config, at time.Time, stdout, std
 		}
 	}
 	return nil
+}
+
+// buildDocuments runs collector -> filter -> render and returns the document
+// tree. It writes nothing.
+func buildDocuments(ctx context.Context, cfg *config.Config, at time.Time) (render.Document, error) {
+	collectors, err := buildCollectors(cfg)
+	if err != nil {
+		return render.Document{}, err
+	}
+	flt, err := cfg.Filter()
+	if err != nil {
+		return render.Document{}, err
+	}
+	graph := model.NewGraph()
+	for _, c := range collectors {
+		if err := c.Collect(ctx, graph); err != nil {
+			return render.Document{}, fmt.Errorf("collector %s: %w", c.Name(), err)
+		}
+	}
+	model.Link(graph)
+	filtered, err := flt.Apply(graph)
+	if err != nil {
+		return render.Document{}, err
+	}
+	return render.Render(filtered, render.Options{GeneratedAt: at}), nil
 }
 
 func buildCollectors(cfg *config.Config) ([]collector.Collector, error) {

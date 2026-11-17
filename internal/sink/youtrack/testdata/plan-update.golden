@@ -1,0 +1,15 @@
+--- a/netbox:host:web-1
++++ b/netbox:host:web-1
+@@ -3,10 +3,10 @@
+ 
+ <!-- docgen:doc netbox:host:web-1 -->
+ 
+-<!-- docgen:begin summary hash=bdf5ca691e7eb614 -->
++<!-- docgen:begin summary hash=659326fe17700cb1 -->
+ ## SUMMARY
+ 
+-a
++b
+ <!-- docgen:end summary -->
+ 
+ <!-- docgen:begin links hash=f893fe2e1666c60f -->
