@@ -6,11 +6,6 @@ import (
 	"strings"
 )
 
-// AttrExternalIPs is the service attribute that lists, comma separated, the
-// addresses a service is published on outside the cluster (as opposed to its
-// cluster-internal IPs, which never identify a host).
-const AttrExternalIPs = "external_ips"
-
 // linkPlacement derives where workloads run and what hosts expose, from the
 // graph as it stands after same_as linking. A relation is only added when the
 // target host is unambiguous: zero or several candidate hosts add nothing.

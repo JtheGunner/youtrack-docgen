@@ -2,16 +2,15 @@
 
 ## Network diagram
 
-No network prefixes are known, so the diagram shows the IP addresses of each host.
-
 ```mermaid
 flowchart LR
-    n0["srv01.example.com"]
-    n1["192.0.2.10"]
-    n0 --- n1
-    n2["vm01.example.com"]
-    n3["192.0.2.20"]
-    n2 --- n3
+    n0{{"10.0.0.0/16"}}
+    n1{{"servers 192.0.2.0/24"}}
+    n2["srv01.example.com"]
+    n1 --- n2
+    n3["vm01.example.com"]
+    n1 --- n3
+    n4{{"2001:db8::/32"}}
 ```
 
 ## Generated

@@ -28,7 +28,7 @@ func (r *renderer) host(h model.Entity) Document {
 
 func (r *renderer) hostSummary(h model.Entity) Block {
 	items := List{"Hostname: " + h.Name}
-	if fqdn := h.Attrs["fqdn"]; fqdn != "" {
+	if fqdn := h.Attrs[model.AttrFQDN]; fqdn != "" {
 		items = append(items, "FQDN: "+fqdn)
 	}
 	if len(h.Aliases) > 0 {
@@ -40,7 +40,7 @@ func (r *renderer) hostSummary(h model.Entity) Block {
 	if role := h.Labels["role"]; role != "" {
 		items = append(items, "Role: "+role)
 	}
-	if desc := h.Attrs["description"]; desc != "" {
+	if desc := h.Attrs[model.AttrDescription]; desc != "" {
 		items = append(items, "Description: "+desc)
 	}
 	items = append(items, "Source: "+h.Source)
@@ -57,8 +57,8 @@ func (r *renderer) hostNetwork(h model.Entity) Block {
 		var names, vlans []string
 		for _, n := range r.nets {
 			if n.prefix.IsValid() && n.prefix.Contains(addr) {
-				names = append(names, n.entity.Name)
-				if v := n.entity.Attrs["vlan"]; v != "" {
+				names = append(names, n.name)
+				if v := n.entity.Attrs[model.AttrVLAN]; v != "" {
 					vlans = append(vlans, v)
 				}
 			}
@@ -126,12 +126,12 @@ func entityTable(entities []model.Entity, empty string) Block {
 
 func hostLinks(h model.Entity, sameAs []model.Entity) Block {
 	var items List
-	if u := safeURL(h.Attrs["url"]); u != "" {
+	if u := safeURL(h.Attrs[model.AttrURL]); u != "" {
 		items = append(items, "Source record in "+h.Source+": "+u)
 	}
 	for _, e := range sameAs {
 		line := "Same machine in " + e.Source + ": " + e.Name
-		if u := safeURL(e.Attrs["url"]); u != "" {
+		if u := safeURL(e.Attrs[model.AttrURL]); u != "" {
 			line += ", " + u
 		}
 		items = append(items, line)

@@ -1,10 +1,10 @@
 {"count": 3, "next": null, "previous": null, "results": [
-  {"id": 1, "prefix": "10.0.0.0/16", "status": {"value": "container"}, "vrf": null, "site": null, "vlan": null,
+  {"id": 1, "display_url": "https://netbox.example.com/ipam/prefixes/1/", "prefix": "10.0.0.0/16", "status": {"value": "container"}, "vrf": null, "site": null, "vlan": null,
    "role": null, "description": "RFC 1918 container", "tags": []},
-  {"id": 2, "prefix": "192.0.2.0/24", "status": {"value": "active"}, "vrf": null,
+  {"id": 2, "display_url": "https://netbox.example.com/ipam/prefixes/2/", "prefix": "192.0.2.0/24", "status": {"value": "active"}, "vrf": null,
    "site": {"id": 1, "name": "Example HQ", "slug": "example-hq"},
    "vlan": {"id": 1, "vid": 100, "name": "servers"}, "role": {"id": 3, "name": "Servers", "slug": "servers"},
-   "description": "", "tags": []},
-  {"id": 3, "prefix": "2001:db8::/32", "status": {"value": "active"}, "vrf": null, "site": null, "vlan": null,
+   "custom_fields": {"gateway": "192.0.2.1"}, "description": "", "tags": []},
+  {"id": 3, "display_url": "https://netbox.example.com/ipam/prefixes/3/", "prefix": "2001:db8::/32", "status": {"value": "active"}, "vrf": null, "site": null, "vlan": null,
    "role": null, "description": "", "tags": []}
 ]}

@@ -83,7 +83,7 @@ func (c *Collector) Collect(ctx context.Context, g *model.Graph) error {
 	if err != nil {
 		return err
 	}
-	b := newBuilder()
+	b := newBuilder(c.client.base)
 	if err := b.build(data); err != nil {
 		return fmt.Errorf("netbox: %w", err)
 	}

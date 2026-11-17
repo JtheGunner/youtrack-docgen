@@ -10,24 +10,25 @@ import (
 	"github.com/JtheGunner/youtrack-docgen/internal/model"
 )
 
-// vlans lists every network with its VLAN and prefix, ordered by VLAN number.
+// vlans lists every network with its VLAN, prefix and gateway, ordered by
+// VLAN number.
 func (r *renderer) vlans() Document {
-	nets := slices.Clone(r.nets)
+	nets := slices.DeleteFunc(slices.Clone(r.nets), func(n network) bool { return n.shownByMember })
 	slices.SortFunc(nets, func(a, b network) int {
 		return cmp.Or(
-			compareVLAN(a.entity.Attrs["vlan"], b.entity.Attrs["vlan"]),
-			strings.Compare(a.entity.Name, b.entity.Name),
+			compareVLAN(a.entity.Attrs[model.AttrVLAN], b.entity.Attrs[model.AttrVLAN]),
+			strings.Compare(a.name, b.name),
 			strings.Compare(string(a.entity.ID), string(b.entity.ID)),
 		)
 	})
 
 	var block Block = Paragraph("No networks are known.")
 	if len(nets) > 0 {
-		t := Table{Header: []string{"VLAN", "Network", "Prefix", "Hosts", "Source"}}
+		t := Table{Header: []string{"VLAN", "Network", "Prefix", "Gateway", "Hosts", "Source"}}
 		for _, n := range nets {
 			t.Rows = append(t.Rows, []string{
-				dash(n.entity.Attrs["vlan"]), n.entity.Name, dash(n.entity.Attrs["prefix"]),
-				strconv.Itoa(r.countHostsIn(n)), n.entity.Source,
+				dash(n.entity.Attrs[model.AttrVLAN]), n.name, dash(n.entity.Attrs[model.AttrPrefix]),
+				dash(n.entity.Attrs[model.AttrGateway]), strconv.Itoa(r.countHostsIn(n)), n.entity.Source,
 			})
 		}
 		block = t

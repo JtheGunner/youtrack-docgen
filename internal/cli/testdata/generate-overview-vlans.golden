@@ -2,12 +2,11 @@
 
 ## VLANs
 
-| VLAN | Network | Prefix | Hosts | Source |
-| --- | --- | --- | --- | --- |
-| - | 10.0.0.0/16 | - | 0 | netbox |
-| - | 192.0.2.0/24 | - | 0 | netbox |
-| - | 2001:db8::/32 | - | 0 | netbox |
-| - | servers | - | 0 | netbox |
+| VLAN | Network | Prefix | Gateway | Hosts | Source |
+| --- | --- | --- | --- | --- | --- |
+| 100 | servers | 192.0.2.0/24 | 192.0.2.1 | 2 | netbox |
+| - | 10.0.0.0/16 | 10.0.0.0/16 | - | 0 | netbox |
+| - | 2001:db8::/32 | 2001:db8::/32 | - | 0 | netbox |
 
 ## Generated
 

@@ -32,15 +32,15 @@ func fixture(t *testing.T) *model.Graph {
 	entities := []model.Entity{
 		{
 			ID: "netbox:network:10", Kind: model.KindNetwork, Source: "netbox", Name: "servers",
-			Attrs: map[string]string{"vlan": "10", "prefix": "10.0.10.0/24"},
+			Attrs: map[string]string{model.AttrVLAN: "10", model.AttrPrefix: "10.0.10.0/24"},
 		},
 		{
 			ID: "netbox:network:20", Kind: model.KindNetwork, Source: "netbox", Name: "databases",
-			Attrs: map[string]string{"vlan": "20", "prefix": "10.0.20.0/24"},
+			Attrs: map[string]string{model.AttrVLAN: "20", model.AttrPrefix: "10.0.20.0/24"},
 		},
 		{
 			ID: "netbox:network:mgmt", Kind: model.KindNetwork, Source: "netbox", Name: "management",
-			Attrs: map[string]string{"prefix": "192.0.2.0/24"},
+			Attrs: map[string]string{model.AttrPrefix: "192.0.2.0/24"},
 		},
 		{
 			ID: "netbox:host:web01", Kind: model.KindHost, Source: "netbox", Name: "web01",
@@ -216,5 +216,73 @@ func TestOnlyTheGeneratedSectionIsVolatile(t *testing.T) {
 	})
 	if !seen {
 		t.Error("no generated section found")
+	}
+}
+
+// vlanTable renders the VLAN overview of a graph built from the given
+// networks and member_of relations.
+func vlanTable(t *testing.T, nets []model.Entity, memberOf [][2]model.ID) string {
+	t.Helper()
+	g := model.NewGraph()
+	for _, e := range nets {
+		e.Kind, e.Source = model.KindNetwork, "netbox"
+		if err := g.AddEntity(e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, r := range memberOf {
+		if err := g.AddRelation(model.Relation{From: r[0], To: r[1], Kind: model.RelMemberOf}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	root := Render(g, Options{GeneratedAt: generatedAt})
+	return findDoc(t, root, VLANsID).Sections[0].Markdown()
+}
+
+func TestVLANOverviewJoinsAVLANWithItsPrefixes(t *testing.T) {
+	vlan := model.Entity{ID: "netbox:network:vlan-100", Name: "servers", Attrs: map[string]string{model.AttrVLAN: "100"}}
+	tests := []struct {
+		name     string
+		nets     []model.Entity
+		memberOf [][2]model.ID
+		want     []string
+		notWant  []string
+	}{
+		{
+			name: "a prefix without a name takes the name of its VLAN",
+			nets: []model.Entity{vlan, {ID: "netbox:network:a", Name: "192.0.2.0/24", Attrs: map[string]string{
+				model.AttrPrefix: "192.0.2.0/24", model.AttrVLAN: "100", model.AttrGateway: "192.0.2.1"}}},
+			memberOf: [][2]model.ID{{"netbox:network:a", "netbox:network:vlan-100"}},
+			want:     []string{"| 100 | servers | 192.0.2.0/24 | 192.0.2.1 | 0 | netbox |"},
+			notWant:  []string{"| 100 | servers | - |"},
+		},
+		{
+			name: "a prefix with a name of its own keeps it",
+			nets: []model.Entity{vlan, {ID: "netbox:network:a", Name: "frontend", Attrs: map[string]string{
+				model.AttrPrefix: "192.0.2.0/24", model.AttrVLAN: "100"}}},
+			memberOf: [][2]model.ID{{"netbox:network:a", "netbox:network:vlan-100"}},
+			want:     []string{"| 100 | frontend | 192.0.2.0/24 | - | 0 | netbox |"},
+			notWant:  []string{"servers"},
+		},
+		{
+			name: "a VLAN without any prefix keeps its own row",
+			nets: []model.Entity{vlan},
+			want: []string{"| 100 | servers | - | - | 0 | netbox |"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := vlanTable(t, tt.nets, tt.memberOf)
+			for _, want := range tt.want {
+				if !strings.Contains(got, want) {
+					t.Errorf("missing %q in:\n%s", want, got)
+				}
+			}
+			for _, notWant := range tt.notWant {
+				if strings.Contains(got, notWant) {
+					t.Errorf("unexpected %q in:\n%s", notWant, got)
+				}
+			}
+		})
 	}
 }

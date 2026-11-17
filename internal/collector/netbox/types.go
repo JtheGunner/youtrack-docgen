@@ -1,5 +1,7 @@
 package netbox
 
+import "encoding/json"
+
 // Minimal views of the NetBox REST objects; unknown fields are ignored.
 
 type ref struct {
@@ -39,6 +41,9 @@ type vlan struct {
 	Status choice `json:"status"`
 	Tenant *ref   `json:"tenant"`
 	Tags   []tag  `json:"tags"`
+	// DisplayURL is the address of the object in the NetBox UI. Older NetBox
+	// versions do not report it.
+	DisplayURL string `json:"display_url"`
 }
 
 type prefix struct {
@@ -52,6 +57,9 @@ type prefix struct {
 	Description string `json:"description"`
 	Tenant      *ref   `json:"tenant"`
 	Tags        []tag  `json:"tags"`
+	DisplayURL  string `json:"display_url"`
+	// CustomFields are site-defined; their values can have any JSON type.
+	CustomFields map[string]json.RawMessage `json:"custom_fields"`
 }
 
 type ipAddress struct {
@@ -85,6 +93,7 @@ type machine struct {
 	DeviceType  *struct {
 		Model string `json:"model"`
 	} `json:"device_type"`
+	DisplayURL string `json:"display_url"`
 }
 
 // iface covers both dcim interfaces (device) and VM interfaces

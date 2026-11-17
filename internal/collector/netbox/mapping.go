@@ -1,8 +1,10 @@
 package netbox
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/netip"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -23,7 +25,13 @@ const (
 	famVMNIC  = "virtualization.vminterface"
 )
 
+// gatewayKey names both the prefix custom field and the IP address tag that
+// mark a default gateway. NetBox has no built-in field for it.
+const gatewayKey = "gateway"
+
 type builder struct {
+	base *url.URL // NetBox UI root, for links to objects
+
 	entities map[model.ID]*model.Entity
 	order    []model.ID
 	rels     []model.Relation
@@ -35,8 +43,9 @@ type builder struct {
 	ifaceOwn map[model.ID]model.ID
 }
 
-func newBuilder() *builder {
+func newBuilder(base *url.URL) *builder {
 	return &builder{
+		base:     base,
 		entities: map[model.ID]*model.Entity{},
 		sites:    map[int]model.ID{},
 		vlans:    map[int]model.ID{},
@@ -108,7 +117,7 @@ func (b *builder) addSites(sites []site) error {
 			return fmt.Errorf("site %d: %w", s.ID, err)
 		}
 		setAttr(e, "status", s.Status.Value)
-		setAttr(e, "description", s.Description)
+		setAttr(e, model.AttrDescription, s.Description)
 		if s.Region != nil {
 			setAttr(e, "region", s.Region.Name)
 		}
@@ -130,7 +139,8 @@ func (b *builder) addVLANs(vlans []vlan) error {
 			return fmt.Errorf("vlan %d: %w", v.ID, err)
 		}
 		setAttr(e, "type", "vlan")
-		setAttr(e, "vlan_id", strconv.Itoa(v.VID))
+		setAttr(e, model.AttrVLAN, strconv.Itoa(v.VID))
+		setAttr(e, model.AttrURL, b.recordURL(v.DisplayURL, "ipam/vlans", v.ID))
 		setAttr(e, "status", v.Status.Value)
 		setTags(e, v.Tags)
 		setTenant(e, v.Tenant)
@@ -149,9 +159,11 @@ func (b *builder) addPrefixes(prefixes []prefix) error {
 			return fmt.Errorf("prefix %d: %w", p.ID, err)
 		}
 		setAttr(e, "type", "prefix")
-		setAttr(e, "cidr", p.Prefix)
+		setAttr(e, model.AttrPrefix, p.Prefix)
+		setAttr(e, model.AttrGateway, customGateway(p.CustomFields))
+		setAttr(e, model.AttrURL, b.recordURL(p.DisplayURL, "ipam/prefixes", p.ID))
 		setAttr(e, "status", p.Status.Value)
-		setAttr(e, "description", p.Description)
+		setAttr(e, model.AttrDescription, p.Description)
 		if p.VRF != nil {
 			setAttr(e, "vrf", p.VRF.Name)
 		}
@@ -165,6 +177,9 @@ func (b *builder) addPrefixes(prefixes []prefix) error {
 		}
 		if p.VLAN != nil {
 			b.relateIf(e.ID, b.vlans, p.VLAN.ID, model.RelMemberOf)
+			if vlanID, ok := b.vlans[p.VLAN.ID]; ok {
+				setAttr(e, model.AttrVLAN, b.entities[vlanID].Attrs[model.AttrVLAN])
+			}
 		}
 	}
 	return nil
@@ -183,7 +198,11 @@ func (b *builder) addMachines(ms []machine, family string) error {
 		}
 		setAttr(e, "type", family)
 		setAttr(e, "status", m.Status.Value)
-		setAttr(e, "description", m.Description)
+		setAttr(e, model.AttrDescription, m.Description)
+		setAttr(e, model.AttrURL, b.recordURL(m.DisplayURL, uiPath[family], m.ID))
+		if isFQDN(name) {
+			setAttr(e, model.AttrFQDN, name)
+		}
 		if m.PrimaryIP4 != nil {
 			setAttr(e, "primary_ip4", m.PrimaryIP4.Address)
 		}
@@ -239,7 +258,7 @@ func (b *builder) addInterfaces(nics []iface, family string) error {
 			return fmt.Errorf("interface %d: %w", n.ID, err)
 		}
 		setAttr(e, "enabled", strconv.FormatBool(n.Enabled))
-		setAttr(e, "description", n.Description)
+		setAttr(e, model.AttrDescription, n.Description)
 		if n.Type != nil {
 			setAttr(e, "type", n.Type.Value)
 		}
@@ -272,8 +291,8 @@ func (b *builder) addIPs(ips []ipAddress, prefixes []prefix) error {
 			return fmt.Errorf("ip address %d: %w", ip.ID, err)
 		}
 		setAttr(e, "status", ip.Status.Value)
-		setAttr(e, "description", ip.Description)
-		setAttr(e, "dns_name", ip.DNSName)
+		setAttr(e, model.AttrDescription, ip.Description)
+		setAttr(e, model.AttrDNSName, ip.DNSName)
 		if ip.VRF != nil {
 			setAttr(e, "vrf", ip.VRF.Name)
 		}
@@ -285,6 +304,12 @@ func (b *builder) addIPs(ips []ipAddress, prefixes []prefix) error {
 		}
 		if best, ok := nets.mostSpecific(addr.Addr(), vrfID(ip.VRF)); ok {
 			b.relate(e.ID, best, model.RelMemberOf)
+			if hasTag(ip.Tags, gatewayKey) {
+				// The custom field of the prefix wins; then the first tagged address.
+				if network := b.entities[best]; network.Attrs[model.AttrGateway] == "" {
+					setAttr(network, model.AttrGateway, addr.Addr().String())
+				}
+			}
 		}
 		b.assign(e, ip, addr.Addr())
 	}
@@ -309,6 +334,10 @@ func (b *builder) assign(ipEntity *model.Entity, ip ipAddress, addr netip.Addr) 
 		}
 	}
 	host := b.entities[b.ifaceOwn[nicID]]
+	isPrimary := ip.Address == host.Attrs["primary_ip4"] || ip.Address == host.Attrs["primary_ip6"]
+	if isPrimary && host.Attrs[model.AttrFQDN] == "" && isFQDN(ip.DNSName) {
+		setAttr(host, model.AttrFQDN, ip.DNSName)
+	}
 	if ip.DNSName != "" && !slices.Contains(host.Aliases, ip.DNSName) && !strings.EqualFold(host.Name, ip.DNSName) {
 		host.Aliases = append(host.Aliases, ip.DNSName)
 	}
@@ -384,6 +413,57 @@ func firstNonEmpty(vals ...string) string {
 		}
 	}
 	return ""
+}
+
+// uiPath maps a machine family to its path in the NetBox UI.
+var uiPath = map[string]string{
+	famDevice: "dcim/devices",
+	famVM:     "virtualization/virtual-machines",
+}
+
+// recordURL returns the address of an object in the NetBox UI: the one NetBox
+// reports, or else one built from the configured URL and the object ID.
+// Credentials, query and fragment never end up in it.
+func (b *builder) recordURL(reported, path string, id int) string {
+	if u, err := url.Parse(reported); err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != "" {
+		return stripURL(u).String()
+	}
+	return stripURL(b.base).JoinPath(path, strconv.Itoa(id), "/").String()
+}
+
+func stripURL(u *url.URL) *url.URL {
+	out := *u
+	out.User, out.RawQuery, out.Fragment, out.RawFragment = nil, "", "", ""
+	return &out
+}
+
+// customGateway reads the gateway custom field of a prefix. The field is
+// site-defined free input, so anything but an IP address is ignored.
+func customGateway(fields map[string]json.RawMessage) string {
+	var raw string
+	if err := json.Unmarshal(fields[gatewayKey], &raw); err != nil {
+		return ""
+	}
+	// An interface address such as 192.0.2.1/24 is accepted too.
+	host, _, _ := strings.Cut(strings.TrimSpace(raw), "/")
+	addr, err := netip.ParseAddr(host)
+	if err != nil {
+		return ""
+	}
+	return addr.String()
+}
+
+// isFQDN reports whether name looks like a multi-label DNS name.
+func isFQDN(name string) bool {
+	if !strings.Contains(strings.Trim(name, "."), ".") || strings.ContainsAny(name, " /:") {
+		return false
+	}
+	_, err := netip.ParseAddr(name)
+	return err != nil
+}
+
+func hasTag(tags []tag, slug string) bool {
+	return slices.ContainsFunc(tags, func(t tag) bool { return t.Slug == slug })
 }
 
 func setAttr(e *model.Entity, k, v string) {

@@ -23,7 +23,8 @@ var fixtureDir = filepath.Join("..", "collector", "netbox", "testdata")
 var generatedAt = time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 
 // fakeNetBox serves the NetBox fixtures. Every empty description is replaced
-// by one that carries a seeded secret, so a leak into the output is visible.
+// by one that carries a seeded secret, and every object URL gets the secret as
+// a password, so a leak into the output is visible.
 func fakeNetBox(t *testing.T) *httptest.Server {
 	t.Helper()
 	files := map[string]string{
@@ -57,6 +58,7 @@ func fakeNetBox(t *testing.T) *httptest.Server {
 			return
 		}
 		out := strings.ReplaceAll(string(body), `"description": ""`, `"description": "login with password=`+seededSecret+`"`)
+		out = strings.ReplaceAll(out, `"display_url": "https://`, `"display_url": "https://reader:`+seededSecret+`@`)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = fmt.Fprint(w, strings.ReplaceAll(out, "{{BASE}}", "http://"+r.Host))
 	}))
@@ -292,5 +294,52 @@ func TestGenerateHidesDeniedHostFromDependents(t *testing.T) {
 				t.Errorf("%s reveals the denied host %q:\n%s", name, denied, body)
 			}
 		}
+	}
+}
+
+// The renderer tests build their graphs by hand. This one renders what the
+// NetBox collector really produces from the fixtures, so a key the collector
+// writes and the renderer does not read (or the other way round) shows up.
+func TestGenerateRendersWhatTheNetBoxCollectorDelivers(t *testing.T) {
+	t.Setenv("NETBOX_TOKEN", fakeNetBoxToken)
+	srv := fakeNetBox(t)
+	out := filepath.Join(t.TempDir(), "out")
+	if _, stderr, err := runGenerate(t, generateConfig(srv.URL, out, "")); err != nil {
+		t.Fatalf("generate error = %v\nstderr: %s", err, stderr)
+	}
+	files := readDir(t, out)
+
+	tests := []struct {
+		file string
+		want []string
+	}{
+		{"overview-vlans.md", []string{
+			// VLAN ID, VLAN name, prefix, gateway and number of hosts.
+			"| 100 | servers | 192.0.2.0/24 | 192.0.2.1 | 2 | netbox |",
+			"| - | 10.0.0.0/16 | 10.0.0.0/16 | - | 0 | netbox |",
+		}},
+		{"netbox-host-srv01-example-com.md", []string{
+			"- FQDN: srv01.example.com",
+			"| 192.0.2.10 | servers | 100 |",
+			"- Source record in netbox: https://netbox.example.com/dcim/devices/2/",
+		}},
+		{"netbox-host-vm01-example-com.md", []string{
+			"- Source record in netbox: https://netbox.example.com/virtualization/virtual-machines/1/",
+		}},
+		{"overview-network-diagram.md", []string{
+			`n1{{"servers 192.0.2.0/24"}}`, `n2["srv01.example.com"]`, "n1 --- n2", `n3["vm01.example.com"]`, "n1 --- n3",
+		}},
+	}
+	for _, tt := range tests {
+		body := string(files[tt.file])
+		for _, want := range tt.want {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s does not contain %q:\n%s", tt.file, want, body)
+			}
+		}
+	}
+	// The VLAN is shown with its prefix, not as a second row without one.
+	if vlans := string(files["overview-vlans.md"]); strings.Count(vlans, "servers") != 1 {
+		t.Errorf("VLAN overview lists the servers VLAN more than once:\n%s", vlans)
 	}
 }

@@ -110,11 +110,11 @@ func TestCollectMapsEntities(t *testing.T) {
 			map[string]string{"status": "active", "region": "EMEA", "description": "Synthetic primary site"},
 			map[string]string{"tag.prod": "true"}},
 		{"netbox:network:vlan-example-hq-100", "servers",
-			map[string]string{"type": "vlan", "vlan_id": "100", "status": "active"}, nil},
+			map[string]string{"type": "vlan", model.AttrVLAN: "100", "status": "active"}, nil},
 		{"netbox:network:192.0.2.0/24", "192.0.2.0/24",
-			map[string]string{"type": "prefix", "cidr": "192.0.2.0/24", "status": "active"},
+			map[string]string{"type": "prefix", model.AttrPrefix: "192.0.2.0/24", model.AttrVLAN: "100", model.AttrGateway: "192.0.2.1", "status": "active"},
 			map[string]string{"role": "servers"}},
-		{"netbox:network:2001_db8__/32", "2001:db8::/32", map[string]string{"cidr": "2001:db8::/32"}, nil},
+		{"netbox:network:2001_db8__/32", "2001:db8::/32", map[string]string{model.AttrPrefix: "2001:db8::/32"}, nil},
 		{"netbox:host:sw01.example.com", "sw01.example.com",
 			map[string]string{"type": "device", "model": "EX-1000"}, map[string]string{"role": "core-switch", "tenant": "example-corp"}},
 		{"netbox:host:srv01.example.com", "srv01.example.com",
@@ -431,5 +431,112 @@ func TestCollectFollowsRedirectsOnTheSameOrigin(t *testing.T) {
 	}
 	if _, err := collect(t, f.URL, fakeToken); err != nil {
 		t.Fatalf("same-origin redirect should be followed: %v", err)
+	}
+}
+
+// The renderer reads these attributes, so the collector has to set them from
+// what NetBox reports.
+func TestCollectSetsRenderedAttributes(t *testing.T) {
+	g := collectFixtures(t)
+	tests := []struct {
+		id        model.ID
+		key, want string
+	}{
+		{"netbox:host:srv01.example.com", model.AttrFQDN, "srv01.example.com"},
+		{"netbox:host:device-3", model.AttrFQDN, ""},
+		{"netbox:host:srv01.example.com", model.AttrURL, "https://netbox.example.com/dcim/devices/2/"},
+		{"netbox:host:vm01.example.com", model.AttrURL, "https://netbox.example.com/virtualization/virtual-machines/1/"},
+		{"netbox:network:192.0.2.0/24", model.AttrURL, "https://netbox.example.com/ipam/prefixes/2/"},
+		{"netbox:network:vlan-example-hq-100", model.AttrURL, "https://netbox.example.com/ipam/vlans/1/"},
+		{"netbox:network:10.0.0.0/16", model.AttrVLAN, ""},
+		{"netbox:network:10.0.0.0/16", model.AttrGateway, ""},
+	}
+	for _, tt := range tests {
+		e, ok := g.Entity(tt.id)
+		if !ok {
+			t.Fatalf("entity %s missing", tt.id)
+		}
+		if got := e.Attrs[tt.key]; got != tt.want {
+			t.Errorf("%s: attr %s = %q, want %q", tt.id, tt.key, got, tt.want)
+		}
+	}
+}
+
+// serveJSON replaces one NetBox endpoint of the fake with a fixed body.
+func (f *fakeNetBox) serveJSON(path, results string) {
+	f.override[path] = func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"count": 1, "next": null, "previous": null, "results": [` + results + `]}`))
+	}
+}
+
+func TestCollectGatewayAndURLEdgeCases(t *testing.T) {
+	const prefixBody = `{"id": 7, "prefix": "198.51.100.0/24", "status": {"value": "active"}%s, "tags": []}`
+	tests := []struct {
+		name        string
+		prefixExtra string
+		ips         string
+		wantGateway string
+		wantURL     string // suffix
+	}{
+		{name: "tagged address is the gateway",
+			ips:         `{"id": 1, "address": "198.51.100.1/24", "status": {"value": "active"}, "tags": [{"slug": "gateway"}]}`,
+			wantGateway: "198.51.100.1", wantURL: "/ipam/prefixes/7/"},
+		{name: "custom field wins over a tagged address",
+			prefixExtra: `, "custom_fields": {"gateway": "198.51.100.254"}`,
+			ips:         `{"id": 1, "address": "198.51.100.1/24", "status": {"value": "active"}, "tags": [{"slug": "gateway"}]}`,
+			wantGateway: "198.51.100.254", wantURL: "/ipam/prefixes/7/"},
+		{name: "a gateway that is no address is dropped",
+			prefixExtra: `, "custom_fields": {"gateway": "ask the network team, password=hunter2"}`,
+			wantGateway: "", wantURL: "/ipam/prefixes/7/"},
+		{name: "a gateway of another type is dropped",
+			prefixExtra: `, "custom_fields": {"gateway": 42}`,
+			wantGateway: "", wantURL: "/ipam/prefixes/7/"},
+		{name: "credentials and query are cut from the reported URL",
+			prefixExtra: `, "display_url": "https://reader:hunter2@netbox.example.com/ipam/prefixes/7/?token=hunter2#frag"`,
+			wantURL:     "https://netbox.example.com/ipam/prefixes/7/"},
+		{name: "a reported URL that is not http falls back to the built one",
+			prefixExtra: `, "display_url": "javascript:alert(1)"`,
+			wantURL:     "/ipam/prefixes/7/"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := newFakeNetBox(t)
+			fake.serveJSON("/api/ipam/prefixes/", fmt.Sprintf(prefixBody, tt.prefixExtra))
+			fake.serveJSON("/api/ipam/ip-addresses/", tt.ips)
+			g, err := collect(t, fake.URL+"/", fakeToken)
+			if err != nil {
+				t.Fatalf("Collect: %v", err)
+			}
+			e, ok := g.Entity("netbox:network:198.51.100.0/24")
+			if !ok {
+				t.Fatal("prefix entity missing")
+			}
+			if got := e.Attrs[model.AttrGateway]; got != tt.wantGateway {
+				t.Errorf("gateway = %q, want %q", got, tt.wantGateway)
+			}
+			got := e.Attrs[model.AttrURL]
+			if !strings.HasSuffix(got, tt.wantURL) || strings.Contains(got, "hunter2") || strings.Contains(got, "//ipam") {
+				t.Errorf("url = %q, want it to end with %q", got, tt.wantURL)
+			}
+		})
+	}
+}
+
+// A host without a DNS name of its own takes the FQDN of its primary address.
+func TestCollectFQDNFromPrimaryAddress(t *testing.T) {
+	fake := newFakeNetBox(t)
+	fake.serveJSON("/api/virtualization/virtual-machines/",
+		`{"id": 1, "name": "vm01", "status": {"value": "active"}, "primary_ip4": {"id": 2, "address": "192.0.2.20/24"}, "tags": []}`)
+	fake.serveJSON("/api/ipam/ip-addresses/",
+		`{"id": 2, "address": "192.0.2.20/24", "status": {"value": "active"}, "dns_name": "vm01.example.com",
+		  "assigned_object_type": "virtualization.vminterface", "assigned_object_id": 1, "tags": []}`)
+	g, err := collect(t, fake.URL, fakeToken)
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	e, _ := g.Entity("netbox:host:vm01")
+	if got := e.Attrs[model.AttrFQDN]; got != "vm01.example.com" {
+		t.Errorf("fqdn = %q, want the DNS name of the primary address", got)
 	}
 }

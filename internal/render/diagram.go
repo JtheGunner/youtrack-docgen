@@ -201,7 +201,7 @@ func (r *renderer) networkDiagram() (d Diagram, note string, ok bool) {
 			continue
 		}
 		drawn++
-		netID := f.node(string(n.entity.ID), n.entity.Name+" "+n.prefix.String(), model.KindNetwork)
+		netID := f.node(string(n.entity.ID), n.label(), model.KindNetwork)
 		shown, total := 0, 0
 		for _, h := range hosts {
 			if !slices.ContainsFunc(h.Addresses, n.prefix.Contains) {
