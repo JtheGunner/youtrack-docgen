@@ -14,6 +14,15 @@
 | --- | --- | --- |
 | 192.0.2.20 | - | - |
 
+## Diagram
+
+```mermaid
+flowchart LR
+    n0["vm01.example.com"]
+    n1["vm01.example.com ens3"]
+    n1 -->|member_of| n0
+```
+
 ## Runs here
 
 Nothing is known to run here.

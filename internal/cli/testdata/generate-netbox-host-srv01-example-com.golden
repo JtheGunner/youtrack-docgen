@@ -15,6 +15,17 @@
 | --- | --- | --- |
 | 192.0.2.10 | - | - |
 
+## Diagram
+
+```mermaid
+flowchart LR
+    n0["srv01.example.com"]
+    n1["srv01.example.com eth0"]
+    n1 -->|member_of| n0
+    n2["Example HQ"]
+    n0 -->|member_of| n2
+```
+
 ## Runs here
 
 Nothing is known to run here.

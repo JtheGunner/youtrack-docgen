@@ -16,6 +16,7 @@ func (r *renderer) host(h model.Entity) Document {
 	sections := []Section{
 		{ID: "summary", Heading: "Summary", Blocks: []Block{r.hostSummary(h)}},
 		{ID: "network", Heading: "Network", Blocks: []Block{r.hostNetwork(h)}},
+		r.diagramSection(h),
 		{ID: "runs-here", Heading: "Runs here", Blocks: []Block{entityTable(runsHere, "Nothing is known to run here.")}},
 		{ID: "depends-on", Heading: "Depends on", Blocks: []Block{entityTable(dependsOn, "No dependencies are known.")}},
 		{ID: "needed-by", Heading: "Needed by", Blocks: []Block{entityTable(neededBy, "Nothing is known to depend on this host.")}},
@@ -145,4 +146,14 @@ func sortedCopy(s []string) []string {
 	out := slices.Clone(s)
 	slices.Sort(out)
 	return out
+}
+
+// diagramSection holds the relation diagram of e, or a note when e has no
+// relations or networks to draw.
+func (r *renderer) diagramSection(e model.Entity) Section {
+	var block Block = Paragraph("No relations are known.")
+	if d, ok := r.entityDiagram(e); ok {
+		block = d
+	}
+	return Section{ID: "diagram", Heading: "Diagram", Blocks: []Block{block}}
 }

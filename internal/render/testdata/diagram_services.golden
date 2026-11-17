@@ -1,0 +1,34 @@
+# Services
+
+## Services
+
+| Service | Runs on | Addresses | Source |
+| --- | --- | --- | --- |
+| cache | db01 | - | k8s |
+| shop | web01 | 10.96.0.10 | k8s |
+
+## Service diagrams
+
+cache \(k8s\)
+
+```mermaid
+flowchart LR
+    n0("cache")
+    n1["db01"]
+    n1 -->|exposes| n0
+```
+
+shop \(k8s\)
+
+```mermaid
+flowchart LR
+    n0("shop")
+    n1["db01"]
+    n0 -->|depends_on| n1
+    n2["web01"]
+    n0 -->|runs_on| n2
+```
+
+## Generated
+
+Generated at 2025-01-02T03:04:05Z from k8s.
