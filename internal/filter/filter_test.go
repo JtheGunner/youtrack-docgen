@@ -685,3 +685,58 @@ func TestApplyAnchorsDeniedNamesAtHostnameBoundaries(t *testing.T) {
 		t.Errorf("Attrs = %v, want %v", got.Attrs, want)
 	}
 }
+
+func TestApplyScrubsDeniedAddressesInEveryTextForm(t *testing.T) {
+	g := model.NewGraph()
+	denied := entity(t, "netbox", model.KindHost, "lab01.example.com", map[string]string{LabelTenant: "lab"}, nil)
+	denied.Addresses = []netip.Addr{
+		netip.MustParseAddr("192.0.2.50"),
+		netip.MustParseAddr("2001:db8::50"),
+		netip.MustParseAddr("::ffff:198.51.100.9"),
+	}
+	if err := g.AddEntity(denied); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct{ name, in, want string }{
+		{"ipv4 with port", "192.0.2.50:8080", Placeholder + ":8080"},
+		{"url with port and path", "http://192.0.2.50:8080/x", "http://" + Placeholder + ":8080/x"},
+		{"cidr", "192.0.2.50/32", Placeholder + "/32"},
+		{"list", "192.0.2.50,192.0.2.50", Placeholder + "," + Placeholder},
+		{"ipv4 mapped into ipv6", "::ffff:192.0.2.50", "::ffff:" + Placeholder},
+		{"bracketed ipv6 with port", "[2001:db8::50]:443", "[" + Placeholder + "]:443"},
+		{"expanded ipv6", "2001:0db8:0000:0000:0000:0000:0000:0050", Placeholder},
+		{"denied 4in6 address written as ipv4", "198.51.100.9:80", Placeholder + ":80"},
+		{"longer ipv4 stays", "192.0.2.500", "192.0.2.500"},
+		{"shorter ipv4 stays", "192.0.2.5", "192.0.2.5"},
+		{"embedded in a longer number stays", "1192.0.2.50", "1192.0.2.50"},
+		{"longer ipv6 stays", "2001:db8::500", "2001:db8::500"},
+	}
+	attrs := make(map[string]string, len(tests))
+	for i, tt := range tests {
+		attrs[fmt.Sprintf("k%02d", i)] = tt.in
+	}
+	svc := entity(t, "k8s", model.KindService, "shop/edge", nil, attrs)
+	if err := g.AddEntity(svc); err != nil {
+		t.Fatal(err)
+	}
+
+	f, err := New(Config{Collectors: map[string]Rules{"netbox": {Deny: []Match{{Tenants: []string{"lab"}}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := f.Apply(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := out.Entity(svc.ID)
+	if !ok {
+		t.Fatal("service must survive")
+	}
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if v := got.Attrs[fmt.Sprintf("k%02d", i)]; v != tt.want {
+				t.Errorf("scrub(%q) = %q, want %q", tt.in, v, tt.want)
+			}
+		})
+	}
+}

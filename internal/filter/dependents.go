@@ -49,8 +49,13 @@ func (f *Filter) deniedHosts(g *model.Graph) map[model.ID]model.Entity {
 // "db.example.com" but keeps "db2.example.com" and "mongodb.example.com".
 const hostnameChars = `a-z0-9-`
 
-// addressChars are the characters an IP address literal is made of.
-const addressChars = `0-9a-f:`
+// ipv4Chars and ipv6Chars are the characters an IP address literal of that
+// family is made of. A colon or slash next to an IPv4 address is a port or
+// prefix separator, so it counts as a boundary there but not for IPv6.
+const (
+	ipv4Chars = `0-9`
+	ipv6Chars = `0-9a-f:`
+)
 
 // maxScrubPasses bounds the repeated replacement that is needed because
 // neighbouring matches share their boundary character.
@@ -66,10 +71,11 @@ type dependents struct {
 	// nameRE matches any denied hostname (names and aliases) at hostname
 	// boundaries, case-insensitively; nil when there are none.
 	nameRE *regexp.Regexp
-	// addrs are the addresses of the denied hosts and of the IP entities removed
-	// with them; addrRE matches them at address boundaries.
-	addrs  map[netip.Addr]bool
-	addrRE *regexp.Regexp
+	// addrs are the (unmapped) addresses of the denied hosts and of the IP
+	// entities removed with them; addrREs match their text forms at address
+	// boundaries, one expression per address family.
+	addrs   map[netip.Addr]bool
+	addrREs []*regexp.Regexp
 }
 
 func newDependents(g *model.Graph, denied map[model.ID]model.Entity) dependents {
@@ -83,7 +89,7 @@ func newDependents(g *model.Graph, denied map[model.ID]model.Entity) dependents 
 		names = append(names, h.Name)
 		names = append(names, h.Aliases...)
 		for _, addr := range h.Addresses {
-			d.addrs[addr] = true
+			d.addAddress(addr)
 		}
 	}
 	d.nameRE = boundaryRegexp(names, hostnameChars)
@@ -114,7 +120,7 @@ func newDependents(g *model.Graph, denied map[model.ID]model.Entity) dependents 
 			d.addAddresses(ip)
 		}
 	}
-	d.addrRE = boundaryRegexp(addrStrings(d.addrs), addressChars)
+	d.addrREs = addressRegexps(d.addrs)
 	return d
 }
 
@@ -122,20 +128,41 @@ func newDependents(g *model.Graph, denied map[model.ID]model.Entity) dependents 
 // address, and it may own further ones.
 func (d dependents) addAddresses(ip model.Entity) {
 	if addr, err := netip.ParseAddr(ip.Name); err == nil {
-		d.addrs[addr] = true
+		d.addAddress(addr)
 	}
 	for _, addr := range ip.Addresses {
-		d.addrs[addr] = true
+		d.addAddress(addr)
 	}
 }
 
-// addrStrings renders the addresses in a stable order.
-func addrStrings(addrs map[netip.Addr]bool) []string {
-	out := make([]string, 0, len(addrs))
+// addAddress records addr in its unmapped form, so an IPv4-mapped IPv6 address
+// and the plain IPv4 address count as the same one.
+func (d dependents) addAddress(addr netip.Addr) {
+	d.addrs[addr.Unmap().WithZone("")] = true
+}
+
+// addressRegexps builds one boundary expression per address family. IPv4
+// addresses match in dotted form (also inside an IPv4-mapped IPv6 literal);
+// IPv6 addresses match in compressed and fully expanded form.
+func addressRegexps(addrs map[netip.Addr]bool) []*regexp.Regexp {
+	var v4, v6 []string
 	for addr := range addrs {
-		out = append(out, addr.String())
+		if addr.Is4() {
+			v4 = append(v4, addr.String())
+			continue
+		}
+		v6 = append(v6, addr.String(), addr.StringExpanded())
 	}
-	slices.Sort(out)
+	var out []*regexp.Regexp
+	for _, set := range []struct {
+		words []string
+		chars string
+	}{{v4, ipv4Chars}, {v6, ipv6Chars}} {
+		slices.Sort(set.words)
+		if re := boundaryRegexp(slices.Compact(set.words), set.chars); re != nil {
+			out = append(out, re)
+		}
+	}
 	return out
 }
 
@@ -163,11 +190,11 @@ func (d dependents) namesDenied(e model.Entity) bool {
 }
 
 // active reports whether there is anything to scrub.
-func (d dependents) active() bool { return d.nameRE != nil || d.addrRE != nil }
+func (d dependents) active() bool { return d.nameRE != nil || len(d.addrREs) > 0 }
 
 // scrubText replaces the denied hostnames and addresses in s.
 func (d dependents) scrubText(s string) string {
-	for _, re := range []*regexp.Regexp{d.nameRE, d.addrRE} {
+	for _, re := range append([]*regexp.Regexp{d.nameRE}, d.addrREs...) {
 		if re == nil {
 			continue
 		}
@@ -208,7 +235,7 @@ func (d dependents) mask(e model.Entity) model.Entity {
 		})
 	}
 	if e.Addresses != nil {
-		e.Addresses = slices.DeleteFunc(slices.Clone(e.Addresses), func(a netip.Addr) bool { return d.addrs[a] })
+		e.Addresses = slices.DeleteFunc(slices.Clone(e.Addresses), func(a netip.Addr) bool { return d.addrs[a.Unmap().WithZone("")] })
 	}
 	return e
 }
