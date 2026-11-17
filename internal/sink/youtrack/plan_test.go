@@ -115,3 +115,20 @@ func TestNewPlannerValidates(t *testing.T) {
 		t.Error("empty query accepted")
 	}
 }
+
+func TestReadOnlyRejectsEveryWrite(t *testing.T) {
+	ro := readOnly{}
+	ctx := context.Background()
+	if _, err := ro.CreateTag(ctx, "docgen-stale"); err == nil {
+		t.Error("CreateTag must fail")
+	}
+	if err := ro.AddTag(ctx, "a-1", "t-1"); err == nil {
+		t.Error("AddTag must fail")
+	}
+	if err := ro.RemoveTag(ctx, "a-1", "t-1"); err == nil {
+		t.Error("RemoveTag must fail")
+	}
+	if _, err := ro.FindTag(ctx, "docgen-stale"); err == nil {
+		t.Error("FindTag must fail")
+	}
+}

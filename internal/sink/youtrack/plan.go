@@ -129,6 +129,22 @@ func (readOnly) UpdateArticle(context.Context, string, client.ArticleUpdate) (*c
 	return nil, errors.New("youtrack sink: dry run must not update articles")
 }
 
+func (readOnly) FindTag(context.Context, string) (*client.TagRef, error) {
+	return nil, errors.New("youtrack sink: dry run must not look up tags")
+}
+
+func (readOnly) CreateTag(context.Context, string) (*client.TagRef, error) {
+	return nil, errors.New("youtrack sink: dry run must not create tags")
+}
+
+func (readOnly) AddTag(context.Context, string, string) error {
+	return errors.New("youtrack sink: dry run must not tag articles")
+}
+
+func (readOnly) RemoveTag(context.Context, string, string) error {
+	return errors.New("youtrack sink: dry run must not untag articles")
+}
+
 type planCollector struct {
 	existing map[string]client.Article
 	keyOfID  map[string]string // article database ID -> document key
