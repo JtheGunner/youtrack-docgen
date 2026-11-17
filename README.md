@@ -90,7 +90,7 @@ youtrack-docgen generate --config docgen.yaml
 
 - It uses every enabled collector, applies the allow/deny rules and redaction, renders the documents, and writes them with the `markdown` sink into `sinks.markdown.dir`.
 - `index.md` is the entry page. Every other document gets its own file named after its ID, for example `netbox-host-srv01-example-com.md`. Files the tool does not generate are left alone.
-- Only the `netbox` collector is supported so far. Set `enabled: false` on other collectors. An enabled `youtrack` sink is skipped with a note; use [`diff`](#-dry-run-and-diff) to preview what it would change.
+- The `netbox` and `kubernetes` collectors are supported; set `enabled: false` on any other collector. Kubernetes workloads pinned to a node, services with `externalIPs` and ingress hostnames are linked to NetBox hosts (`runs_on`, `exposes`) when exactly one host matches by IP or hostname. An enabled `youtrack` sink is skipped with a note; use [`diff`](#-dry-run-and-diff) to preview what it would change.
 
 ---
 

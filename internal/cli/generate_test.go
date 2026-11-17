@@ -235,8 +235,8 @@ func TestGenerateFailures(t *testing.T) {
 	}{
 		{
 			name:    "unsupported collector",
-			cfg:     generateConfig(srv.URL, out, "  kubernetes:\n    paths: [./k8s]"),
-			wantErr: `collector "kubernetes"`,
+			cfg:     generateConfig(srv.URL, out, "  terraform:\n    paths: [./tf]"),
+			wantErr: `collector "terraform"`,
 		},
 		{
 			name:    "unreachable source",

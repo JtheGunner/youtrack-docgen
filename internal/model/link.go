@@ -7,7 +7,8 @@ import "slices"
 // are linked with a RelSameAs relation when they share an IP address or a
 // hostname (name or alias, compared as in Graph.ByHostname). The relation
 // points from the lower to the higher ID, so repeated runs add nothing new.
-// Link returns the number of relations it added.
+// It then adds the runs_on and exposes relations between cluster objects and
+// those hosts (see linkPlacement). Link returns the number of relations it added.
 func Link(g *Graph) int {
 	hosts := g.ByKind(KindHost)
 	names := make([][]string, len(hosts))
@@ -29,7 +30,7 @@ func Link(g *Graph) int {
 			added++
 		}
 	}
-	return added
+	return added + linkPlacement(g)
 }
 
 func sameMachine(a, b Entity, namesA, namesB []string) bool {

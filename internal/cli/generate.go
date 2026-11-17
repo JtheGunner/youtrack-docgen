@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/JtheGunner/youtrack-docgen/internal/collector"
+	"github.com/JtheGunner/youtrack-docgen/internal/collector/kubernetes"
 	"github.com/JtheGunner/youtrack-docgen/internal/collector/netbox"
 	"github.com/JtheGunner/youtrack-docgen/internal/config"
 	"github.com/JtheGunner/youtrack-docgen/internal/model"
@@ -102,6 +103,12 @@ func buildCollectors(cfg *config.Config) ([]collector.Collector, error) {
 		switch name {
 		case netbox.Source:
 			c, err := netbox.New(cfg.Collectors[name])
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, c)
+		case kubernetes.Source:
+			c, err := kubernetes.New(cfg.Collectors[name])
 			if err != nil {
 				return nil, err
 			}
