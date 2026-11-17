@@ -5,6 +5,7 @@
 - VLANs
 - IP allocation
 - Services
+- Network diagram
 - device-3
 - srv01.example.com
 - sw01.example.com
@@ -19,6 +20,7 @@ Generated at 2026-01-02T03:04:05Z from netbox.
 - [VLANs](overview-vlans.md)
 - [IP allocation](overview-ip-allocation.md)
 - [Services](overview-services.md)
+- [Network diagram](overview-network-diagram.md)
 - [device-3](netbox-host-device-3.md)
 - [srv01.example.com](netbox-host-srv01-example-com.md)
 - [sw01.example.com](netbox-host-sw01-example-com.md)

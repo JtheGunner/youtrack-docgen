@@ -31,6 +31,12 @@ The articles are built for troubleshooting: *what is this IP, where does it run,
 
 Collectors and sinks never depend on each other. They only share the model, so a new source or output does not touch the other side.
 
+### Diagrams
+
+Every host article has a **Diagram** section with its direct relations (`runs_on`, `exposes`, `depends_on`, `same_as`, ...) and its networks. The Services overview has one diagram per service, and a **Network diagram** overview shows each network with its hosts. Without any network prefix it shows the IP addresses per host instead. Diagrams are capped for readability and are built only from the filtered graph, so denied entities never appear.
+
+Diagrams are written as fenced `mermaid` code blocks. This assumes nothing about Mermaid support: where the target renders Mermaid the block becomes a drawing, and everywhere else it stays readable as plain text. There is no switch for this yet.
+
 ---
 
 ## 🚧 Status
@@ -90,7 +96,7 @@ youtrack-docgen generate --config docgen.yaml
 
 - It uses every enabled collector, applies the allow/deny rules and redaction, renders the documents, and writes them with the `markdown` sink into `sinks.markdown.dir`.
 - `index.md` is the entry page. Every other document gets its own file named after its ID, for example `netbox-host-srv01-example-com.md`. Files the tool does not generate are left alone.
-- Only the `netbox` collector is supported so far. Set `enabled: false` on other collectors. An enabled `youtrack` sink is skipped with a note; use [`diff`](#-dry-run-and-diff) to preview what it would change.
+- The `netbox` and `kubernetes` collectors are supported; set `enabled: false` on any other collector. Kubernetes workloads pinned to a node, services with `externalIPs` and ingress hostnames are linked to NetBox hosts (`runs_on`, `exposes`) when exactly one host matches by IP or hostname. An enabled `youtrack` sink is skipped with a note; use [`diff`](#-dry-run-and-diff) to preview what it would change.
 
 ---
 

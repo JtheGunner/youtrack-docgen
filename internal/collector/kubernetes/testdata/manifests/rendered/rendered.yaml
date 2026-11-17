@@ -1,0 +1,47 @@
+# Source: chart/templates/db.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: db
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: db
+    spec:
+      containers:
+        - image: registry.example.com/shop/db:16
+---
+# Source: chart/templates/empty.yaml
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources: [db.yaml]
+---
+apiVersion: v1
+kind: List
+items:
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: db
+    spec:
+      clusterIP: None
+      selector:
+        app: db
+      ports:
+        - port: 5432
+          protocol: TCP
+  - apiVersion: batch/v1
+    kind: CronJob
+    metadata:
+      name: backup
+    spec:
+      schedule: "0 3 * * *"
+      jobTemplate:
+        spec:
+          template:
+            spec:
+              containers:
+                - image: registry.example.com/shop/backup:2

@@ -235,8 +235,8 @@ func TestGenerateFailures(t *testing.T) {
 	}{
 		{
 			name:    "unsupported collector",
-			cfg:     generateConfig(srv.URL, out, "  kubernetes:\n    paths: [./k8s]"),
-			wantErr: `collector "kubernetes"`,
+			cfg:     generateConfig(srv.URL, out, "  terraform:\n    paths: [./tf]"),
+			wantErr: `collector "terraform"`,
 		},
 		{
 			name:    "unreachable source",
@@ -267,5 +267,30 @@ func TestGenerateRequiresValidConfig(t *testing.T) {
 	_, _, err := runGenerate(t, generateConfig("https://netbox.example.com", t.TempDir(), ""))
 	if err == nil || !strings.Contains(err.Error(), "NETBOX_TOKEN") {
 		t.Fatalf("error = %v, want a missing NETBOX_TOKEN report", err)
+	}
+}
+
+// A denied host must vanish everywhere: its interfaces and IP addresses are
+// removed too, so its name never reaches a file, stdout or stderr.
+func TestGenerateHidesDeniedHostFromDependents(t *testing.T) {
+	t.Setenv("NETBOX_TOKEN", fakeNetBoxToken)
+	srv := fakeNetBox(t)
+	out := filepath.Join(t.TempDir(), "out")
+	deny := "    deny:\n      - kinds: [host]\n        roles: [server]\n"
+
+	stdout, stderr, err := runGenerate(t, generateConfig(srv.URL, out, deny))
+	if err != nil {
+		t.Fatalf("generate error = %v\nstderr: %s", err, stderr)
+	}
+	outputs := map[string]string{"stdout": stdout, "stderr": stderr}
+	for name, body := range readDir(t, out) {
+		outputs[name] = string(body)
+	}
+	for name, body := range outputs {
+		for _, denied := range []string{"srv01"} {
+			if strings.Contains(strings.ToLower(name+"\n"+body), denied) {
+				t.Errorf("%s reveals the denied host %q:\n%s", name, denied, body)
+			}
+		}
 	}
 }

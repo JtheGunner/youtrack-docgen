@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: shop
+  labels:
+    team: storefront
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: shop-credentials
+  namespace: shop
+type: Opaque
+stringData:
+  password: FAKE-SECRET-PASSWORD-1
+data:
+  token: RkFLRS1TRUNSRVQtVE9LRU4tMg==

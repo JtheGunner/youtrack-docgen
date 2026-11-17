@@ -6,6 +6,7 @@
 - VLANs
 - IP allocation
 - Services
+- Network diagram
 - web01
 - db01
 - web01
@@ -57,9 +58,53 @@ Generated at 2025-01-02T03:04:05Z from k8s, netbox.
 | cache | db01 | - | k8s |
 | shop | web01 | 10.96.0.10 | k8s |
 
+## Service diagrams
+
+cache \(k8s\)
+
+```mermaid
+flowchart LR
+    n0("cache")
+    n1["db01"]
+    n1 -->|exposes| n0
+```
+
+shop \(k8s\)
+
+```mermaid
+flowchart LR
+    n0("shop")
+    n1["db01"]
+    n0 -->|depends_on| n1
+    n2["web01"]
+    n0 -->|runs_on| n2
+```
+
 ## Generated
 
 Generated at 2025-01-02T03:04:05Z from k8s.
+
+<!-- document overview:network-diagram -->
+# Network diagram
+
+## Network diagram
+
+```mermaid
+flowchart LR
+    n0{{"servers 10.0.10.0/24"}}
+    n1["web01"]
+    n0 --- n1
+    n2["web01"]
+    n0 --- n2
+    n3{{"databases 10.0.20.0/24"}}
+    n4["db01"]
+    n3 --- n4
+    n5{{"management 192.0.2.0/24"}}
+```
+
+## Generated
+
+Generated at 2025-01-02T03:04:05Z from k8s, netbox.
 
 <!-- document k8s:host:web01 -->
 # web01
@@ -75,6 +120,17 @@ Generated at 2025-01-02T03:04:05Z from k8s.
 | IP address | Network | VLAN |
 | --- | --- | --- |
 | 10.0.10.5 | servers | 10 |
+
+## Diagram
+
+```mermaid
+flowchart LR
+    n0["web01"]
+    n1["web01"]
+    n0 -->|same_as| n1
+    n2{{"servers"}}
+    n0 -->|in_network| n2
+```
 
 ## Runs here
 
@@ -111,6 +167,21 @@ Generated at 2025-01-02T03:04:05Z from k8s, netbox.
 | IP address | Network | VLAN |
 | --- | --- | --- |
 | 10.0.20.5 | databases | 20 |
+
+## Diagram
+
+```mermaid
+flowchart LR
+    n0["db01"]
+    n1("cache")
+    n0 -->|exposes| n1
+    n2("shop")
+    n2 -->|depends_on| n0
+    n3["web01"]
+    n3 -->|depends_on| n0
+    n4{{"databases"}}
+    n0 -->|in_network| n4
+```
 
 ## Runs here
 
@@ -156,6 +227,21 @@ Generated at 2025-01-02T03:04:05Z from netbox.
 | --- | --- | --- |
 | 10.0.10.5 | servers | 10 |
 | 10.0.10.6 | servers | 10 |
+
+## Diagram
+
+```mermaid
+flowchart LR
+    n0["web01"]
+    n1["web01"]
+    n1 -->|same_as| n0
+    n2("shop")
+    n2 -->|runs_on| n0
+    n3["db01"]
+    n0 -->|depends_on| n3
+    n4{{"servers"}}
+    n0 -->|in_network| n4
+```
 
 ## Runs here
 

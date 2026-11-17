@@ -1,0 +1,20 @@
+# Network diagram
+
+## Network diagram
+
+```mermaid
+flowchart LR
+    n0{{"servers 10.0.10.0/24"}}
+    n1["web01"]
+    n0 --- n1
+    n2["web01"]
+    n0 --- n2
+    n3{{"databases 10.0.20.0/24"}}
+    n4["db01"]
+    n3 --- n4
+    n5{{"management 192.0.2.0/24"}}
+```
+
+## Generated
+
+Generated at 2025-01-02T03:04:05Z from k8s, netbox.

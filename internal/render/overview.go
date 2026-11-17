@@ -108,7 +108,40 @@ func (r *renderer) services() Document {
 		}
 		block = t
 	}
-	return r.overview(ServicesID, "Services", block, svcs)
+	doc := r.overview(ServicesID, "Services", block, svcs)
+	if diagrams := r.serviceDiagrams(svcs); len(diagrams) > 0 {
+		generated := doc.Sections[len(doc.Sections)-1]
+		doc.Sections = append(doc.Sections[:len(doc.Sections)-1],
+			Section{ID: "diagrams", Heading: "Service diagrams", Blocks: diagrams}, generated)
+	}
+	return doc
+}
+
+// serviceDiagrams returns a caption and a relation diagram for every service
+// that has relations or networks to draw.
+func (r *renderer) serviceDiagrams(svcs []model.Entity) []Block {
+	var blocks []Block
+	for _, s := range svcs {
+		if d, ok := r.entityDiagram(s); ok {
+			blocks = append(blocks, Paragraph(s.Name+" ("+s.Source+")"), d)
+		}
+	}
+	return blocks
+}
+
+// networkMap draws the networks with their hosts, or the IP addresses per host
+// when no network prefix is known.
+func (r *renderer) networkMap() Document {
+	blocks := []Block{Paragraph("No network data is known.")}
+	if d, note, ok := r.networkDiagram(); ok {
+		blocks = []Block{d}
+		if note != "" {
+			blocks = []Block{Paragraph(note), d}
+		}
+	}
+	doc := r.overview(NetworkMapID, "Network diagram", nil, r.g.ByKind(model.KindHost), r.g.ByKind(model.KindNetwork))
+	doc.Sections[0].Blocks = blocks
+	return doc
 }
 
 // serviceHosts returns the sorted names of the hosts a service runs on or is

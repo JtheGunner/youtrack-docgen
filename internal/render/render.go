@@ -17,6 +17,7 @@ const (
 	VLANsID        = "overview:vlans"
 	IPAllocationID = "overview:ip-allocation"
 	ServicesID     = "overview:services"
+	NetworkMapID   = "overview:network-diagram"
 )
 
 // Options configure Render.
@@ -38,7 +39,7 @@ func Render(g *model.Graph, opts Options) Document {
 	r := &renderer{g: g, at: opts.GeneratedAt.UTC(), nets: indexNetworks(g)}
 
 	root := Document{ID: RootID, Title: "Infrastructure documentation"}
-	root.Children = append(root.Children, r.vlans(), r.ipAllocation(), r.services())
+	root.Children = append(root.Children, r.vlans(), r.ipAllocation(), r.services(), r.networkMap())
 	hosts := g.ByKind(model.KindHost)
 	for _, h := range hosts {
 		root.Children = append(root.Children, r.host(h))

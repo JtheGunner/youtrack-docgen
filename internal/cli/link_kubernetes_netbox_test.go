@@ -1,0 +1,128 @@
+package cli
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/JtheGunner/youtrack-docgen/internal/config"
+	"github.com/JtheGunner/youtrack-docgen/internal/model"
+)
+
+// linkNetBoxDevices are the synthetic NetBox hosts the Kubernetes fixtures
+// are linked against: one owns the address and hostname of node-a, the other
+// is named like the ingress hostname. No host matches node-lost or node-ghost.
+const linkNetBoxDevices = `{"count": 2, "next": null, "previous": null, "results": [
+  {"id": 11, "name": "node-a.example.com", "status": {"value": "active"},
+   "primary_ip4": {"id": 21, "address": "192.0.2.21/24"}, "primary_ip6": null, "description": "", "tags": []},
+  {"id": 12, "name": "shop.example.com", "status": {"value": "active"},
+   "primary_ip4": {"id": 22, "address": "192.0.2.30/24"}, "primary_ip6": null, "description": "", "tags": []}
+]}`
+
+const linkNetBoxInterfaces = `{"count": 1, "next": null, "previous": null, "results": [
+  {"id": 31, "name": "eth0", "device": {"id": 11, "name": "node-a.example.com"}, "enabled": true,
+   "type": {"value": "1000base-t"}, "mac_address": null, "mtu": null, "description": "", "tags": []}
+]}`
+
+const linkNetBoxIPAddresses = `{"count": 1, "next": null, "previous": null, "results": [
+  {"id": 21, "address": "192.0.2.21/24", "status": {"value": "active"}, "vrf": null, "dns_name": "",
+   "assigned_object_type": "dcim.interface", "assigned_object_id": 31, "description": "", "tags": []}
+]}`
+
+const emptyNetBoxPage = `{"count": 0, "next": null, "previous": null, "results": []}`
+
+func fakeLinkNetBox(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, ok := map[string]string{
+			"/api/dcim/devices/":      linkNetBoxDevices,
+			"/api/dcim/interfaces/":   linkNetBoxInterfaces,
+			"/api/ipam/ip-addresses/": linkNetBoxIPAddresses,
+		}[r.URL.Path]
+		if !ok {
+			body = emptyNetBoxPage
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, body)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// TestCollectAndLinkKubernetesWithNetBox runs the real collectors on the
+// synthetic Kubernetes manifests and a NetBox fake, then the linking step.
+func TestCollectAndLinkKubernetesWithNetBox(t *testing.T) {
+	t.Setenv("NETBOX_TOKEN", fakeNetBoxToken)
+	srv := fakeLinkNetBox(t)
+	k8s := filepath.Join("..", "collector", "kubernetes", "testdata")
+	cfgPath := writeConfig(t, fmt.Sprintf(`
+collectors:
+  netbox:
+    url: %s
+    token: ${NETBOX_TOKEN}
+  kubernetes:
+    paths: [%s, %s]
+sinks:
+  markdown:
+    dir: %s
+`, srv.URL, filepath.Join(k8s, "nodes"), filepath.Join(k8s, "manifests", "apps", "web.yaml"), t.TempDir()))
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collectors, err := buildCollectors(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	graph := model.NewGraph()
+	for _, c := range collectors {
+		if err := c.Collect(context.Background(), graph); err != nil {
+			t.Fatalf("collector %s: %v", c.Name(), err)
+		}
+	}
+	model.Link(graph)
+
+	const (
+		netboxNode = model.ID("netbox:host:node-a.example.com")
+		netboxShop = model.ID("netbox:host:shop.example.com")
+	)
+	for _, id := range []model.ID{netboxNode, netboxShop} {
+		if _, ok := graph.Entity(id); !ok {
+			t.Fatalf("netbox host %s missing", id)
+		}
+	}
+	relations := graph.Relations()
+	want := []model.Relation{
+		{From: "kubernetes:workload:shop/deployment/api", To: netboxNode, Kind: model.RelRunsOn},
+		{From: netboxNode, To: "kubernetes:service:shop/edge", Kind: model.RelExposes},
+		{From: netboxShop, To: "kubernetes:ingress:shop/web", Kind: model.RelExposes},
+	}
+	for _, rel := range want {
+		if !slices.Contains(relations, rel) {
+			t.Errorf("relation missing: %+v", rel)
+		}
+	}
+
+	for _, name := range []string{"node-lost", "node-ghost"} {
+		node := model.ID("kubernetes:host:" + name)
+		if _, ok := graph.Entity(node); !ok {
+			t.Fatalf("unmatched node %s missing from the graph", name)
+		}
+		for _, rel := range relations {
+			if rel.Kind == model.RelSameAs && (rel.From == node || rel.To == node) {
+				t.Errorf("%s must stay unlinked, got %+v", name, rel)
+			}
+		}
+	}
+	for _, rel := range relations {
+		if rel.Kind == model.RelRunsOn && rel.From == "kubernetes:workload:shop/deployment/batch" &&
+			strings.HasPrefix(string(rel.To), "netbox:") {
+			t.Errorf("workload pinned to the unmatched node-ghost must not run on a NetBox host: %+v", rel)
+		}
+	}
+}
