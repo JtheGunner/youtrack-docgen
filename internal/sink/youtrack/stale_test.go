@@ -147,7 +147,7 @@ func TestReappearingObjectLosesTagAndBanner(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := api.byKey(t, "netbox:host:web-1")
-	if res.Restored != 2 || hasStaleTag(*got) || strings.Contains(got.Content, "stale-banner") {
+	if res.Restored != 4 || hasStaleTag(*got) || strings.Contains(got.Content, "stale-banner") {
 		t.Fatalf("result %+v, tags %v, content:\n%s", res, got.Tags, got.Content)
 	}
 	if got.Content != before {
