@@ -402,3 +402,174 @@ func TestAllKindsCoversEveryKind(t *testing.T) {
 		}
 	}
 }
+
+func TestApplyDeniesSameAsTwinsAndDNSNamedIPs(t *testing.T) {
+	const denied = "lab01.example.com"
+	g := model.NewGraph()
+	add := func(e model.Entity) model.Entity {
+		t.Helper()
+		if err := g.AddEntity(e); err != nil {
+			t.Fatal(err)
+		}
+		return e
+	}
+	lab := add(entity(t, "netbox", model.KindHost, denied, map[string]string{LabelTenant: "lab"}, nil))
+	twinHost := entity(t, "k8s", model.KindHost, "lab01-node", nil, nil)
+	twinHost.Aliases = []string{denied}
+	twin := add(twinHost)
+	twinNIC := add(entity(t, "k8s", model.KindInterface, "lab01-node-eth0", nil, nil))
+	web := add(entity(t, "netbox", model.KindHost, "web01.example.com", map[string]string{LabelTenant: "acme"}, nil))
+	webNIC := add(entity(t, "netbox", model.KindInterface, "web01-eth0", nil, nil))
+	twinOnly := add(entity(t, "k8s", model.KindIPAddress, "192.0.2.20", nil, nil))
+	dnsOnly := add(entity(t, "netbox", model.KindIPAddress, "192.0.2.21", nil, map[string]string{"dns_name": "LAB01.example.com"}))
+	dnsShared := add(entity(t, "netbox", model.KindIPAddress, "192.0.2.22", nil, map[string]string{"dns_name": denied}))
+	for _, r := range []model.Relation{
+		{From: twin.ID, To: lab.ID, Kind: model.RelSameAs}, // twin -> denied: either direction must work
+		{From: twinNIC.ID, To: twin.ID, Kind: model.RelMemberOf},
+		{From: webNIC.ID, To: web.ID, Kind: model.RelMemberOf},
+		{From: twinOnly.ID, To: twinNIC.ID, Kind: model.RelMemberOf},
+		{From: dnsShared.ID, To: webNIC.ID, Kind: model.RelMemberOf},
+	} {
+		if err := g.AddRelation(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	f, err := New(Config{Collectors: map[string]Rules{"netbox": {Deny: []Match{{Tenants: []string{"lab"}}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := f.Apply(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []model.ID{lab.ID, twin.ID, twinNIC.ID, twinOnly.ID, dnsOnly.ID} {
+		if _, ok := out.Entity(id); ok {
+			t.Errorf("%s should have been removed", id)
+		}
+	}
+	for _, id := range []model.ID{web.ID, webNIC.ID, dnsShared.ID} {
+		if _, ok := out.Entity(id); !ok {
+			t.Errorf("%s should have survived", id)
+		}
+	}
+	for _, kind := range allKinds {
+		for _, e := range out.ByKind(kind) {
+			if text := strings.ToLower(fmt.Sprintf("%+v", e)); strings.Contains(text, denied) || strings.Contains(text, "lab01") {
+				t.Errorf("denied name leaked into %s: %+v", e.ID, e)
+			}
+		}
+	}
+}
+
+func TestApplyHidesDeniedHostFromDependents(t *testing.T) {
+	const denied = "lab01.example.com"
+	g := model.NewGraph()
+	add := func(e model.Entity) model.Entity {
+		t.Helper()
+		if err := g.AddEntity(e); err != nil {
+			t.Fatal(err)
+		}
+		return e
+	}
+	lab := entity(t, "netbox", model.KindHost, denied, map[string]string{LabelTenant: "lab"}, nil)
+	lab.Aliases = []string{"lab-alias.example.com"}
+	lab = add(lab)
+	web := add(entity(t, "netbox", model.KindHost, "web01.example.com", map[string]string{LabelTenant: "acme"}, nil))
+	nicLab := add(entity(t, "netbox", model.KindInterface, "lab01-eth0", nil, nil))
+	nicWeb := add(entity(t, "netbox", model.KindInterface, "web01-eth0", nil, nil))
+
+	shared := entity(t, "netbox", model.KindIPAddress, "192.0.2.10",
+		map[string]string{"dns": "LAB01.Example.COM", "other": "keep-me"},
+		map[string]string{"description": "primary of Lab01.example.com and lab-alias.example.com"})
+	shared.Aliases = []string{"Lab01.Example.Com", "lab-alias.example.com", "web.example.com"}
+	shared = add(shared)
+	only := add(entity(t, "netbox", model.KindIPAddress, "192.0.2.11", map[string]string{"dns": denied}, nil))
+	unrelated := entity(t, "netbox", model.KindIPAddress, "192.0.2.12",
+		map[string]string{"dns": "web01.example.com"}, map[string]string{"description": "no denied name"})
+	unrelated.Aliases = []string{"web.example.com"}
+	unrelated = add(unrelated)
+
+	for _, r := range []model.Relation{
+		{From: nicLab.ID, To: lab.ID, Kind: model.RelMemberOf},
+		{From: nicWeb.ID, To: web.ID, Kind: model.RelMemberOf},
+		{From: shared.ID, To: nicLab.ID, Kind: model.RelMemberOf},
+		{From: shared.ID, To: nicWeb.ID, Kind: model.RelMemberOf},
+		{From: only.ID, To: nicLab.ID, Kind: model.RelMemberOf},
+		{From: unrelated.ID, To: nicWeb.ID, Kind: model.RelMemberOf},
+	} {
+		if err := g.AddRelation(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	f, err := New(Config{Collectors: map[string]Rules{"netbox": {Deny: []Match{{Tenants: []string{"lab"}}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := f.Apply(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name       string
+		id         model.ID
+		survives   bool
+		wantAttrs  map[string]string
+		wantLabels map[string]string
+		wantAlias  []string
+	}{
+		{"denied host removed", lab.ID, false, nil, nil, nil},
+		{"denied interface removed", nicLab.ID, false, nil, nil, nil},
+		{"ip used only by denied host removed", only.ID, false, nil, nil, nil},
+		{"surviving interface kept", nicWeb.ID, true, nil, nil, nil},
+		{
+			"shared ip kept and masked", shared.ID, true,
+			map[string]string{"description": "primary of " + Placeholder + " and " + Placeholder},
+			map[string]string{"dns": Placeholder, "other": "keep-me"},
+			[]string{"web.example.com"},
+		},
+		{
+			"unrelated ip untouched", unrelated.ID, true,
+			map[string]string{"description": "no denied name"},
+			map[string]string{"dns": "web01.example.com"},
+			[]string{"web.example.com"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := out.Entity(tt.id)
+			if ok != tt.survives {
+				t.Fatalf("survives = %v, want %v", ok, tt.survives)
+			}
+			if !ok || tt.wantAttrs == nil {
+				return
+			}
+			if fmt.Sprint(got.Attrs) != fmt.Sprint(tt.wantAttrs) {
+				t.Errorf("Attrs = %v, want %v", got.Attrs, tt.wantAttrs)
+			}
+			if fmt.Sprint(got.Labels) != fmt.Sprint(tt.wantLabels) {
+				t.Errorf("Labels = %v, want %v", got.Labels, tt.wantLabels)
+			}
+			if !slices.Equal(got.Aliases, tt.wantAlias) {
+				t.Errorf("Aliases = %v, want %v", got.Aliases, tt.wantAlias)
+			}
+		})
+	}
+
+	for _, kind := range allKinds {
+		for _, e := range out.ByKind(kind) {
+			text := strings.ToLower(fmt.Sprintf("%+v", e))
+			if strings.Contains(text, denied) || strings.Contains(text, "lab-alias") {
+				t.Errorf("denied name leaked into %s: %+v", e.ID, e)
+			}
+		}
+	}
+
+	// Masking must not mutate the input graph.
+	in, _ := g.Entity(shared.ID)
+	if in.Labels["dns"] != "LAB01.Example.COM" || len(in.Aliases) != 3 || !strings.Contains(in.Attrs["description"], "Lab01") {
+		t.Errorf("input graph was mutated: %+v", in)
+	}
+}

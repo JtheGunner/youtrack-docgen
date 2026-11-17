@@ -18,6 +18,28 @@ func (f *Filter) deniedHosts(g *model.Graph) map[model.ID]model.Entity {
 			denied[h.ID] = h
 		}
 	}
+	// A same_as twin from another source is the same machine: deny it too,
+	// transitively and in either direction.
+	for changed := len(denied) > 0; changed; {
+		changed = false
+		for _, rel := range g.Relations() {
+			if rel.Kind != model.RelSameAs {
+				continue
+			}
+			for _, pair := range [][2]model.ID{{rel.From, rel.To}, {rel.To, rel.From}} {
+				if _, isDenied := denied[pair[0]]; !isDenied {
+					continue
+				}
+				if _, already := denied[pair[1]]; already {
+					continue
+				}
+				if twin, ok := g.Entity(pair[1]); ok && twin.Kind == model.KindHost {
+					denied[twin.ID] = twin
+					changed = true
+				}
+			}
+		}
+	}
 	return denied
 }
 
@@ -30,6 +52,8 @@ type dependents struct {
 	removed map[model.ID]bool
 	// names are the denied hostnames (names and aliases) that must not leak.
 	names []string
+	// nameRE matches any of names case-insensitively; nil when names is empty.
+	nameRE *regexp.Regexp
 	// masked marks the surviving entities that referenced a denied owner.
 	masked map[model.ID]bool
 }
@@ -40,10 +64,18 @@ func newDependents(g *model.Graph, denied map[model.ID]model.Entity) dependents 
 		return d
 	}
 	for _, h := range denied {
+		d.removed[h.ID] = true
 		d.names = append(d.names, h.Name)
 		d.names = append(d.names, h.Aliases...)
 	}
 	d.names = slices.DeleteFunc(d.names, func(s string) bool { return strings.TrimSpace(s) == "" })
+	if len(d.names) > 0 {
+		parts := make([]string, len(d.names))
+		for i, n := range d.names {
+			parts[i] = regexp.QuoteMeta(n)
+		}
+		d.nameRE = regexp.MustCompile("(?i)" + strings.Join(parts, "|"))
+	}
 
 	deniedIfaces := map[model.ID]bool{}
 	for _, nic := range g.ByKind(model.KindInterface) {
@@ -66,26 +98,31 @@ func newDependents(g *model.Graph, denied map[model.ID]model.Entity) dependents 
 				others++
 			}
 		}
+		named := d.namesDenied(ip)
 		switch {
-		case denies > 0 && others == 0:
+		case (denies > 0 || named) && others == 0:
 			d.removed[ip.ID] = true
-		case denies > 0:
+		case denies > 0 || named:
 			d.masked[ip.ID] = true
 		}
 	}
 	return d
 }
 
+// namesDenied reports whether the DNS name or an alias of e is a denied hostname.
+func (d dependents) namesDenied(e model.Entity) bool {
+	if d.nameRE == nil {
+		return false
+	}
+	return d.nameRE.MatchString(e.Attrs["dns_name"]) || slices.ContainsFunc(e.Aliases, d.nameRE.MatchString)
+}
+
 // mask removes the denied hostnames from the free-text fields of e.
 func (d dependents) mask(e model.Entity) model.Entity {
-	if len(d.names) == 0 {
+	re := d.nameRE
+	if re == nil {
 		return e
 	}
-	parts := make([]string, len(d.names))
-	for i, n := range d.names {
-		parts[i] = regexp.QuoteMeta(n)
-	}
-	re := regexp.MustCompile("(?i)" + strings.Join(parts, "|"))
 
 	scrub := func(in map[string]string) map[string]string {
 		if in == nil {
