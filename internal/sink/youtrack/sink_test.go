@@ -17,6 +17,7 @@ type fakeAPI struct {
 	creates   int
 	updates   int
 	searchErr error
+	tagState
 }
 
 func (f *fakeAPI) SearchArticles(context.Context, string) ([]client.Article, error) {
