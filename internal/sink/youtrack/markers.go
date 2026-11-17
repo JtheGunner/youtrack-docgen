@@ -16,10 +16,13 @@ import (
 // editor or the server may change line endings and spacing, and a person may
 // drop the hash. A marker that is not recognised would make its block count
 // as missing, and the block would be appended a second time.
+//
+// A marker is only a marker on a line of its own. Text that mentions the
+// syntax inside a sentence is manual text.
 var (
 	docMarkerRe = regexp.MustCompile(`(?m)^[ \t]*<!--[ \t]*docgen:doc[ \t]+(\S+?)[ \t]*-->[ \t]*\r?$`)
-	beginRe     = regexp.MustCompile(`<!--[ \t]*docgen:begin[ \t]+(\S+?)(?:[ \t]+hash=(\S*?))?[ \t]*-->[ \t]*(?:\r?\n)?`)
-	endRe       = regexp.MustCompile(`<!--[ \t]*docgen:end[ \t]+(\S+?)[ \t]*-->[ \t]*(?:\r?\n)?`)
+	beginRe     = regexp.MustCompile(`(?m)^[ \t]*<!--[ \t]*docgen:begin[ \t]+(\S+?)(?:[ \t]+hash=(\S*?))?[ \t]*-->[ \t]*(?:\r?\n|\z)`)
+	endRe       = regexp.MustCompile(`(?m)^[ \t]*<!--[ \t]*docgen:end[ \t]+(\S+?)[ \t]*-->[ \t]*(?:\r?\n|\z)`)
 )
 
 // span is one marked block found in article content.
@@ -105,7 +108,11 @@ func newBlock(id, markdown string) (block, error) {
 }
 
 func (b block) render() string {
-	return fmt.Sprintf("<!-- docgen:begin %s hash=%s -->\n%s<!-- docgen:end %s -->\n", b.id, b.hash, b.body, b.id)
+	body := b.body
+	if body != "" && !strings.HasSuffix(body, "\n") {
+		body += "\n" // the end marker must start a line to be read back
+	}
+	return fmt.Sprintf("<!-- docgen:begin %s hash=%s -->\n%s<!-- docgen:end %s -->\n", b.id, b.hash, body, b.id)
 }
 
 // checkMarkerToken rejects IDs that could break out of a marker comment or

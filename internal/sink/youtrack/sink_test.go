@@ -705,3 +705,49 @@ func TestWarningsAreReportedWhenPublishFails(t *testing.T) {
 		t.Errorf("warnings = %q, want the one collected before the failure", res.Warnings)
 	}
 }
+
+// A container article has no sections: its whole content is the document
+// marker. When that line is removed, nothing generated is left in it, but it
+// still carries the title of the document. No second container is created and
+// the children are not moved.
+func TestContainerArticleWithoutDocumentMarkerIsNotDuplicated(t *testing.T) {
+	api := &fakeAPI{}
+	s := newSink(t, api)
+	doc := tree("web-1.example.com", "a")
+	if _, err := s.Publish(context.Background(), doc); err != nil {
+		t.Fatal(err)
+	}
+	group := api.byKey(t, "group:hosts")
+	group.Content = lostMarker(group.Content)
+	id := group.IDReadable
+	count, updates := len(api.articles), api.updates
+
+	plan, err := newPlanner(t, api).Plan(context.Background(), doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := s.Publish(context.Background(), doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Changes) != 0 || len(api.articles) != count || api.updates != updates || res.Stale != 0 {
+		t.Errorf("plan changes %d, articles %d->%d, updates %d->%d, result %+v: want nothing written",
+			len(plan.Changes), count, len(api.articles), updates, api.updates, res)
+	}
+	if len(res.Warnings) != 1 || !strings.Contains(res.Warnings[0], id) || !strings.Contains(res.Warnings[0], "<!-- docgen:doc group:hosts -->") {
+		t.Errorf("warnings = %q, want one naming %s and the line to restore", res.Warnings, id)
+	}
+}
+
+// A manual article that matches no document and holds nothing generated is
+// none of the sink's business: no warning.
+func TestManualArticleIsNotReported(t *testing.T) {
+	api := &fakeAPI{articles: []client.Article{{ID: "9-1", IDReadable: "KB-A-901", Summary: "Runbook", Content: "manual\n"}}}
+	res, err := newSink(t, api).Publish(context.Background(), tree("web-1.example.com", "a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Warnings) != 0 || api.articles[0].Content != "manual\n" {
+		t.Errorf("warnings = %q, content %q", res.Warnings, api.articles[0].Content)
+	}
+}

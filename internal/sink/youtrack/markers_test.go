@@ -210,3 +210,24 @@ func TestBlockWithDamagedHashIsRewrittenInPlace(t *testing.T) {
 		}
 	}
 }
+
+// Only a marker on a line of its own is a marker. Manual text that mentions
+// the marker syntax inside a sentence is manual text and stays.
+func TestMarkersQuotedInsideASentenceAreManualText(t *testing.T) {
+	a := mustBlock(t, "a", "text\n")
+	manual := "Blocks look like `<!-- docgen:begin old hash=00 -->` and end with `<!-- docgen:end old -->`.\n"
+	existing := "<!-- docgen:doc k -->\n\n" + a.render() + "\n" + manual
+	if got := mergeContent(existing, []block{a}); got != existing {
+		t.Errorf("manual text that quotes markers was changed:\n%s", got)
+	}
+}
+
+// A body without a final line break must still give a block that is read
+// back, or it would be appended again on every run.
+func TestBlockWithoutFinalLineBreakIsReadBack(t *testing.T) {
+	a := mustBlock(t, "a", "no line break")
+	content := buildContent("k", []block{a})
+	if got := mergeContent(content, []block{a}); got != content {
+		t.Errorf("the block was not recognised:\n%s", got)
+	}
+}
