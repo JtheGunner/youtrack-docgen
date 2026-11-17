@@ -134,6 +134,26 @@ Requirements: Go (see `go.mod` for the minimum version) and [golangci-lint](http
 
 Golden files live in each package's `testdata/` directory. Review their diff before committing.
 
+### Real-YouTrack integration test
+
+`internal/sink/youtrack/integration_test.go` publishes a small throwaway tree to a real YouTrack instance and checks create, idempotent re-run and update. It is skipped unless all of these variables are set, so default CI never runs it:
+
+| Variable | Meaning |
+|---|---|
+| `YOUTRACK_IT_URL` | Base URL of the YouTrack instance |
+| `YOUTRACK_IT_TOKEN` | Permanent token with write access to the sandbox project |
+| `YOUTRACK_IT_PROJECT_ID` | Database ID of the sandbox project (for example `0-1`) |
+| `YOUTRACK_IT_PROJECT_QUERY` | Search query that lists the sandbox project's articles (for example `project: SANDBOX`) |
+
+```sh
+go test ./internal/sink/youtrack -run TestIntegration -v
+```
+
+> [!WARNING]
+> The sink marks every article matched by the query that it did not publish as stale. Use a dedicated sandbox project: the test aborts before writing if the query matches any article whose title does not start with `docgen-it-`.
+
+docgen never deletes articles, so the test cannot either. Its articles are titled `docgen-it-<run id>` and `docgen-it-<run id>-child`; the test logs them at the end, and you remove them by hand.
+
 ---
 
 ## 📜 License
