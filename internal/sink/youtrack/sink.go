@@ -49,6 +49,9 @@ type Result struct {
 	// whose stale marking was removed because the object reappeared.
 	Stale    int
 	Restored int
+	// Warnings describe articles the run left alone on purpose, such as an
+	// article that lost its document marker. See orphans.
+	Warnings []string
 }
 
 // Sink writes documents to YouTrack.
@@ -76,14 +79,14 @@ func New(api API, cfg Config) (*Sink, error) {
 // and a banner, both removed again when the object reappears. A run on unchanged data makes no write call
 // (it only reads the project's articles once).
 func (s *Sink) Publish(ctx context.Context, root render.Document) (Result, error) {
-	existing, err := s.index(ctx)
+	existing, lost, err := s.index(ctx)
 	if err != nil {
 		return Result{}, err
 	}
-	p := &publisher{Sink: s, existing: existing}
+	p := &publisher{Sink: s, existing: existing, orphans: lost}
 	rootArticle, err := p.publish(ctx, root, "")
 	if err != nil {
-		return p.res, err
+		return p.failed(err)
 	}
 	groups := map[string]string{} // group key -> article ID
 	for _, child := range root.Children {
@@ -92,17 +95,18 @@ func (s *Sink) Publish(ctx context.Context, root render.Document) (Result, error
 			if _, ok := groups[key]; !ok {
 				g, err := p.publish(ctx, render.Document{ID: key, Title: title}, rootArticle.ID)
 				if err != nil {
-					return p.res, err
+					return p.failed(err)
 				}
 				groups[key] = g.ID
 			}
 			parent = groups[key]
 		}
 		if err := p.publishTree(ctx, child, parent); err != nil {
-			return p.res, err
+			return p.failed(err)
 		}
 	}
-	return p.res, p.reconcileStale(ctx, publishedKeys(root))
+	p.res.Warnings = p.orphans.all()
+	return p.res, p.reconcileStale(ctx, publishedKeys(root, existing))
 }
 
 // groupFor returns the container a document belongs to, or "" for documents
@@ -121,12 +125,13 @@ func groupFor(id string) (key, title string) {
 }
 
 // index maps document keys to the articles that carry them.
-func (s *Sink) index(ctx context.Context) (map[string]client.Article, error) {
+func (s *Sink) index(ctx context.Context) (map[string]client.Article, *orphans, error) {
 	articles, err := s.api.SearchArticles(ctx, s.cfg.ProjectQuery)
 	if err != nil {
-		return nil, fmt.Errorf("youtrack sink: list articles: %w", err)
+		return nil, nil, fmt.Errorf("youtrack sink: list articles: %w", err)
 	}
 	out := map[string]client.Article{}
+	lost := &orphans{byTitle: map[string]client.Article{}}
 	for _, a := range articles {
 		// The search query is only a hint. An article is ours only if the
 		// server says it belongs to the configured project.
@@ -135,19 +140,28 @@ func (s *Sink) index(ctx context.Context) (map[string]client.Article, error) {
 		}
 		key, ok := documentKey(a.Content)
 		if !ok {
+			lost.add(a)
 			continue
 		}
 		if prev, dup := out[key]; dup {
-			return nil, fmt.Errorf("youtrack sink: document key %q is used by articles %s and %s", key, prev.IDReadable, a.IDReadable)
+			return nil, nil, fmt.Errorf("youtrack sink: document key %q is used by articles %s and %s", key, prev.IDReadable, a.IDReadable)
 		}
 		out[key] = a
 	}
-	return out, nil
+	return out, lost, nil
+}
+
+// failed returns the result of a run that stopped with err. Only the warnings
+// for articles the run reached are reported: the rest was never looked at.
+func (p *publisher) failed(err error) (Result, error) {
+	p.res.Warnings = p.orphans.claimedWarnings()
+	return p.res, err
 }
 
 type publisher struct {
 	*Sink
 	existing map[string]client.Article
+	orphans  *orphans
 	res      Result
 }
 
@@ -166,27 +180,29 @@ func (p *publisher) publishTree(ctx context.Context, d render.Document, parentID
 
 // publish creates or updates the article of d and returns it.
 func (p *publisher) publish(ctx context.Context, d render.Document, parentID string) (client.Article, error) {
-	if err := checkMarkerToken(d.ID); err != nil {
-		return client.Article{}, err
-	}
+	key := resolveKey(p.existing, d.ID)
 	blocks, err := sectionBlocks(d)
 	if err != nil {
 		return client.Article{}, err
 	}
 
-	cur, found := p.existing[d.ID]
+	cur, found := p.existing[key]
 	if !found {
+		if orphan, ok := p.orphans.claim(key, d.Title); ok {
+			// Not ours to write: see orphans. Children stay below it.
+			return orphan, nil
+		}
 		created, err := p.api.CreateArticle(ctx, client.NewArticle{
 			ProjectID:       p.cfg.ProjectID,
 			Summary:         d.Title,
-			Content:         buildContent(d.ID, blocks),
+			Content:         buildContent(key, blocks),
 			ParentArticleID: parentID,
 		})
 		if err != nil {
 			return client.Article{}, fmt.Errorf("youtrack sink: create %q: %w", d.ID, err)
 		}
 		p.res.Created++
-		p.existing[d.ID] = *created
+		p.existing[key] = *created
 		return *created, nil
 	}
 
@@ -210,6 +226,6 @@ func (p *publisher) publish(ctx context.Context, d render.Document, parentID str
 		return client.Article{}, fmt.Errorf("youtrack sink: update %q: %w", d.ID, err)
 	}
 	p.res.Updated++
-	p.existing[d.ID] = *updated
+	p.existing[key] = *updated
 	return *updated, nil
 }

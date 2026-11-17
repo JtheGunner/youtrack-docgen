@@ -33,6 +33,8 @@ type Change struct {
 type Plan struct {
 	Changes   []Change
 	unchanged int
+	// Warnings are the warnings Publish would report, see Result.Warnings.
+	Warnings []string
 }
 
 // Created returns the number of articles that would be created.
@@ -85,7 +87,7 @@ func NewPlanner(api Reader, cfg Config) (*Planner, error) {
 // Plan compares the document tree below root with the articles in YouTrack,
 // using the same rules as Publish.
 func (pl *Planner) Plan(ctx context.Context, root render.Document) (Plan, error) {
-	existing, err := pl.sink.index(ctx)
+	existing, lost, err := pl.sink.index(ctx)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -93,17 +95,17 @@ func (pl *Planner) Plan(ctx context.Context, root render.Document) (Plan, error)
 	for key, a := range existing {
 		keyOfID[a.ID] = key
 	}
-	c := &planCollector{existing: existing, keyOfID: keyOfID}
+	c := &planCollector{existing: existing, keyOfID: keyOfID, orphans: lost, adopted: map[string]client.Article{}}
 	if err := c.document(root, ""); err != nil {
 		return Plan{}, err
 	}
 	groups := map[string]bool{}
 	for _, child := range root.Children {
-		parent := root.ID
+		parent := resolveKey(existing, root.ID)
 		if key, title := groupFor(child.ID); key != "" {
 			if !groups[key] {
 				groups[key] = true
-				if err := c.document(render.Document{ID: key, Title: title}, root.ID); err != nil {
+				if err := c.document(render.Document{ID: key, Title: title}, resolveKey(existing, root.ID)); err != nil {
 					return Plan{}, err
 				}
 			}
@@ -113,6 +115,7 @@ func (pl *Planner) Plan(ctx context.Context, root render.Document) (Plan, error)
 			return Plan{}, err
 		}
 	}
+	c.plan.Warnings = lost.all()
 	return c.plan, nil
 }
 
@@ -147,7 +150,11 @@ func (readOnly) RemoveTag(context.Context, string, string) error {
 type planCollector struct {
 	existing map[string]client.Article
 	keyOfID  map[string]string // article database ID -> document key
-	plan     Plan
+	orphans  *orphans
+	// adopted holds, by document key, the orphans claimed for a document.
+	// They are not written, but they are the parents of their children.
+	adopted map[string]client.Article
+	plan    Plan
 }
 
 func (c *planCollector) tree(d render.Document, parentKey string) error {
@@ -155,7 +162,7 @@ func (c *planCollector) tree(d render.Document, parentKey string) error {
 		return err
 	}
 	for _, child := range d.Children {
-		if err := c.tree(child, d.ID); err != nil {
+		if err := c.tree(child, resolveKey(c.existing, d.ID)); err != nil {
 			return err
 		}
 	}
@@ -165,20 +172,23 @@ func (c *planCollector) tree(d render.Document, parentKey string) error {
 // document mirrors publisher.publish without any write. parentKey is the key
 // of the parent document, or "" for the root.
 func (c *planCollector) document(d render.Document, parentKey string) error {
-	if err := checkMarkerToken(d.ID); err != nil {
-		return err
-	}
+	key := resolveKey(c.existing, d.ID)
 	blocks, err := sectionBlocks(d)
 	if err != nil {
 		return err
 	}
 
-	cur, found := c.existing[d.ID]
+	cur, found := c.existing[key]
 	if !found {
+		if orphan, ok := c.orphans.claim(key, d.Title); ok {
+			c.adopted[key] = orphan
+			c.keyOfID[orphan.ID] = key
+			return nil
+		}
 		c.plan.Changes = append(c.plan.Changes, Change{
-			Key:    d.ID,
+			Key:    key,
 			Create: true,
-			Diff:   diff.Unified("/dev/null", "b/"+d.ID, "", articleText(d.Title, parentKey, buildContent(d.ID, blocks)), diffContext),
+			Diff:   diff.Unified("/dev/null", "b/"+key, "", articleText(d.Title, parentKey, buildContent(key, blocks)), diffContext),
 		})
 		return nil
 	}
@@ -195,6 +205,9 @@ func (c *planCollector) document(d render.Document, parentKey string) error {
 	parentMoves := false
 	if parentKey != "" {
 		parentArticle, parentKnown := c.existing[parentKey]
+		if !parentKnown {
+			parentArticle, parentKnown = c.adopted[parentKey]
+		}
 		parentMoves = !parentKnown || cur.ParentArticle == nil || cur.ParentArticle.ID != parentArticle.ID
 		wantParent = parentKey
 	}
@@ -202,9 +215,9 @@ func (c *planCollector) document(d render.Document, parentKey string) error {
 		c.plan.unchanged++
 		return nil
 	}
-	text := diff.Unified("a/"+d.ID, "b/"+d.ID,
+	text := diff.Unified("a/"+key, "b/"+key,
 		articleText(cur.Summary, curParent, cur.Content), articleText(d.Title, wantParent, merged), diffContext)
-	c.plan.Changes = append(c.plan.Changes, Change{Key: d.ID, Diff: text})
+	c.plan.Changes = append(c.plan.Changes, Change{Key: key, Diff: text})
 	return nil
 }
 

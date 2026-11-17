@@ -21,7 +21,7 @@ type op struct {
 // texts have the same lines. oldName and newName label the two file headers
 // and context is the number of unchanged lines kept around each change.
 func Unified(oldName, newName, oldText, newText string, context int) string {
-	oldName, newName = escapeControl(oldName), escapeControl(newName)
+	oldName, newName = EscapeControl(oldName), EscapeControl(newName)
 	ops := diffLines(splitLines(oldText), splitLines(newText))
 	hunks := hunkRanges(ops, context)
 	if len(hunks) == 0 {
@@ -74,14 +74,14 @@ func splitLines(s string) []string {
 	}
 	lines := strings.Split(strings.TrimSuffix(s, "\n"), "\n")
 	for i, l := range lines {
-		lines[i] = escapeControl(l)
+		lines[i] = EscapeControl(l)
 	}
 	return lines
 }
 
-// escapeControl makes control characters visible, so text from a remote
+// EscapeControl makes control characters visible, so text from a remote
 // system cannot drive the terminal the diff is printed to. Tabs stay.
-func escapeControl(s string) string {
+func EscapeControl(s string) string {
 	if !strings.ContainsFunc(s, isUnsafe) {
 		return s
 	}

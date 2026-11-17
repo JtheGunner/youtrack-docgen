@@ -320,3 +320,56 @@ func TestGenerateWritesTheTimeOfTheRun(t *testing.T) {
 		t.Errorf("index.md does not show the time of the run:\n%s", index)
 	}
 }
+
+// An article whose document marker was removed is reported on stderr by the
+// preview and by the real run, and no second article is created for it.
+func TestArticleWithoutDocumentMarkerIsReportedOnStderr(t *testing.T) {
+	publishEnv(t)
+	nb := fakeNetBox(t)
+	yt := newFakeYouTrack(t)
+	cfg := diffConfig(nb.URL, yt.srv.URL, t.TempDir())
+	if _, _, err := runCLI(t, cfg, "publish"); err != nil {
+		t.Fatal(err)
+	}
+	var title string
+	for _, a := range yt.articles {
+		content, _ := a["content"].(string)
+		if strings.Contains(content, "docgen:doc netbox:host:srv01.example.com") {
+			a["content"] = strings.Replace(content, "<!-- docgen:doc netbox:host:srv01.example.com -->\n", "", 1)
+			title, _ = a["summary"].(string)
+		}
+	}
+	if title == "" {
+		t.Fatal("fixture host article not found")
+	}
+	// A second article without marker whose title matches no document, and
+	// whose title tries to drive the terminal.
+	yt.articles = append(yt.articles, map[string]any{
+		"id": "1-800", "summary": "stray\x1b]0;pwned\x07",
+		"content": "<!-- docgen:begin summary hash=00 -->\nold\n<!-- docgen:end summary -->\n",
+		"project": map[string]any{"id": fakeProjectID},
+	})
+	count, writes := len(yt.articles), len(yt.writes())
+
+	for _, args := range [][]string{{"diff"}, {"publish"}} {
+		stdout, stderr, err := runCLI(t, cfg, args...)
+		if err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		if !strings.Contains(stderr, "warning: ") || !strings.Contains(stderr, "<!-- docgen:doc netbox:host:srv01.example.com -->") {
+			t.Errorf("%v: stderr does not warn about the article without marker: %q", args, stderr)
+		}
+		if strings.Count(stderr, "warning: ") != 2 {
+			t.Errorf("%v: want two warnings, got %q", args, stderr)
+		}
+		if strings.ContainsAny(stderr, "\x1b\x07") {
+			t.Errorf("%v: a control character from an article title reached the terminal: %q", args, stderr)
+		}
+		if strings.Contains(stdout, "warning") {
+			t.Errorf("%v: the warning went to stdout", args)
+		}
+	}
+	if len(yt.articles) != count || len(yt.writes()) != writes {
+		t.Errorf("articles %d->%d, writes %d->%d: want nothing written", count, len(yt.articles), writes, len(yt.writes()))
+	}
+}
