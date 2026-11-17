@@ -68,7 +68,7 @@ var embeddingPrefixes = []netip.Prefix{
 
 const (
 	digitChars = "0123456789"
-	hexChars   = "0123456789abcdefABCDEF:"
+	hexChars   = "0123456789abcdefABCDEF"
 )
 
 // maxScrubPasses bounds the repeated replacement that is needed because
@@ -233,8 +233,10 @@ func (d dependents) deniedWindowEnd(tok string, start int) int {
 }
 
 // standsAlone reports whether tok[start:end] is not glued to more address
-// characters: neighbouring digits (IPv4) or hex digits and colons (IPv6) would
-// make it part of a different number.
+// digits: a neighbouring digit (IPv4) or hex digit (IPv6) would make it part of
+// a different number. A colon or dot next to the window is a separator ("ip:",
+// "addr:port", a trailing ":") and does not count, so the scrubber errs on
+// the side of hiding too much.
 func standsAlone(tok string, start, end int) bool {
 	set := digitChars
 	if strings.Contains(tok[start:end], ":") {

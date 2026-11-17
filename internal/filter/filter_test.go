@@ -713,10 +713,16 @@ func TestApplyScrubsDeniedAddressesInEveryTextForm(t *testing.T) {
 		{"expanded ipv6", "2001:0db8:0000:0000:0000:0000:0000:0050", Placeholder},
 		{"denied 4in6 address written as ipv4", "198.51.100.9:80", Placeholder + ":80"},
 		{"hex letter right before an ipv4 address", "a192.0.2.50", "a" + Placeholder},
-		{"oversized token with a trailing address", strings.Repeat("0:", 40) + "192.0.2.50", strings.Repeat("0:", 40) + Placeholder},
+		// The last six zero groups and the address form the IPv4-compatible literal
+		// ::192.0.2.50, which is replaced as a whole; hiding more is fine, leaking is not.
+		{"oversized token with a trailing address", strings.Repeat("0:", 40) + "192.0.2.50", strings.Repeat("0:", 34) + Placeholder},
 		{"oversized token with a leading address", "192.0.2.50:" + strings.Repeat("0:", 40), Placeholder + ":" + strings.Repeat("0:", 40)},
 		{"nat64 embedding", "64:ff9b::c000:232", Placeholder},
 		{"nat64 embedding in dotted form", "64:ff9b::192.0.2.50", Placeholder},
+		{"ipv6 after a key and colon", "ip:2001:db8::50", "ip:" + Placeholder},
+		{"ipv6 after a leading colon", ":2001:db8::50", ":" + Placeholder},
+		{"ipv6 before a trailing colon", "2001:db8::50:", Placeholder + ":"},
+		{"ipv6 between colons", "x:2001:db8::50:y", "x:" + Placeholder + ":y"},
 		{"longer ipv4 stays", "192.0.2.500", "192.0.2.500"},
 		{"shorter ipv4 stays", "192.0.2.5", "192.0.2.5"},
 		{"embedded in a longer number stays", "1192.0.2.50", "1192.0.2.50"},
