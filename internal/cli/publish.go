@@ -57,14 +57,11 @@ func publish(ctx context.Context, cfg *config.Config, at time.Time, stdout io.Wr
 	if err != nil {
 		return err
 	}
-	project, err := api.FindProject(ctx, cfg.YouTrack.Project)
+	target, err := resolveProject(ctx, api, cfg)
 	if err != nil {
 		return err
 	}
-	if project == nil {
-		return fmt.Errorf("youtrack project %q not found: check youtrack.project and the permissions of the token", cfg.YouTrack.Project)
-	}
-	s, err := youtrack.New(api, youtrack.Config{ProjectID: project.ID, ProjectQuery: projectQuery(cfg)})
+	s, err := youtrack.New(api, target)
 	if err != nil {
 		return err
 	}
@@ -86,7 +83,16 @@ func newYouTrackClient(cfg *config.Config) (*client.Client, error) {
 	return client.New(cfg.YouTrack.URL, cfg.YouTrack.Token.Reveal())
 }
 
-// projectQuery is the search query that lists the articles of the project.
-func projectQuery(cfg *config.Config) string {
-	return "project: " + cfg.YouTrack.Project
+// resolveProject looks up the project named in the config and returns the
+// sink config for it. The query uses the key the server reported, in braces,
+// so the listing and the lookup refer to the same project.
+func resolveProject(ctx context.Context, api *client.Client, cfg *config.Config) (youtrack.Config, error) {
+	project, err := api.FindProject(ctx, cfg.YouTrack.Project)
+	if err != nil {
+		return youtrack.Config{}, err
+	}
+	if project == nil {
+		return youtrack.Config{}, fmt.Errorf("youtrack project %q not found: check youtrack.project and the permissions of the token", cfg.YouTrack.Project)
+	}
+	return youtrack.Config{ProjectID: project.ID, ProjectQuery: "project: {" + project.ShortName + "}"}, nil
 }

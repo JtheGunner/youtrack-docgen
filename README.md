@@ -109,6 +109,7 @@ youtrack-docgen publish --config docgen.yaml
 ```
 
 - It needs the `youtrack` sink to be enabled and `youtrack.url`, `youtrack.token` and `youtrack.project` to be set. `youtrack.project` is the project key, for example `INFRA`; an unknown key stops the run before anything is written.
+- Only articles of that project are read, changed or marked. Articles of other projects are never touched.
 - Articles are created or updated, never deleted. Only the blocks between the `docgen` markers are replaced; text you add outside them stays.
 - An article whose object is gone from the sources gets the `docgen-stale` tag and a banner. Both are removed when the object comes back.
 - If a collector or the filter fails, nothing is sent to YouTrack.
@@ -116,7 +117,7 @@ youtrack-docgen publish --config docgen.yaml
 - A summary line closes the output, for example `sink youtrack: 9 created, 0 updated, 0 unchanged, 0 marked stale, 0 restored`.
 
 > [!WARNING]
-> Every article in the project that `docgen` created earlier and that is missing from the current run is marked as stale. Preview a run with `diff` first, and keep one project for one `docgen.yaml`.
+> Every article in the project that `docgen` created earlier and that is missing from the current run is marked as stale. The preview of `diff` does not show stale markings yet, so keep one project for one `docgen.yaml` and try a new config against a sandbox project first.
 
 ---
 

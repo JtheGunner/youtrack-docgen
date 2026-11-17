@@ -39,11 +39,15 @@ func diffYouTrack(ctx context.Context, cfg *config.Config, at time.Time, stdout 
 	if err != nil {
 		return err
 	}
-	planner, err := youtrack.NewPlanner(api, projectQuery(cfg))
+	root, err := buildDocuments(ctx, cfg, at)
 	if err != nil {
 		return err
 	}
-	root, err := buildDocuments(ctx, cfg, at)
+	target, err := resolveProject(ctx, api, cfg)
+	if err != nil {
+		return err
+	}
+	planner, err := youtrack.NewPlanner(api, target)
 	if err != nil {
 		return err
 	}

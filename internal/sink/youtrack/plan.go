@@ -71,16 +71,15 @@ type Planner struct {
 	sink *Sink
 }
 
-// NewPlanner creates a Planner. query is the YouTrack search query that lists
-// every article of the project, see Config.ProjectQuery.
-func NewPlanner(api Reader, query string) (*Planner, error) {
+// NewPlanner creates a Planner for the project described by cfg.
+func NewPlanner(api Reader, cfg Config) (*Planner, error) {
 	if api == nil {
 		return nil, errors.New("youtrack sink: reader must not be nil")
 	}
-	if query == "" {
-		return nil, errors.New("youtrack sink: project query is required")
+	if cfg.ProjectID == "" || cfg.ProjectQuery == "" {
+		return nil, errors.New("youtrack sink: project ID and project query are required")
 	}
-	return &Planner{sink: &Sink{api: readOnly{api}, cfg: Config{ProjectQuery: query}}}, nil
+	return &Planner{sink: &Sink{api: readOnly{api}, cfg: cfg}}, nil
 }
 
 // Plan compares the document tree below root with the articles in YouTrack,

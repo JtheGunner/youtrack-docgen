@@ -24,6 +24,8 @@ type fakeYouTrack struct {
 	mu  sync.Mutex
 	// requests holds "METHOD path" of every call.
 	requests []string
+	// queries holds the search query of every article listing.
+	queries []string
 	// bodies holds the raw body of every write call.
 	bodies []string
 	// articles is the content of the fake Knowledge Base.
@@ -57,6 +59,7 @@ func newFakeYouTrack(t *testing.T) *fakeYouTrack {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/admin/projects":
 			_ = json.NewEncoder(w).Encode(f.projects)
 		case r.Method == http.MethodGet && r.URL.Path == "/api/articles":
+			f.queries = append(f.queries, r.URL.Query().Get("query"))
 			_ = json.NewEncoder(w).Encode(f.articles)
 		case r.Method == http.MethodPost && r.URL.Path == "/api/articles":
 			f.nextID++
@@ -174,6 +177,7 @@ func TestDiffEscapesControlCharactersFromYouTrack(t *testing.T) {
 		"id":      "1-1",
 		"summary": "Infra \x1b]0;pwned\x07title",
 		"content": "<!-- docgen:doc overview:root -->\n\nmanual \x1b[2J\rtext\u009b\n",
+		"project": map[string]any{"id": fakeProjectID},
 	}}
 
 	stdout, _, err := runCLI(t, diffConfig(nb.URL, yt.srv.URL, t.TempDir()), "diff")
