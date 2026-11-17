@@ -41,7 +41,7 @@ Diagrams are written as fenced `mermaid` code blocks. This assumes nothing about
 
 ## 🚧 Status
 
-The project is in early development. The pipeline runs end to end from NetBox to a Markdown directory with `generate`. The Kubernetes collector and the YouTrack sink are being added step by step.
+The project is in early development. The pipeline runs end to end from NetBox and Kubernetes manifests to a Markdown directory with `generate`, and to the YouTrack Knowledge Base with `publish`. Run `publish` against a sandbox project first.
 
 ---
 
@@ -96,23 +96,44 @@ youtrack-docgen generate --config docgen.yaml
 
 - It uses every enabled collector, applies the allow/deny rules and redaction, renders the documents, and writes them with the `markdown` sink into `sinks.markdown.dir`.
 - `index.md` is the entry page. Every other document gets its own file named after its ID, for example `netbox-host-srv01-example-com.md`. Files the tool does not generate are left alone.
-- The `netbox` and `kubernetes` collectors are supported; set `enabled: false` on any other collector. Kubernetes workloads pinned to a node, services with `externalIPs` and ingress hostnames are linked to NetBox hosts (`runs_on`, `exposes`) when exactly one host matches by IP or hostname. An enabled `youtrack` sink is skipped with a note; use [`diff`](#-dry-run-and-diff) to preview what it would change.
+- The `netbox` and `kubernetes` collectors are supported; set `enabled: false` on any other collector. Kubernetes workloads pinned to a node, services with `externalIPs` and ingress hostnames are linked to NetBox hosts (`runs_on`, `exposes`) when exactly one host matches by IP or hostname. An enabled `youtrack` sink is skipped with a note; use [`publish`](#-publish) to write to YouTrack.
+
+---
+
+## 🚀 Publish
+
+`publish` runs the same pipeline and writes the documents to the YouTrack Knowledge Base:
+
+```text
+youtrack-docgen publish --config docgen.yaml
+```
+
+- It needs the `youtrack` sink to be enabled and `youtrack.url`, `youtrack.token` and `youtrack.project` to be set. `youtrack.project` is the project key, for example `INFRA`; an unknown key stops the run before anything is written.
+- Articles are created or updated, never deleted. Only the blocks between the `docgen` markers are replaced; text you add outside them stays.
+- An article whose object is gone from the sources gets the `docgen-stale` tag and a banner. Both are removed when the object comes back.
+- If a collector or the filter fails, nothing is sent to YouTrack.
+- The Markdown sink is not used by this command.
+- A summary line closes the output, for example `sink youtrack: 9 created, 0 updated, 0 unchanged, 0 marked stale, 0 restored`.
+
+> [!WARNING]
+> Every article in the project that `docgen` created earlier and that is missing from the current run is marked as stale. Preview a run with `diff` first, and keep one project for one `docgen.yaml`.
 
 ---
 
 ## 🔍 Dry run and diff
 
-`diff` shows what a YouTrack update would change, and writes nothing. `generate --dry-run` does the same.
+`diff` shows what `publish` would create or update, and writes nothing. `publish --dry-run` does the same.
 
 ```text
 youtrack-docgen diff --config docgen.yaml
-youtrack-docgen generate --dry-run --config docgen.yaml
+youtrack-docgen publish --dry-run --config docgen.yaml
 ```
 
 - It needs the `youtrack` sink to be enabled and `youtrack.url`, `youtrack.token` and `youtrack.project` to be set.
 - It runs the same pipeline as `generate`, reads the articles of the project once, and compares them with the rendered documents. Only read requests are sent, and no Markdown files are written.
 - Each article that would change gets a unified diff, headed by `--- a/<document key>`, or `--- /dev/null` for a new article. The first lines of the compared text show the title and the parent article. Manual content outside the `docgen` markers never appears as a change.
 - A summary line closes the output, for example `sink youtrack (dry run): 9 to create, 0 to update, 0 unchanged`.
+- Stale markings are not part of the preview yet.
 - The output is plain text, without colour.
 
 ---

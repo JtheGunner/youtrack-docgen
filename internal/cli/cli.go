@@ -29,7 +29,7 @@ func newRootCmd(stdout, stderr io.Writer, now func() time.Time) *cobra.Command {
 	}
 	root.SetOut(stdout)
 	root.SetErr(stderr)
-	root.AddCommand(newValidateConfigCmd(), newGenerateCmd(now), newDiffCmd(now))
+	root.AddCommand(newValidateConfigCmd(), newGenerateCmd(now), newDiffCmd(now), newPublishCmd(now))
 	return root
 }
 

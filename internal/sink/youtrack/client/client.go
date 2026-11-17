@@ -199,6 +199,38 @@ func (c *Client) SearchArticles(ctx context.Context, query string) ([]Article, e
 	}
 }
 
+// Project is a YouTrack project.
+type Project struct {
+	ID        string `json:"id"`
+	ShortName string `json:"shortName"`
+	Name      string `json:"name,omitempty"`
+}
+
+// FindProject returns the project with the given short name (its key, such
+// as "INFRA"), compared without case, or nil if the token can see no such
+// project. It pages through the project list and compares locally, so it does
+// not depend on the server's search syntax.
+func (c *Client) FindProject(ctx context.Context, shortName string) (*Project, error) {
+	for skip := 0; ; skip += searchPage {
+		q := url.Values{}
+		q.Set("fields", "id,shortName,name")
+		q.Set("$top", strconv.Itoa(searchPage))
+		q.Set("$skip", strconv.Itoa(skip))
+		var batch []Project
+		if err := c.do(ctx, http.MethodGet, "/api/admin/projects?"+q.Encode(), nil, &batch); err != nil {
+			return nil, err
+		}
+		for i := range batch {
+			if strings.EqualFold(batch[i].ShortName, shortName) {
+				return &batch[i], nil
+			}
+		}
+		if len(batch) < searchPage {
+			return nil, nil
+		}
+	}
+}
+
 // GetArticle fetches one article by ID.
 func (c *Client) GetArticle(ctx context.Context, id string) (*Article, error) {
 	var a Article

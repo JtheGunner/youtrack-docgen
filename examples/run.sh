@@ -1,5 +1,5 @@
 #!/bin/sh
-# Nightly documentation run. Fails on the first error.
+# Nightly documentation run: publishes to the YouTrack Knowledge Base. Fails on the first error.
 set -eu
 
 CONFIG_DIR=/etc/youtrack-docgen
@@ -12,4 +12,4 @@ set -a
 set +a
 
 "$BIN" validate-config --config "$CONFIG_DIR/docgen.yaml"
-"$BIN" generate --config "$CONFIG_DIR/docgen.yaml"
+"$BIN" publish --config "$CONFIG_DIR/docgen.yaml"
