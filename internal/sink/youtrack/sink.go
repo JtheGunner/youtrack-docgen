@@ -23,6 +23,7 @@ const (
 
 // API is the part of the YouTrack client the sink needs.
 type API interface {
+	TagAPI
 	SearchArticles(ctx context.Context, query string) ([]client.Article, error)
 	CreateArticle(ctx context.Context, n client.NewArticle) (*client.Article, error)
 	UpdateArticle(ctx context.Context, id string, u client.ArticleUpdate) (*client.Article, error)
@@ -43,6 +44,10 @@ type Result struct {
 	Created   int
 	Updated   int
 	Unchanged int
+	// Stale counts articles newly marked as stale; Restored counts articles
+	// whose stale marking was removed because the object reappeared.
+	Stale    int
+	Restored int
 }
 
 // Sink writes documents to YouTrack.
@@ -66,7 +71,8 @@ func New(api API, cfg Config) (*Sink, error) {
 // article; overviews sit directly below it, host documents below a "Hosts"
 // article and Kubernetes documents below a "Kubernetes" article. A document is
 // recognized by its stable ID, not its title, so renames update the existing
-// article. Nothing is deleted. A run on unchanged data makes no write call
+// article. Nothing is deleted; articles of vanished objects get the stale tag
+// and a banner, both removed again when the object reappears. A run on unchanged data makes no write call
 // (it only reads the project's articles once).
 func (s *Sink) Publish(ctx context.Context, root render.Document) (Result, error) {
 	existing, err := s.index(ctx)
@@ -95,7 +101,7 @@ func (s *Sink) Publish(ctx context.Context, root render.Document) (Result, error
 			return p.res, err
 		}
 	}
-	return p.res, nil
+	return p.res, p.reconcileStale(ctx, publishedKeys(root))
 }
 
 // groupFor returns the container a document belongs to, or "" for documents
