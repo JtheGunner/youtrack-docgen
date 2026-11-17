@@ -50,13 +50,26 @@ func (f *Filter) deniedHosts(g *model.Graph) map[model.ID]model.Entity {
 const hostnameChars = `a-z0-9-`
 
 // addressTokenRE finds the runs of characters an IP address literal is made
-// of. Candidates are parsed, never compared as text, so every way of writing an
-// address is caught: compressed, expanded, upper case, IPv4-mapped, with a zone.
+// of. Every window inside such a run is parsed, never compared as text, so every
+// way of writing an address is caught: compressed, expanded, upper case,
+// IPv4-mapped, NAT64, next to a port or any other text.
 var addressTokenRE = regexp.MustCompile(`[0-9A-Fa-f:.]+`)
 
-// maxAddressToken bounds the work per candidate; the longest address literal
-// is 45 characters.
-const maxAddressToken = 64
+// maxAddressLen is the longest address literal ("0000:...:0000" is 39
+// characters, an IPv4-mapped one with dotted quad 45). It bounds the window.
+const maxAddressLen = 45
+
+// embeddingPrefixes are the IPv6 ranges that carry an IPv4 address in their
+// low 32 bits: NAT64 (RFC 6052) and the deprecated IPv4-compatible range.
+var embeddingPrefixes = []netip.Prefix{
+	netip.MustParsePrefix("64:ff9b::/96"),
+	netip.MustParsePrefix("::/96"),
+}
+
+const (
+	digitChars = "0123456789"
+	hexChars   = "0123456789abcdefABCDEF:"
+)
 
 // maxScrubPasses bounds the repeated replacement that is needed because
 // neighbouring matches share their boundary character.
@@ -183,37 +196,77 @@ func (d dependents) scrubText(s string) string {
 	return addressTokenRE.ReplaceAllStringFunc(s, d.scrubAddressToken)
 }
 
-// scrubAddressToken replaces the denied address inside one candidate token. The
-// token may carry separators around the address: a trailing port (":8080"), a
-// sentence dot, or the colons of a neighbouring literal.
+// scrubAddressToken replaces every denied address inside one candidate token.
+// Windows are tried longest first at each position, so a whole IPv4-mapped
+// literal is replaced rather than only its dotted tail. A token is never
+// skipped because of its length: a bounded window slides over it.
 func (d dependents) scrubAddressToken(tok string) string {
-	if len(tok) > maxAddressToken {
+	if !strings.ContainsAny(tok, ".:") {
 		return tok
 	}
-	bases := []string{tok}
-	if i := strings.LastIndexByte(tok, ':'); i > 0 && i < len(tok)-1 && isDigits(tok[i+1:]) {
-		bases = append(bases, tok[:i]) // address without its port
+	var b strings.Builder
+	changed := false
+	for i := 0; i < len(tok); {
+		if end := d.deniedWindowEnd(tok, i); end > i {
+			b.WriteString(Placeholder)
+			i, changed = end, true
+			continue
+		}
+		b.WriteByte(tok[i])
+		i++
 	}
-	for _, base := range bases {
-		lead := len(base) - len(strings.TrimLeft(base, ":."))
-		for l := 0; l <= lead; l++ {
-			rest := base[l:]
-			trail := len(rest) - len(strings.TrimRight(rest, ":."))
-			for r := 0; r <= trail && r < len(rest); r++ {
-				core := rest[:len(rest)-r]
-				addr, err := netip.ParseAddr(core)
-				if err != nil || !d.addrs[addr.Unmap().WithZone("")] {
-					continue
-				}
-				return base[:l] + Placeholder + rest[len(core):] + tok[len(base):]
+	if !changed {
+		return tok
+	}
+	return b.String()
+}
+
+// deniedWindowEnd returns the end of the longest window of tok starting at
+// start that is a denied address standing on its own, or start if there is none.
+func (d dependents) deniedWindowEnd(tok string, start int) int {
+	for end := min(len(tok), start+maxAddressLen); end > start+1; end-- {
+		if standsAlone(tok, start, end) && d.isDeniedAddress(tok[start:end]) {
+			return end
+		}
+	}
+	return start
+}
+
+// standsAlone reports whether tok[start:end] is not glued to more address
+// characters: neighbouring digits (IPv4) or hex digits and colons (IPv6) would
+// make it part of a different number.
+func standsAlone(tok string, start, end int) bool {
+	set := digitChars
+	if strings.Contains(tok[start:end], ":") {
+		set = hexChars
+	}
+	return (start == 0 || !strings.ContainsRune(set, rune(tok[start-1]))) &&
+		(end == len(tok) || !strings.ContainsRune(set, rune(tok[end])))
+}
+
+// isDeniedAddress parses s and checks it, unmapped and with any embedded IPv4
+// address extracted, against the denied set.
+func (d dependents) isDeniedAddress(s string) bool {
+	if !strings.ContainsAny(s, ".:") {
+		return false
+	}
+	addr, err := netip.ParseAddr(s)
+	if err != nil {
+		return false
+	}
+	addr = addr.Unmap().WithZone("")
+	if d.addrs[addr] {
+		return true
+	}
+	for _, prefix := range embeddingPrefixes {
+		if addr.Is6() && prefix.Contains(addr) {
+			raw := addr.As16()
+			if d.addrs[netip.AddrFrom4([4]byte(raw[12:]))] {
+				return true
 			}
 		}
 	}
-	return tok
-}
-
-func isDigits(s string) bool {
-	return s != "" && strings.Trim(s, "0123456789") == ""
+	return false
 }
 
 // mask removes the denied hostnames and addresses from e. The entity ID and
