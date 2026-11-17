@@ -215,20 +215,32 @@ func TestRenamedTitleIsRecognizedByKey(t *testing.T) {
 	}
 }
 
-func TestNewSectionIsAppendedAndRemovedSectionKept(t *testing.T) {
+func TestNewSectionIsAppendedAndRemovedSectionDropped(t *testing.T) {
 	api := &fakeAPI{}
 	s := newSink(t, api)
 	if _, err := s.Publish(context.Background(), tree("web-1", "a")); err != nil {
 		t.Fatal(err)
 	}
+	host := api.byKey(t, "netbox:host:web-1")
+	host.Content += "\nA manual note.\n"
 	d := tree("web-1", "a")
 	d.Children[1].Sections = []render.Section{section("summary", "a"), section("extra", "added")}
 	if _, err := s.Publish(context.Background(), d); err != nil {
 		t.Fatal(err)
 	}
 	got := api.byKey(t, "netbox:host:web-1").Content
-	if !strings.Contains(got, "docgen:begin extra") || !strings.Contains(got, "docgen:begin links") {
-		t.Errorf("want appended extra section and untouched links section:\n%s", got)
+	if !strings.Contains(got, "docgen:begin extra") || strings.Contains(got, "docgen:begin links") {
+		t.Errorf("want the extra section appended and the links section removed:\n%s", got)
+	}
+	if !strings.Contains(got, "A manual note.") {
+		t.Errorf("manual text was lost:\n%s", got)
+	}
+	updates := api.updates
+	if _, err := s.Publish(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+	if api.updates != updates {
+		t.Error("the article was written again after the obsolete section was removed")
 	}
 }
 
@@ -263,11 +275,40 @@ func TestSearchErrorPropagates(t *testing.T) {
 	}
 }
 
-func TestInvalidIDsAreRejected(t *testing.T) {
+// A document ID that would break out of a marker comment is encoded, so the
+// article content holds exactly the comments the sink wrote.
+func TestMarkerBreakingDocumentIDCannotInjectAComment(t *testing.T) {
 	d := tree("h", "a")
-	d.Children[0].ID = "bad id-->"
+	d.Children[0].ID = "bad id--> <!-- docgen:doc overview:root"
+	api := &fakeAPI{}
+	if _, err := newSink(t, api).Publish(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+	roots := 0
+	for _, a := range api.articles {
+		if key, _ := documentKey(a.Content); key == "overview:root" {
+			roots++
+		}
+		// Every "--" must belong to a comment delimiter the sink wrote.
+		if strings.Count(a.Content, "--") != strings.Count(a.Content, "<!--")+strings.Count(a.Content, "-->") {
+			t.Errorf("the ID opened or closed a comment:\n%s", a.Content)
+		}
+	}
+	if roots != 1 {
+		t.Errorf("%d articles claim the root key, want 1", roots)
+	}
+}
+
+// Section IDs come from the renderer and are fixed names. One that would
+// break a marker is a programming error and stops the run.
+func TestInvalidSectionIDsAreRejected(t *testing.T) {
+	d := tree("h", "a")
+	d.Children[0].Sections[0].ID = "bad id-->"
 	if _, err := newSink(t, &fakeAPI{}).Publish(context.Background(), d); err == nil {
-		t.Fatal("want error for marker-breaking ID")
+		t.Fatal("want error for marker-breaking section ID")
+	}
+	if _, err := newPlanner(t, &fakeAPI{}).Plan(context.Background(), d); err == nil {
+		t.Fatal("want error from the planner too")
 	}
 }
 
@@ -403,5 +444,168 @@ func TestMissingVolatileSectionIsAdded(t *testing.T) {
 	}
 	if !strings.Contains(api.articles[0].Content, "Generated at 03:00") {
 		t.Error("a volatile section missing from the article was not added")
+	}
+}
+
+// Host names with spaces or a double hyphen are valid in NetBox. They must
+// not stop a run, and their articles must be found again on the next run.
+func TestNamesThatAreNotMarkerSafeArePublishedAndFoundAgain(t *testing.T) {
+	doc := render.Document{
+		ID: "overview:root", Title: "Root",
+		Children: []render.Document{
+			{ID: "netbox:host:Core Switch 1", Title: "Core Switch 1", Sections: []render.Section{section("summary", "a")}},
+			{ID: "netbox:host:xn--mnchen-3ya.example.com", Title: "xn--mnchen-3ya.example.com", Sections: []render.Section{section("summary", "b")}},
+		},
+	}
+	api := &fakeAPI{}
+	plan, err := newPlanner(t, api).Plan(context.Background(), doc)
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	if got := plan.Summary(); got != "4 to create, 0 to update, 0 unchanged" {
+		t.Errorf("plan = %q", got)
+	}
+	s := newSink(t, api)
+	if _, err := s.Publish(context.Background(), doc); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+	for _, a := range api.articles {
+		if strings.Count(a.Content, "--") != strings.Count(a.Content, "<!--")+strings.Count(a.Content, "-->") {
+			t.Errorf("a name broke out of a marker comment:\n%s", a.Content)
+		}
+	}
+	res, err := s.Publish(context.Background(), doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Created != 0 || res.Updated != 0 || res.Unchanged != 4 || res.Stale != 0 {
+		t.Errorf("second run = %+v, want everything found again and unchanged", res)
+	}
+}
+
+// lostMarker removes the document marker line from an article, as a person
+// tidying up the text might do.
+func lostMarker(content string) string {
+	return docMarkerRe.ReplaceAllString(content, "")
+}
+
+// An article that lost its document marker cannot be recognised by key. The
+// sink must neither overwrite it nor create a second article next to it; it
+// warns and names the line to restore.
+func TestArticleWithoutDocumentMarkerIsNotDuplicatedOrOverwritten(t *testing.T) {
+	api := &fakeAPI{}
+	s := newSink(t, api)
+	doc := tree("web-1.example.com", "a")
+	if _, err := s.Publish(context.Background(), doc); err != nil {
+		t.Fatal(err)
+	}
+	var host int
+	for i, a := range api.articles {
+		if a.Summary == "web-1.example.com" {
+			host = i
+		}
+	}
+	api.articles[host].Content = lostMarker(api.articles[host].Content)
+	orphan := api.articles[host]
+	count, creates, updates := len(api.articles), api.creates, api.updates
+
+	changed := tree("web-1.example.com", "changed")
+	plan, err := newPlanner(t, api).Plan(context.Background(), changed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Changes) != 0 || len(plan.Warnings) != 1 {
+		t.Errorf("plan: %d changes, warnings %q, want no change and one warning", len(plan.Changes), plan.Warnings)
+	}
+	res, err := s.Publish(context.Background(), changed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(api.articles) != count || api.creates != creates || api.updates != updates {
+		t.Errorf("articles %d->%d, creates %d->%d, updates %d->%d: want nothing written", count, len(api.articles), creates, api.creates, updates, api.updates)
+	}
+	if api.articles[host].Content != orphan.Content {
+		t.Error("the article without marker was overwritten")
+	}
+	if res.Stale != 0 {
+		t.Errorf("result = %+v, want nothing marked stale", res)
+	}
+	if len(res.Warnings) != 1 {
+		t.Fatalf("warnings = %q, want one", res.Warnings)
+	}
+	for _, want := range []string{orphan.IDReadable, "web-1.example.com", "<!-- docgen:doc netbox:host:web-1 -->"} {
+		if !strings.Contains(res.Warnings[0], want) {
+			t.Errorf("warning %q does not mention %q", res.Warnings[0], want)
+		}
+	}
+	if len(plan.Warnings) == 1 && plan.Warnings[0] != res.Warnings[0] {
+		t.Errorf("plan and publish warn differently:\n%s\n%s", plan.Warnings[0], res.Warnings[0])
+	}
+}
+
+// When the root lost its marker, its children stay below it.
+func TestChildrenStayBelowAnArticleWithoutDocumentMarker(t *testing.T) {
+	api := &fakeAPI{}
+	s := newSink(t, api)
+	doc := tree("web-1.example.com", "a")
+	if _, err := s.Publish(context.Background(), doc); err != nil {
+		t.Fatal(err)
+	}
+	api.articles[0].Content = lostMarker(api.articles[0].Content)
+	count, updates := len(api.articles), api.updates
+
+	plan, err := newPlanner(t, api).Plan(context.Background(), doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Changes) != 0 {
+		t.Errorf("plan shows changes for children of the article without marker:\n%s", plan.Diff())
+	}
+	if _, err := s.Publish(context.Background(), doc); err != nil {
+		t.Fatal(err)
+	}
+	if len(api.articles) != count || api.updates != updates {
+		t.Errorf("articles %d->%d, updates %d->%d: want nothing written", count, len(api.articles), updates, api.updates)
+	}
+}
+
+// Generated blocks without a document marker and without a document of the
+// same title: the article is left alone and reported.
+func TestStrayArticleWithGeneratedBlocksIsReported(t *testing.T) {
+	stray := client.Article{
+		ID: "9-1", IDReadable: "KB-A-900", Summary: "retired.example.com",
+		Content: "<!-- docgen:begin summary hash=00 -->\nold\n<!-- docgen:end summary -->\n",
+	}
+	api := &fakeAPI{articles: []client.Article{stray}}
+	res, err := newSink(t, api).Publish(context.Background(), tree("web-1.example.com", "a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Created != 6 || api.articles[0].Content != stray.Content {
+		t.Errorf("result = %+v; the stray article must stay untouched", res)
+	}
+	if len(res.Warnings) != 1 || !strings.Contains(res.Warnings[0], "KB-A-900") {
+		t.Errorf("warnings = %q, want one naming KB-A-900", res.Warnings)
+	}
+}
+
+// An article written before the keys were encoded and the markers were read
+// tolerantly must be found again by its old key: no second article.
+func TestArticleInTheOldFormatIsFoundAgain(t *testing.T) {
+	summary, err := newBlock("summary", section("summary", "a").Markdown())
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := "<!-- docgen:doc overview:root -->\n\n" +
+		"<!-- docgen:begin summary hash=" + summary.hash + " -->\n" + summary.body + "<!-- docgen:end summary -->\n"
+	api := &fakeAPI{articles: []client.Article{{ID: "1-1", IDReadable: "KB-A-1", Summary: "Root", Content: old}}}
+	doc := render.Document{ID: "overview:root", Title: "Root", Sections: []render.Section{section("summary", "a")}}
+
+	res, err := newSink(t, api).Publish(context.Background(), doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Created != 0 || res.Updated != 0 || res.Unchanged != 1 || len(api.articles) != 1 {
+		t.Errorf("result = %+v with %d articles, want the old article unchanged", res, len(api.articles))
 	}
 }

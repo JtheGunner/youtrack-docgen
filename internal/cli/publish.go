@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/JtheGunner/youtrack-docgen/internal/config"
+	"github.com/JtheGunner/youtrack-docgen/internal/diff"
 	"github.com/JtheGunner/youtrack-docgen/internal/sink/youtrack"
 	"github.com/JtheGunner/youtrack-docgen/internal/sink/youtrack/client"
 )
@@ -35,9 +36,9 @@ func newPublishCmd(now func() time.Time) *cobra.Command {
 				return err
 			}
 			if dryRun {
-				return diffYouTrack(cmd.Context(), cfg, now(), cmd.OutOrStdout())
+				return diffYouTrack(cmd.Context(), cfg, now(), cmd.OutOrStdout(), cmd.ErrOrStderr())
 			}
-			return publish(cmd.Context(), cfg, now(), cmd.OutOrStdout())
+			return publish(cmd.Context(), cfg, now(), cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
 	cmd.Flags().StringVarP(&path, "config", "c", defaultConfigPath, "path to the config file")
@@ -48,7 +49,7 @@ func newPublishCmd(now func() time.Time) *cobra.Command {
 // publish writes the rendered documents to YouTrack and prints a summary.
 // The documents are built first: a failed collection must not reach YouTrack,
 // because publishing a partial tree would mark the missing articles as stale.
-func publish(ctx context.Context, cfg *config.Config, at time.Time, stdout io.Writer) error {
+func publish(ctx context.Context, cfg *config.Config, at time.Time, stdout, stderr io.Writer) error {
 	api, err := newYouTrackClient(cfg)
 	if err != nil {
 		return err
@@ -66,6 +67,9 @@ func publish(ctx context.Context, cfg *config.Config, at time.Time, stdout io.Wr
 		return err
 	}
 	res, err := s.Publish(ctx, root)
+	if werr := printWarnings(stderr, res.Warnings); werr != nil && err == nil {
+		err = werr
+	}
 	if err != nil {
 		return fmt.Errorf("sink %s: %w", youtrackSink, err)
 	}
@@ -95,4 +99,14 @@ func resolveProject(ctx context.Context, api *client.Client, cfg *config.Config)
 		return youtrack.Config{}, fmt.Errorf("youtrack project %q not found: check youtrack.project and the permissions of the token", cfg.YouTrack.Project)
 	}
 	return youtrack.Config{ProjectID: project.ID, ProjectQuery: "project: {" + project.ShortName + "}"}, nil
+}
+
+// printWarnings writes one line per warning of the youtrack sink.
+func printWarnings(stderr io.Writer, warnings []string) error {
+	for _, w := range warnings {
+		if _, err := fmt.Fprintf(stderr, "warning: %s\n", diff.EscapeControl(w)); err != nil {
+			return err
+		}
+	}
+	return nil
 }

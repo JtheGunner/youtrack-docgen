@@ -6,14 +6,51 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/JtheGunner/youtrack-docgen/internal/render"
 )
 
+// The markers are written in one canonical form but read tolerantly: an
+// editor or the server may change line endings and spacing, and a person may
+// drop the hash. A marker that is not recognised would make its block count
+// as missing, and the block would be appended a second time.
 var (
-	docMarkerRe = regexp.MustCompile(`<!-- docgen:doc (\S+) -->`)
-	beginRe     = regexp.MustCompile(`<!-- docgen:begin (\S+) hash=([0-9a-f]+) -->\n`)
+	docMarkerRe = regexp.MustCompile(`(?m)^[ \t]*<!--[ \t]*docgen:doc[ \t]+(\S+?)[ \t]*-->[ \t]*\r?$`)
+	beginRe     = regexp.MustCompile(`<!--[ \t]*docgen:begin[ \t]+(\S+?)(?:[ \t]+hash=([0-9a-f]*))?[ \t]*-->[ \t]*(?:\r?\n)?`)
 )
+
+// endRe matches the end marker of the block with the given ID, including the
+// line break after it.
+func endRe(id string) *regexp.Regexp {
+	return regexp.MustCompile(`<!--[ \t]*docgen:end[ \t]+` + regexp.QuoteMeta(id) + `[ \t]*-->[ \t]*(?:\r?\n)?`)
+}
+
+// span is one marked block found in article content. Offsets are relative to
+// the searched text.
+type span struct {
+	id, hash   string
+	start, end int // the whole block, markers included
+	bodyStart  int // first byte after the begin marker
+	closed     bool
+}
+
+// nextBlock finds the first begin marker in s. For a block without end marker
+// closed is false and end is the end of the begin marker.
+func nextBlock(s string) (span, bool) {
+	loc := beginRe.FindStringSubmatchIndex(s)
+	if loc == nil {
+		return span{}, false
+	}
+	sp := span{id: s[loc[2]:loc[3]], start: loc[0], bodyStart: loc[1], end: loc[1]}
+	if loc[4] >= 0 {
+		sp.hash = s[loc[4]:loc[5]]
+	}
+	if end := endRe(sp.id).FindStringIndex(s[loc[1]:]); end != nil {
+		sp.end, sp.closed = loc[1]+end[1], true
+	}
+	return sp, true
+}
 
 // block is one generated section as it appears in article content.
 type block struct {
@@ -50,14 +87,45 @@ func (b block) render() string {
 	return fmt.Sprintf("<!-- docgen:begin %s hash=%s -->\n%s<!-- docgen:end %s -->\n", b.id, b.hash, b.body, b.id)
 }
 
-func endMarker(id string) string { return "<!-- docgen:end " + id + " -->\n" }
-
-// checkMarkerToken rejects IDs that could break out of a marker comment.
+// checkMarkerToken rejects IDs that could break out of a marker comment or
+// that the marker patterns would not read back as one token.
 func checkMarkerToken(s string) error {
-	if s == "" || strings.ContainsAny(s, " \t\r\n") || strings.Contains(s, "--") {
+	if s == "" || strings.Contains(s, "--") || strings.ContainsFunc(s, isMarkerUnsafe) {
 		return fmt.Errorf("youtrack sink: %q cannot be used in a docgen marker", s)
 	}
 	return nil
+}
+
+func isMarkerUnsafe(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }
+
+// escapedKeyPrefix marks a document key that docKey had to encode.
+const escapedKeyPrefix = "esc:"
+
+// docKey returns the stable key of the article for the document with the
+// given ID. An ID that is safe inside a marker is its own key, so articles
+// published before keep their key. Any other ID (a host name with spaces or a
+// double hyphen, for example) is percent-encoded behind a prefix; the encoding
+// is reversible, so two IDs never share a key.
+func docKey(id string) string {
+	if checkMarkerToken(id) == nil && !strings.HasPrefix(id, escapedKeyPrefix) {
+		return id
+	}
+	var b strings.Builder
+	b.WriteString(escapedKeyPrefix)
+	prevHyphen := false
+	for _, r := range id {
+		switch {
+		case r == '%' || isMarkerUnsafe(r) || (r == '-' && prevHyphen):
+			for _, c := range []byte(string(r)) {
+				fmt.Fprintf(&b, "%%%02X", c)
+			}
+			prevHyphen = false
+		default:
+			b.WriteRune(r)
+			prevHyphen = r == '-'
+		}
+	}
+	return b.String()
 }
 
 func docMarker(key string) string { return "<!-- docgen:doc " + key + " -->" }
@@ -94,9 +162,9 @@ func mergeContent(existing string, wanted []block) string {
 
 // merge replaces the marked blocks of existing whose hash differs from the
 // wanted block with the same ID and appends wanted blocks that are not present
-// yet. Volatile blocks are only replaced with refreshVolatile. Everything
-// outside the markers is kept verbatim. Blocks in existing that are no longer
-// wanted are left alone.
+// yet. Volatile blocks are only replaced with refreshVolatile. Blocks that are
+// no longer wanted and second copies of a block are removed. Everything
+// outside the markers is kept verbatim.
 func merge(existing string, wanted []block, refreshVolatile bool) string {
 	byID := make(map[string]block, len(wanted))
 	for _, w := range wanted {
@@ -106,28 +174,35 @@ func merge(existing string, wanted []block, refreshVolatile bool) string {
 	var out strings.Builder
 	rest := existing
 	for {
-		loc := beginRe.FindStringSubmatchIndex(rest)
-		if loc == nil {
+		sp, ok := nextBlock(rest)
+		if !ok {
 			break
 		}
-		id, hash := rest[loc[2]:loc[3]], rest[loc[4]:loc[5]]
-		end := strings.Index(rest[loc[1]:], endMarker(id))
-		if end < 0 {
+		if !sp.closed {
 			// Unterminated block: keep the marker as manual text.
-			out.WriteString(rest[:loc[1]])
-			rest = rest[loc[1]:]
+			out.WriteString(rest[:sp.end])
+			rest = rest[sp.end:]
 			continue
 		}
-		blockEnd := loc[1] + end + len(endMarker(id))
-		out.WriteString(rest[:loc[0]])
-		w, wanted := byID[id]
-		if wanted && !seen[id] && w.hash != hash && (refreshVolatile || !w.volatile) {
+		out.WriteString(rest[:sp.start])
+		w, wanted := byID[sp.id]
+		rest = rest[sp.start:]
+		size := sp.end - sp.start
+		switch {
+		case sp.id == staleBlockID:
+			// Managed by the stale handling, not a section of the document.
+			out.WriteString(rest[:size])
+		case !wanted || seen[sp.id]:
+			// Obsolete section or second copy: drop it with the blank line
+			// that separated it from what follows.
+			size += len(leadingLineBreak(rest[size:]))
+		case w.hash != sp.hash && (refreshVolatile || !w.volatile):
 			out.WriteString(w.render())
-		} else {
-			out.WriteString(rest[loc[0]:blockEnd])
+		default:
+			out.WriteString(rest[:size])
 		}
-		seen[id] = seen[id] || wanted
-		rest = rest[blockEnd:]
+		seen[sp.id] = seen[sp.id] || wanted
+		rest = rest[size:]
 	}
 	out.WriteString(rest)
 	merged := out.String()
@@ -137,4 +212,15 @@ func merge(existing string, wanted []block, refreshVolatile bool) string {
 		}
 	}
 	return merged
+}
+
+// leadingLineBreak returns the line break s starts with, or "".
+func leadingLineBreak(s string) string {
+	switch {
+	case strings.HasPrefix(s, "\r\n"):
+		return "\r\n"
+	case strings.HasPrefix(s, "\n"):
+		return "\n"
+	}
+	return ""
 }

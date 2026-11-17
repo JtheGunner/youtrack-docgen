@@ -25,7 +25,7 @@ func newDiffCmd(now func() time.Time) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return diffYouTrack(cmd.Context(), cfg, now(), cmd.OutOrStdout())
+			return diffYouTrack(cmd.Context(), cfg, now(), cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
 	cmd.Flags().StringVarP(&path, "config", "c", defaultConfigPath, "path to the config file")
@@ -34,7 +34,7 @@ func newDiffCmd(now func() time.Time) *cobra.Command {
 
 // diffYouTrack prints the unified diff of every article that would change and
 // a summary line. It only reads from YouTrack.
-func diffYouTrack(ctx context.Context, cfg *config.Config, at time.Time, stdout io.Writer) error {
+func diffYouTrack(ctx context.Context, cfg *config.Config, at time.Time, stdout, stderr io.Writer) error {
 	api, err := newYouTrackClient(cfg)
 	if err != nil {
 		return err
@@ -53,6 +53,9 @@ func diffYouTrack(ctx context.Context, cfg *config.Config, at time.Time, stdout 
 	}
 	plan, err := planner.Plan(ctx, root)
 	if err != nil {
+		return err
+	}
+	if err := printWarnings(stderr, plan.Warnings); err != nil {
 		return err
 	}
 	_, err = fmt.Fprintf(stdout, "%ssink youtrack (dry run): %s\n", plan.Diff(), plan.Summary())

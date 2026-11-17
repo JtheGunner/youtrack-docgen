@@ -34,7 +34,7 @@ func publishedKeys(root render.Document) map[string]bool {
 	keys := map[string]bool{}
 	var walk func(d render.Document)
 	walk = func(d render.Document) {
-		keys[d.ID] = true
+		keys[docKey(d.ID)] = true
 		for _, c := range d.Children {
 			walk(c)
 		}
@@ -148,7 +148,23 @@ func staleTagID(a client.Article) string {
 func hasStaleTag(a client.Article) bool { return staleTagID(a) != "" }
 
 func hasBlock(content, id string) bool {
-	return strings.Contains(content, "<!-- docgen:begin "+id+" ")
+	_, _, ok := findBlock(content, id)
+	return ok
+}
+
+// findBlock returns the offsets of the closed block with the given ID.
+func findBlock(content, id string) (start, end int, ok bool) {
+	offset := 0
+	for {
+		sp, found := nextBlock(content[offset:])
+		if !found {
+			return 0, 0, false
+		}
+		if sp.closed && sp.id == id {
+			return offset + sp.start, offset + sp.end, true
+		}
+		offset += sp.end
+	}
 }
 
 // insertBanner places the stale banner block directly below the document
@@ -169,21 +185,14 @@ func insertBanner(content string) string {
 // removeBlock deletes the marked block with the given ID together with the
 // blank line that insertBanner put in front of it.
 func removeBlock(content, id string) string {
-	for _, loc := range beginRe.FindAllStringSubmatchIndex(content, -1) {
-		if content[loc[2]:loc[3]] != id {
-			continue
-		}
-		end := strings.Index(content[loc[1]:], endMarker(id))
-		if end < 0 {
-			return content
-		}
-		start, stop := loc[0], loc[1]+end+len(endMarker(id))
-		if strings.HasSuffix(content[:start], "\n\n") {
-			start--
-		} else if start == 0 && strings.HasPrefix(content[stop:], "\n") {
-			stop++
-		}
-		return content[:start] + content[stop:]
+	start, stop, ok := findBlock(content, id)
+	if !ok {
+		return content
 	}
-	return content
+	if strings.HasSuffix(content[:start], "\n\n") {
+		start--
+	} else if start == 0 && strings.HasPrefix(content[stop:], "\n") {
+		stop++
+	}
+	return content[:start] + content[stop:]
 }
