@@ -133,7 +133,7 @@ func (pl *Planner) Plan(ctx context.Context, root render.Document) (Plan, error)
 	if list == nil {
 		return Plan{}, guardErr
 	}
-	plan := Plan{Warnings: lost.all()}
+	plan := Plan{Warnings: append(lost.all(), list.warnings...)}
 	for _, o := range list.ops {
 		switch o.kind {
 		case opUnchanged:

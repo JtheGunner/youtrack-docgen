@@ -118,6 +118,9 @@ func (s *Sink) Publish(ctx context.Context, root render.Document) (Result, error
 	}
 	list, err := buildOps(existing, lost, root, s.cfg)
 	res := Result{Warnings: lost.all()}
+	if list != nil {
+		res.Warnings = append(res.Warnings, list.warnings...)
+	}
 	if err != nil {
 		return res, err
 	}
@@ -130,7 +133,7 @@ func (s *Sink) Publish(ctx context.Context, root render.Document) (Result, error
 	}
 	for _, o := range list.ops {
 		if err := x.run(ctx, o, &res); err != nil {
-			res.Warnings = lost.claimedWarnings()
+			res.Warnings = append(lost.claimedWarnings(), list.warnings...)
 			return res, err
 		}
 	}
