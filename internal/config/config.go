@@ -31,6 +31,9 @@ type YouTrack struct {
 	URL     string `yaml:"url"`
 	Token   Secret `yaml:"token"`
 	Project string `yaml:"project"`
+	// MaxStaleRatio is the largest share of the managed articles one run may
+	// mark as stale, between 0 and 1. Unset means the sink default (0.5).
+	MaxStaleRatio float64 `yaml:"max_stale_ratio"`
 }
 
 // Module configures one collector or sink. Every module has its own block;

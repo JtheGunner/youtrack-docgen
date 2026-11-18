@@ -81,6 +81,9 @@ func (c *Config) validateYouTrack() []string {
 	if c.YouTrack.Project == "" {
 		problems = append(problems, "youtrack.project: required")
 	}
+	if c.YouTrack.MaxStaleRatio < 0 || c.YouTrack.MaxStaleRatio > 1 {
+		problems = append(problems, "youtrack.max_stale_ratio: must be between 0 and 1")
+	}
 	return problems
 }
 

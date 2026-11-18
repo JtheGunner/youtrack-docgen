@@ -53,7 +53,12 @@ func TestIntegrationPublishAgainstRealYouTrack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("client.New: %v", err)
 	}
-	sink, err := youtrack.New(api, youtrack.Config{ProjectID: projectID, ProjectQuery: query})
+	sink, err := youtrack.New(api, youtrack.Config{
+		ProjectID: projectID, ProjectQuery: query,
+		// Every run leaves its articles behind and the next run marks them as
+		// stale: in a sandbox that is most of the project, by design.
+		AllowMassStale: true,
+	})
 	if err != nil {
 		t.Fatalf("youtrack.New: %v", err)
 	}

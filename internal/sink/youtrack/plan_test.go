@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/JtheGunner/youtrack-docgen/internal/sink/youtrack/client"
 	"github.com/JtheGunner/youtrack-docgen/internal/testutil/golden"
 )
 
@@ -23,7 +24,7 @@ func TestPlanOnEmptyProjectCreatesEverything(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := plan.Summary(); got != "6 to create, 0 to update, 0 unchanged" {
+	if got := plan.Summary(); got != "6 to create, 0 to update, 0 unchanged, 0 to mark stale, 0 to restore" {
 		t.Errorf("summary = %q", got)
 	}
 	golden.Assert(t, "plan-create", []byte(plan.Diff()))
@@ -64,7 +65,7 @@ func TestPlanOnUnchangedDataIsEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Diff() != "" || plan.Summary() != "0 to create, 0 to update, 6 unchanged" {
+	if plan.Diff() != "" || plan.Summary() != "0 to create, 0 to update, 6 unchanged, 0 to mark stale, 0 to restore" {
 		t.Errorf("diff = %q, summary = %q", plan.Diff(), plan.Summary())
 	}
 }
@@ -116,19 +117,24 @@ func TestNewPlannerValidates(t *testing.T) {
 	}
 }
 
-func TestReadOnlyRejectsEveryWrite(t *testing.T) {
-	ro := readOnly{}
-	ctx := context.Background()
-	if _, err := ro.CreateTag(ctx, "docgen-stale"); err == nil {
-		t.Error("CreateTag must fail")
+// searchOnly is a Reader with no other method: a Planner built on it cannot
+// write, whatever it does with a plan that contains stale markings.
+type searchOnly struct{ api *fakeAPI }
+
+func (r searchOnly) SearchArticles(ctx context.Context, q string) ([]client.Article, error) {
+	return r.api.SearchArticles(ctx, q)
+}
+
+func TestPlannerNeedsNothingButReading(t *testing.T) {
+	api := publishedAPI(t, hostTree(fourHosts()))
+	before := len(api.writeCalls())
+	hosts := fourHosts()
+	delete(hosts, "web-4")
+	plan, err := newPlanner(t, searchOnly{api}).Plan(context.Background(), hostTree(hosts))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := ro.AddTag(ctx, "a-1", "t-1"); err == nil {
-		t.Error("AddTag must fail")
-	}
-	if err := ro.RemoveTag(ctx, "a-1", "t-1"); err == nil {
-		t.Error("RemoveTag must fail")
-	}
-	if _, err := ro.FindTag(ctx, "docgen-stale"); err == nil {
-		t.Error("FindTag must fail")
+	if plan.Stale() != 1 || len(api.writeCalls()) != before || api.tagWrites != 0 {
+		t.Errorf("plan = %s, writes = %v", plan.Summary(), api.writeCalls()[before:])
 	}
 }

@@ -38,6 +38,34 @@ type Config struct {
 	// these articles by their stable key; articles of any other project are
 	// ignored, whatever the query returns.
 	ProjectQuery string
+	// ActiveSources names the sources (the first part of an entity ID) that
+	// took part in the run. Only articles of these sources can be marked as
+	// stale: a collector that was switched off did not see its objects vanish.
+	// Empty means every source.
+	ActiveSources []string
+	// MaxStaleRatio is the largest share of the managed articles one run may
+	// mark as stale, between 0 and 1. A run above it fails before it writes.
+	// Zero means DefaultMaxStaleRatio.
+	MaxStaleRatio float64
+	// AllowMassStale lifts the MaxStaleRatio limit for the run.
+	AllowMassStale bool
+}
+
+func (c Config) maxStaleRatio() float64 {
+	if c.MaxStaleRatio == 0 {
+		return DefaultMaxStaleRatio
+	}
+	return c.MaxStaleRatio
+}
+
+func (c Config) validate() error {
+	if c.ProjectID == "" || c.ProjectQuery == "" {
+		return errors.New("youtrack sink: project ID and project query are required")
+	}
+	if c.MaxStaleRatio < 0 || c.MaxStaleRatio > 1 {
+		return fmt.Errorf("youtrack sink: max stale ratio %v must be between 0 and 1", c.MaxStaleRatio)
+	}
+	return nil
 }
 
 // Result counts what Publish did.
@@ -45,7 +73,7 @@ type Result struct {
 	Created   int
 	Updated   int
 	Unchanged int
-	// Stale counts articles newly marked as stale; Restored counts articles
+	// Stale counts articles marked as stale; Restored counts articles
 	// whose stale marking was removed because the object reappeared.
 	Stale    int
 	Restored int
@@ -65,8 +93,8 @@ func New(api API, cfg Config) (*Sink, error) {
 	if api == nil {
 		return nil, errors.New("youtrack sink: API must not be nil")
 	}
-	if cfg.ProjectID == "" || cfg.ProjectQuery == "" {
-		return nil, errors.New("youtrack sink: project ID and project query are required")
+	if err := cfg.validate(); err != nil {
+		return nil, err
 	}
 	return &Sink{api: api, cfg: cfg}, nil
 }
@@ -75,38 +103,38 @@ func New(api API, cfg Config) (*Sink, error) {
 // article; overviews sit directly below it, host documents below a "Hosts"
 // article and Kubernetes documents below a "Kubernetes" article. A document is
 // recognized by its stable ID, not its title, so renames update the existing
-// article. Nothing is deleted; articles of vanished objects get the stale tag
-// and a banner, both removed again when the object reappears. A run on unchanged data makes no write call
-// (it only reads the project's articles once).
+// article. Nothing is deleted; articles of vanished objects lose their
+// generated sections and get the stale tag and a banner, both removed again
+// when the object reappears. A run on unchanged data makes no write call (it
+// only reads the project's articles once).
+//
+// What a run does is decided first, as a list of operations that the Planner
+// shows as well. A run that would mark more than Config.MaxStaleRatio of the
+// articles as stale returns ErrMassStale before the first write.
 func (s *Sink) Publish(ctx context.Context, root render.Document) (Result, error) {
 	existing, lost, err := s.index(ctx)
 	if err != nil {
 		return Result{}, err
 	}
-	p := &publisher{Sink: s, existing: existing, orphans: lost}
-	rootArticle, err := p.publish(ctx, root, "")
+	list, err := buildOps(existing, lost, root, s.cfg)
+	res := Result{Warnings: lost.all()}
 	if err != nil {
-		return p.failed(err)
+		return res, err
 	}
-	groups := map[string]string{} // group key -> article ID
-	for _, child := range root.Children {
-		parent := rootArticle.ID
-		if key, title := groupFor(child.ID); key != "" {
-			if _, ok := groups[key]; !ok {
-				g, err := p.publish(ctx, render.Document{ID: key, Title: title}, rootArticle.ID)
-				if err != nil {
-					return p.failed(err)
-				}
-				groups[key] = g.ID
-			}
-			parent = groups[key]
-		}
-		if err := p.publishTree(ctx, child, parent); err != nil {
-			return p.failed(err)
+	x := &executor{api: s.api, cfg: s.cfg, ids: map[string]string{}}
+	for key, a := range existing {
+		x.ids[key] = a.ID
+	}
+	for key, id := range list.adopted {
+		x.ids[key] = id
+	}
+	for _, o := range list.ops {
+		if err := x.run(ctx, o, &res); err != nil {
+			res.Warnings = lost.claimedWarnings()
+			return res, err
 		}
 	}
-	p.res.Warnings = p.orphans.all()
-	return p.res, p.reconcileStale(ctx, publishedKeys(root, existing))
+	return res, nil
 }
 
 // groupFor returns the container a document belongs to, or "" for documents
@@ -126,7 +154,12 @@ func groupFor(id string) (key, title string) {
 
 // index maps document keys to the articles that carry them.
 func (s *Sink) index(ctx context.Context) (map[string]client.Article, *orphans, error) {
-	articles, err := s.api.SearchArticles(ctx, s.cfg.ProjectQuery)
+	return loadIndex(ctx, s.api, s.cfg)
+}
+
+// loadIndex reads the articles of the project and maps document keys to them.
+func loadIndex(ctx context.Context, api Reader, cfg Config) (map[string]client.Article, *orphans, error) {
+	articles, err := api.SearchArticles(ctx, cfg.ProjectQuery)
 	if err != nil {
 		return nil, nil, fmt.Errorf("youtrack sink: list articles: %w", err)
 	}
@@ -135,7 +168,7 @@ func (s *Sink) index(ctx context.Context) (map[string]client.Article, *orphans, 
 	for _, a := range articles {
 		// The search query is only a hint. An article is ours only if the
 		// server says it belongs to the configured project.
-		if a.Project == nil || a.Project.ID != s.cfg.ProjectID {
+		if a.Project == nil || a.Project.ID != cfg.ProjectID {
 			continue
 		}
 		key, ok := documentKey(a.Content)
@@ -151,81 +184,75 @@ func (s *Sink) index(ctx context.Context) (map[string]client.Article, *orphans, 
 	return out, lost, nil
 }
 
-// failed returns the result of a run that stopped with err. Only the warnings
-// for articles the run reached are reported: the rest was never looked at.
-func (p *publisher) failed(err error) (Result, error) {
-	p.res.Warnings = p.orphans.claimedWarnings()
-	return p.res, err
+// executor carries out the operations of a run.
+type executor struct {
+	api API
+	cfg Config
+	// ids maps document keys to article database IDs.
+	ids map[string]string
+	tag *client.TagRef // resolved lazily, only when an article needs tagging
 }
 
-type publisher struct {
-	*Sink
-	existing map[string]client.Article
-	orphans  *orphans
-	res      Result
-}
-
-func (p *publisher) publishTree(ctx context.Context, d render.Document, parentID string) error {
-	a, err := p.publish(ctx, d, parentID)
-	if err != nil {
-		return err
-	}
-	for _, c := range d.Children {
-		if err := p.publishTree(ctx, c, a.ID); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// publish creates or updates the article of d and returns it.
-func (p *publisher) publish(ctx context.Context, d render.Document, parentID string) (client.Article, error) {
-	key := resolveKey(p.existing, d.ID)
-	blocks, err := sectionBlocks(d)
-	if err != nil {
-		return client.Article{}, err
-	}
-
-	cur, found := p.existing[key]
-	if !found {
-		if orphan, ok := p.orphans.claim(key, d.Title); ok {
-			// Not ours to write: see orphans. Children stay below it.
-			return orphan, nil
-		}
-		created, err := p.api.CreateArticle(ctx, client.NewArticle{
-			ProjectID:       p.cfg.ProjectID,
-			Summary:         d.Title,
-			Content:         buildContent(key, blocks),
-			ParentArticleID: parentID,
+func (x *executor) run(ctx context.Context, o op, res *Result) error {
+	switch o.kind {
+	case opCreate:
+		created, err := x.api.CreateArticle(ctx, client.NewArticle{
+			ProjectID: x.cfg.ProjectID, Summary: o.title, Content: o.content, ParentArticleID: x.ids[o.parentKey],
 		})
 		if err != nil {
-			return client.Article{}, fmt.Errorf("youtrack sink: create %q: %w", d.ID, err)
+			return fmt.Errorf("youtrack sink: create %q: %w", o.key, err)
 		}
-		p.res.Created++
-		p.existing[key] = *created
-		return *created, nil
+		x.ids[o.key] = created.ID
+		res.Created++
+	case opUpdate:
+		var upd client.ArticleUpdate
+		if o.setTitle {
+			upd.Summary = &o.title
+		}
+		if o.setContent {
+			upd.Content = &o.content
+		}
+		if o.setParent {
+			parent := x.ids[o.parentKey]
+			upd.ParentArticleID = &parent
+		}
+		if _, err := x.api.UpdateArticle(ctx, o.article.ID, upd); err != nil {
+			return fmt.Errorf("youtrack sink: update %q: %w", o.key, err)
+		}
+		res.Updated++
+	case opUnchanged:
+		res.Unchanged++
+	case opMarkStale:
+		if o.setContent {
+			if _, err := x.api.UpdateArticle(ctx, o.article.ID, client.ArticleUpdate{Content: &o.content}); err != nil {
+				return fmt.Errorf("youtrack sink: mark %q stale: %w", o.key, err)
+			}
+		}
+		if o.addTag {
+			if x.tag == nil {
+				t, err := x.staleTag(ctx)
+				if err != nil {
+					return err
+				}
+				x.tag = t
+			}
+			if err := x.api.AddTag(ctx, o.article.ID, x.tag.ID); err != nil {
+				return fmt.Errorf("youtrack sink: tag %q stale: %w", o.key, err)
+			}
+		}
+		res.Stale++
+	case opClearStale:
+		if o.setContent {
+			if _, err := x.api.UpdateArticle(ctx, o.article.ID, client.ArticleUpdate{Content: &o.content}); err != nil {
+				return fmt.Errorf("youtrack sink: remove stale banner from %q: %w", o.key, err)
+			}
+		}
+		if o.removeTagID != "" {
+			if err := x.api.RemoveTag(ctx, o.article.ID, o.removeTagID); err != nil {
+				return fmt.Errorf("youtrack sink: remove stale tag from %q: %w", o.key, err)
+			}
+		}
+		res.Restored++
 	}
-
-	var upd client.ArticleUpdate
-	changed := false
-	if cur.Summary != d.Title {
-		upd.Summary, changed = &d.Title, true
-	}
-	if content := mergeContent(cur.Content, blocks); content != cur.Content {
-		upd.Content, changed = &content, true
-	}
-	if parentID != "" && (cur.ParentArticle == nil || cur.ParentArticle.ID != parentID) {
-		upd.ParentArticleID, changed = &parentID, true
-	}
-	if !changed {
-		p.res.Unchanged++
-		return cur, nil
-	}
-	updated, err := p.api.UpdateArticle(ctx, cur.ID, upd)
-	if err != nil {
-		return client.Article{}, fmt.Errorf("youtrack sink: update %q: %w", d.ID, err)
-	}
-	p.res.Updated++
-	p.existing[key] = *updated
-	return *updated, nil
+	return nil
 }

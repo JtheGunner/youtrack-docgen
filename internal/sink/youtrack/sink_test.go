@@ -21,7 +21,25 @@ type fakeAPI struct {
 	creates   int
 	updates   int
 	searchErr error
+	// log lists the article write calls in order, as "<call>:<document key>".
+	// Creating the stale tag is not logged: a dry run cannot know whether the
+	// tag exists.
+	log []string
 	tagState
+}
+
+// writeCalls returns the article write calls made so far.
+func (f *fakeAPI) writeCalls() []string { return f.log }
+
+// keyOfArticle returns the document key of the article with the given ID.
+func (f *fakeAPI) keyOfArticle(id string) string {
+	for _, a := range f.articles {
+		if a.ID == id {
+			key, _ := documentKey(a.Content)
+			return key
+		}
+	}
+	return "?" + id
 }
 
 func (f *fakeAPI) SearchArticles(context.Context, string) ([]client.Article, error) {
@@ -39,6 +57,8 @@ func (f *fakeAPI) SearchArticles(context.Context, string) ([]client.Article, err
 
 func (f *fakeAPI) CreateArticle(_ context.Context, n client.NewArticle) (*client.Article, error) {
 	f.creates++
+	key, _ := documentKey(n.Content)
+	f.log = append(f.log, "create:"+key)
 	a := client.Article{
 		ID:         fmt.Sprintf("1-%d", len(f.articles)+1),
 		IDReadable: fmt.Sprintf("KB-A-%d", len(f.articles)+1),
@@ -54,6 +74,7 @@ func (f *fakeAPI) CreateArticle(_ context.Context, n client.NewArticle) (*client
 
 func (f *fakeAPI) UpdateArticle(_ context.Context, id string, u client.ArticleUpdate) (*client.Article, error) {
 	f.updates++
+	f.log = append(f.log, "update:"+f.keyOfArticle(id))
 	for i := range f.articles {
 		if f.articles[i].ID != id {
 			continue
@@ -462,7 +483,7 @@ func TestNamesThatAreNotMarkerSafeArePublishedAndFoundAgain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("plan: %v", err)
 	}
-	if got := plan.Summary(); got != "4 to create, 0 to update, 0 unchanged" {
+	if got := plan.Summary(); got != "4 to create, 0 to update, 0 unchanged, 0 to mark stale, 0 to restore" {
 		t.Errorf("plan = %q", got)
 	}
 	s := newSink(t, api)

@@ -40,6 +40,7 @@ func (f *fakeAPI) AddTag(_ context.Context, articleID, tagID string) error {
 		return f.addTagErr
 	}
 	f.tagWrites++
+	f.log = append(f.log, "tag-add:"+f.keyOfArticle(articleID))
 	for i := range f.articles {
 		if f.articles[i].ID != articleID {
 			continue
@@ -56,6 +57,7 @@ func (f *fakeAPI) AddTag(_ context.Context, articleID, tagID string) error {
 
 func (f *fakeAPI) RemoveTag(_ context.Context, articleID, tagID string) error {
 	f.tagWrites++
+	f.log = append(f.log, "tag-remove:"+f.keyOfArticle(articleID))
 	for i := range f.articles {
 		if f.articles[i].ID != articleID {
 			continue
@@ -70,6 +72,9 @@ func (f *fakeAPI) RemoveTag(_ context.Context, articleID, tagID string) error {
 	}
 	return nil
 }
+
+// allowMassStale lifts the stale limit for tests that shrink a tiny tree.
+func allowMassStale(c *Config) { c.AllowMassStale = true }
 
 func isStale(a *client.Article) bool {
 	return hasStaleTag(*a) && strings.Contains(a.Content, "docgen:begin stale-banner")
@@ -98,10 +103,13 @@ func TestVanishedObjectGetsTagAndBanner(t *testing.T) {
 	if !isStale(got) {
 		t.Fatalf("host not marked stale: tags=%v content=\n%s", got.Tags, got.Content)
 	}
-	for _, want := range []string{"Manual intro.", "docgen:begin summary", "docgen:doc netbox:host:web-1"} {
+	for _, want := range []string{"Manual intro.", "docgen:doc netbox:host:web-1"} {
 		if !strings.Contains(got.Content, want) {
 			t.Errorf("content lost %q:\n%s", want, got.Content)
 		}
+	}
+	if strings.Contains(got.Content, "docgen:begin summary") {
+		t.Errorf("generated sections stayed in the stale article:\n%s", got.Content)
 	}
 	if api.byKey(t, "overview:vlans").Tags != nil {
 		t.Error("published article was tagged")
@@ -110,7 +118,7 @@ func TestVanishedObjectGetsTagAndBanner(t *testing.T) {
 
 func TestStaleMarkingIsIdempotent(t *testing.T) {
 	api := &fakeAPI{}
-	s := newSink(t, api)
+	s := newSinkWith(t, api, allowMassStale)
 	if _, err := s.Publish(context.Background(), tree("web-1", "a")); err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +139,7 @@ func TestStaleMarkingIsIdempotent(t *testing.T) {
 
 func TestReappearingObjectLosesTagAndBanner(t *testing.T) {
 	api := &fakeAPI{}
-	s := newSink(t, api)
+	s := newSinkWith(t, api, allowMassStale)
 	if _, err := s.Publish(context.Background(), tree("web-1", "a")); err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +172,7 @@ func TestReappearingObjectLosesTagAndBanner(t *testing.T) {
 
 func TestExistingStaleTagIsReused(t *testing.T) {
 	api := &fakeAPI{tagState: tagState{tags: []client.TagRef{{ID: "5-x", Name: StaleTag}}}}
-	s := newSink(t, api)
+	s := newSinkWith(t, api, allowMassStale)
 	if _, err := s.Publish(context.Background(), tree("web-1", "a")); err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +195,7 @@ func TestStaleTagErrorsPropagate(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			api := &fakeAPI{}
-			s := newSink(t, api)
+			s := newSinkWith(t, api, allowMassStale)
 			if _, err := s.Publish(context.Background(), tree("web-1", "a")); err != nil {
 				t.Fatal(err)
 			}

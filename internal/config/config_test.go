@@ -252,6 +252,16 @@ func TestParseInvalid(t *testing.T) {
 			want: []string{"colectors"},
 		},
 		{
+			name: "max stale ratio above one",
+			yaml: strings.Replace(validYAML, "project: INFRA", "project: INFRA\n  max_stale_ratio: 1.5", 1), env: fullEnv,
+			want: []string{"youtrack.max_stale_ratio: must be between 0 and 1"},
+		},
+		{
+			name: "max stale ratio below zero",
+			yaml: strings.Replace(validYAML, "project: INFRA", "project: INFRA\n  max_stale_ratio: -0.1", 1), env: fullEnv,
+			want: []string{"youtrack.max_stale_ratio: must be between 0 and 1"},
+		},
+		{
 			name: "unknown key in youtrack",
 			yaml: strings.Replace(validYAML, "project: INFRA", "project: INFRA\n  projct: X", 1), env: fullEnv,
 			want: []string{"projct"},
@@ -449,5 +459,22 @@ func TestLoadMissingFile(t *testing.T) {
 	_, err := Load(filepath.Join(t.TempDir(), "missing.yaml"))
 	if !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("Load() error = %v, want os.ErrNotExist", err)
+	}
+}
+
+func TestParseMaxStaleRatio(t *testing.T) {
+	cfg, err := Parse([]byte(strings.Replace(validYAML, "project: INFRA", "project: INFRA\n  max_stale_ratio: 0.25", 1)), envMap(fullEnv))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.YouTrack.MaxStaleRatio != 0.25 {
+		t.Errorf("MaxStaleRatio = %v, want 0.25", cfg.YouTrack.MaxStaleRatio)
+	}
+	cfg, err = Parse([]byte(validYAML), envMap(fullEnv))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.YouTrack.MaxStaleRatio != 0 {
+		t.Errorf("MaxStaleRatio = %v, want 0 (the sink default) when unset", cfg.YouTrack.MaxStaleRatio)
 	}
 }

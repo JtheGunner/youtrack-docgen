@@ -389,4 +389,4 @@
 +
 +Generated at 2026-01-02T03:04:05Z from netbox.
 +<!-- docgen:end generated -->
-sink youtrack (dry run): 10 to create, 0 to update, 0 unchanged
+sink youtrack (dry run): 10 to create, 0 to update, 0 unchanged, 0 to mark stale, 0 to restore

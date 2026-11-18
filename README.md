@@ -54,6 +54,7 @@ youtrack:                      # connection, used by the youtrack sink
   url: https://youtrack.example.com
   token: ${YOUTRACK_TOKEN}
   project: INFRA
+  max_stale_ratio: 0.5         # optional: largest share of articles one run may mark as stale
 collectors:
   netbox:
     url: https://netbox.example.com
@@ -116,20 +117,22 @@ youtrack-docgen publish --config docgen.yaml
 - Do not remove the `docgen:doc` line. An article without it that carries the title of a generated document is left untouched, no second article is created, and a warning names the line to restore. The same protects a manual article that happens to have the title of a document. The title is the only link left: if the title was changed too, a new article is created, and the old one is reported when it still holds generated sections.
 - A marker only counts on a line of its own. Do not put marker lines into your own text, for example in a code block: a marked section the tool does not produce is removed.
 - Host names with spaces or a double hyphen get an encoded key that starts with `esc:`.
-- An article whose object is gone from the sources gets the `docgen-stale` tag and a banner. Both are removed when the object comes back.
+- An article whose object is gone from the sources gets the `docgen-stale` tag and a banner, and its generated sections are removed, so the names and addresses of a vanished or denied host do not stay in the Knowledge Base. Text you wrote outside the markers stays. When the object comes back, the sections return and tag and banner are removed.
+- Only articles of sources that took part in the run can become stale. If you switch a collector off, its articles are left alone.
+- A run that would mark more than `youtrack.max_stale_ratio` of the managed articles as stale (default `0.5`) stops before the first write, with the counts in the error. This is what an empty or broken collection looks like. Run again with `--allow-mass-stale` if the objects really are gone.
 - A run on unchanged data writes nothing. The "Generated at" line of an article keeps the time of its last real change.
 - If a collector or the filter fails, nothing is sent to YouTrack.
-- The Markdown sink is not used by this command.
+- The Markdown sink is not used by this command. The Markdown sink never removes files: files of objects that no longer exist stay in the output directory until you delete them.
 - A summary line closes the output, for example `sink youtrack: 9 created, 0 updated, 0 unchanged, 0 marked stale, 0 restored`.
 
 > [!WARNING]
-> Every article in the project that `docgen` created earlier and that is missing from the current run is marked as stale. The preview of `diff` does not show stale markings yet, so keep one project for one `docgen.yaml` and try a new config against a sandbox project first.
+> Every article in the project that `docgen` created earlier, belongs to an active source and is missing from the current run is marked as stale. Keep one project for one `docgen.yaml`, run `diff` first, and try a new config against a sandbox project.
 
 ---
 
 ## 🔍 Dry run and diff
 
-`diff` shows what `publish` would create or update, and writes nothing. `publish --dry-run` does the same.
+`diff` shows what `publish` would create, update, mark as stale or restore, and writes nothing. `publish --dry-run` does the same.
 
 ```text
 youtrack-docgen diff --config docgen.yaml
@@ -139,8 +142,10 @@ youtrack-docgen publish --dry-run --config docgen.yaml
 - It needs the `youtrack` sink to be enabled and `youtrack.url`, `youtrack.token` and `youtrack.project` to be set.
 - It runs the same pipeline as `generate`, reads the articles of the project once, and compares them with the rendered documents. Only read requests are sent, and no Markdown files are written.
 - Each article that would change gets a unified diff, headed by `--- a/<document key>`, or `--- /dev/null` for a new article. The first lines of the compared text show the title and the parent article. Manual content outside the `docgen` markers never appears as a change.
-- A summary line closes the output, for example `sink youtrack (dry run): 9 to create, 0 to update, 0 unchanged`.
-- Stale markings are not part of the preview yet.
+- A change to the stale marking shows as a diff of the article: the banner is added or removed, the generated sections disappear or return, and a `Tags: docgen-stale` line appears or goes.
+- `diff` and `publish` take their decisions from the same list of operations, so the preview names exactly the writes `publish` makes.
+- If `publish` would stop at the stale limit, `diff` prints the preview and then fails with the same error. Pass `--allow-mass-stale` to preview the run without the limit.
+- A summary line closes the output, for example `sink youtrack (dry run): 9 to create, 0 to update, 0 unchanged, 0 to mark stale, 0 to restore`.
 - The output is plain text, without colour.
 
 ---
