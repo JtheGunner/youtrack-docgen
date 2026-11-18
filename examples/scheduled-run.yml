@@ -21,7 +21,7 @@ jobs:
         with:
           go-version: stable
       - name: Install youtrack-docgen
-        run: go install github.com/JtheGunner/youtrack-docgen/cmd/youtrack-docgen@main
+        run: go install github.com/JtheGunner/youtrack-docgen/cmd/youtrack-docgen@v0.1.0 # pin the release you have tested
       - name: Validate config
         run: youtrack-docgen validate-config --config docgen.yaml
       - name: Generate Markdown

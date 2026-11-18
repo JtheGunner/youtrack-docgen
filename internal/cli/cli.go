@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/JtheGunner/youtrack-docgen/internal/config"
+	"github.com/JtheGunner/youtrack-docgen/internal/version"
 )
 
 const defaultConfigPath = "docgen.yaml"
@@ -26,7 +27,9 @@ func newRootCmd(stdout, stderr io.Writer, now func() time.Time) *cobra.Command {
 		Short:         "Generate infrastructure documentation for the YouTrack Knowledge Base",
 		SilenceUsage:  true,
 		SilenceErrors: false,
+		Version:       version.String(),
 	}
+	root.SetVersionTemplate("youtrack-docgen {{.Version}}\n")
 	root.SetOut(stdout)
 	root.SetErr(stderr)
 	root.AddCommand(newValidateConfigCmd(), newGenerateCmd(now), newDiffCmd(now), newPublishCmd(now))
