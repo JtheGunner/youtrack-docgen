@@ -74,6 +74,14 @@ func fixture(t *testing.T) *model.Graph {
 			ID: "netbox:ipaddress:vip", Kind: model.KindIPAddress, Source: "netbox", Name: "shop-vip",
 			Addresses: addrs("192.0.2.10"),
 		},
+		{
+			ID: "netbox:interface:web01/eth0", Kind: model.KindInterface, Source: "netbox", Name: "eth0",
+			Addresses: addrs("10.0.10.5"),
+		},
+		{
+			ID: "netbox:ipaddress:web01-eth0", Kind: model.KindIPAddress, Source: "netbox", Name: "10.0.10.5/24",
+			Addresses: addrs("10.0.10.5"),
+		},
 	}
 	for _, e := range entities {
 		if err := g.AddEntity(e); err != nil {
@@ -85,6 +93,8 @@ func fixture(t *testing.T) *model.Graph {
 		{From: "k8s:service:shop", To: "netbox:host:db01", Kind: model.RelDependsOn},
 		{From: "netbox:host:web01", To: "netbox:host:db01", Kind: model.RelDependsOn},
 		{From: "netbox:host:db01", To: "k8s:service:cache", Kind: model.RelExposes},
+		{From: "netbox:interface:web01/eth0", To: "netbox:host:web01", Kind: model.RelMemberOf},
+		{From: "netbox:ipaddress:web01-eth0", To: "netbox:interface:web01/eth0", Kind: model.RelMemberOf},
 	}
 	for _, rel := range relations {
 		if err := g.AddRelation(rel); err != nil {

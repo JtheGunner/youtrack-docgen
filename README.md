@@ -147,6 +147,19 @@ youtrack-docgen publish --dry-run --config docgen.yaml
 - If `publish` would stop at the stale limit, `diff` prints the preview and then fails with the same error. Pass `--allow-mass-stale` to preview the run without the limit.
 - A summary line closes the output, for example `sink youtrack (dry run): 9 to create, 0 to update, 0 unchanged, 0 to mark stale, 0 to restore`.
 - The output is plain text, without colour.
+- `diff` exits with status 0 whether or not articles would change. Pass `--exit-code` to exit with status 2 when they would, so a CI job can detect drift between the sources and the Knowledge Base. Errors always exit with status 1.
+
+---
+
+## 🚦 Exit codes and aborting
+
+| Status | Meaning |
+|---|---|
+| 0 | Success. For `diff --exit-code`: nothing would change |
+| 1 | Any error: invalid config, a failing collector, filter or sink, or an abort by signal |
+| 2 | Only `diff --exit-code`: articles would change |
+
+`SIGINT` (Ctrl-C) and `SIGTERM` cancel the running command through its context. Collectors and sinks stop, and the command exits with status 1. The Markdown sink writes every file through a temporary file and a rename, so an aborted run never leaves a half-written file; a symlink in the output directory is replaced, never followed.
 
 ---
 

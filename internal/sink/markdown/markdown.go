@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/JtheGunner/youtrack-docgen/internal/render"
@@ -43,7 +44,7 @@ func (*Sink) Name() string { return Name }
 
 // Publish writes root as index.md and every other document as its own file
 // named after its ID. A document with children gets a "Pages" list linking to
-// them. Existing files with the same name are overwritten; other files in the
+// them. Existing files with the same name are replaced atomically (a symlink is replaced, never followed); other files in the
 // directory are left alone.
 func (s *Sink) Publish(ctx context.Context, root render.Document) error {
 	if err := os.MkdirAll(s.dir, 0o750); err != nil {
@@ -59,32 +60,65 @@ func (s *Sink) Publish(ctx context.Context, root render.Document) error {
 			return
 		}
 		body := d.Markdown() + pages(d, names)
-		path := filepath.Join(s.dir, names[d.ID])
-		if werr := os.WriteFile(path, []byte(body), 0o644); werr != nil { //nolint:gosec // generated docs are meant to be readable
+		if werr := writeFileAtomic(s.dir, names[d.ID], []byte(body)); werr != nil {
 			err = fmt.Errorf("markdown: write %s: %w", names[d.ID], werr)
 		}
 	})
 	return err
 }
 
+// writeFileAtomic writes data to dir/name through a temp file in dir and a
+// rename, so a reader or an aborted run never sees a half-written file. The
+// rename replaces a symlink at the target instead of following it, so nothing
+// outside dir is ever written.
+func writeFileAtomic(dir, name string, data []byte) (err error) {
+	tmp, err := os.CreateTemp(dir, ".docgen-*.tmp")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = tmp.Close()
+			_ = os.Remove(tmp.Name())
+		}
+	}()
+	if _, err = tmp.Write(data); err != nil {
+		return err
+	}
+	if err = tmp.Chmod(0o644); err != nil { //nolint:gosec // generated docs are meant to be readable
+		return err
+	}
+	if err = tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), filepath.Join(dir, name))
+}
+
 // fileNames assigns every document of the tree a unique file name. The root is
-// always index.md; the others derive from their ID, with a short hash added
-// when two IDs would otherwise produce the same name.
+// always index.md; the others derive from their ID. When several IDs would
+// produce the same name, every one of them gets a short hash of its ID, so the
+// names do not depend on the order of the tree.
 func fileNames(root render.Document) map[string]string {
 	names := map[string]string{root.ID: rootFile}
-	used := map[string]bool{rootFile: true}
+	bySlug := map[string][]string{}
 	root.Walk(func(d render.Document) {
-		if _, ok := names[d.ID]; ok {
+		if _, ok := names[d.ID]; ok || slices.Contains(bySlug[slug(d.ID)], d.ID) {
 			return
 		}
-		name := slug(d.ID) + ".md"
-		if used[name] {
-			sum := sha256.Sum256([]byte(d.ID))
-			name = slug(d.ID) + "-" + hex.EncodeToString(sum[:4]) + ".md"
-		}
-		names[d.ID] = name
-		used[name] = true
+		bySlug[slug(d.ID)] = append(bySlug[slug(d.ID)], d.ID)
 	})
+	for sl, ids := range bySlug {
+		// The root occupies index.md, so a document slugged "index" must differ too.
+		collides := len(ids) > 1 || sl+".md" == rootFile
+		for _, id := range ids {
+			if !collides {
+				names[id] = sl + ".md"
+				continue
+			}
+			sum := sha256.Sum256([]byte(id))
+			names[id] = sl + "-" + hex.EncodeToString(sum[:4]) + ".md"
+		}
+	}
 	return names
 }
 

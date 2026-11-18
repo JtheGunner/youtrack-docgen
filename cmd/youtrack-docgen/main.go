@@ -10,6 +10,6 @@ import (
 
 func main() {
 	if err := cli.Execute(os.Stdout, os.Stderr); err != nil {
-		os.Exit(1)
+		os.Exit(cli.ExitCode(err))
 	}
 }
