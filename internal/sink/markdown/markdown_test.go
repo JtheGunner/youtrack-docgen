@@ -163,3 +163,106 @@ func TestPublishFailsWhenDirIsAFile(t *testing.T) {
 		t.Fatal("Publish error = nil, want an error")
 	}
 }
+
+func TestPublishDoesNotFollowSymlinks(t *testing.T) {
+	base := t.TempDir()
+	outside := filepath.Join(base, "outside.txt")
+	if err := os.WriteFile(outside, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(base, "out")
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "index.md")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	s, _ := markdown.New(dir)
+	if err := s.Publish(context.Background(), sampleTree()); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(outside); string(got) != "keep" {
+		t.Errorf("symlink target = %q, want it untouched", got)
+	}
+	info, err := os.Lstat(filepath.Join(dir, "index.md"))
+	if err != nil || !info.Mode().IsRegular() {
+		t.Errorf("index.md = %v, %v; want a regular file", info, err)
+	}
+}
+
+func TestPublishLeavesNoTempFiles(t *testing.T) {
+	dir := publish(t, sampleTree())
+	for _, f := range listFiles(t, dir) {
+		if strings.HasSuffix(f, ".tmp") {
+			t.Errorf("temp file %q left behind", f)
+		}
+	}
+}
+
+func TestPublishKeepsExistingFileWhenAborted(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "out")
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	old := filepath.Join(dir, "netbox-host-web01.md")
+	if err := os.WriteFile(old, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// The context aborts after the root is written; the child must stay as it was.
+	ctx := &abortAfter{Context: context.Background(), okCalls: 1}
+	root := sampleTree()
+	s, _ := markdown.New(dir)
+	if err := s.Publish(ctx, root); err == nil {
+		t.Fatal("Publish error = nil, want context error")
+	}
+	if got, _ := os.ReadFile(old); string(got) != "old" {
+		t.Errorf("file = %q, want it untouched", got)
+	}
+	for _, f := range listFiles(t, dir) {
+		if strings.HasSuffix(f, ".tmp") {
+			t.Errorf("temp file %q left behind", f)
+		}
+	}
+}
+
+// abortAfter reports a cancelled context after okCalls calls to Err.
+type abortAfter struct {
+	context.Context
+	okCalls int
+}
+
+func (c *abortAfter) Err() error {
+	if c.okCalls > 0 {
+		c.okCalls--
+		return nil
+	}
+	return context.Canceled
+}
+
+func TestFileNamesAreIndependentOfOrder(t *testing.T) {
+	names := func(ids ...string) map[string]string {
+		root := render.Document{ID: "overview:root", Title: "Root"}
+		for _, id := range ids {
+			root.Children = append(root.Children, render.Document{ID: id, Title: id})
+		}
+		dir := publish(t, root)
+		out := map[string]string{}
+		for _, f := range listFiles(t, dir) {
+			out[f] = ""
+		}
+		return out
+	}
+	a := names("a:b", "a-b", "index", "plain")
+	b := names("plain", "index", "a-b", "a:b")
+	if len(a) != 5 || len(b) != 5 {
+		t.Fatalf("files = %v / %v, want 5 each", a, b)
+	}
+	for f := range a {
+		if _, ok := b[f]; !ok {
+			t.Errorf("file %q only present in one order", f)
+		}
+	}
+	if _, ok := a["plain.md"]; !ok {
+		t.Errorf("a non-colliding ID should keep its plain name: %v", a)
+	}
+}

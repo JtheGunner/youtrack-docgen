@@ -37,7 +37,8 @@ func newPublishCmd(now func() time.Time) *cobra.Command {
 				return err
 			}
 			if dryRun {
-				return diffYouTrack(cmd.Context(), cfg, runOptions{allowMassStale: allowMassStale}, now(), cmd.OutOrStdout(), cmd.ErrOrStderr())
+				_, err = diffYouTrack(cmd.Context(), cfg, runOptions{allowMassStale: allowMassStale}, now(), cmd.OutOrStdout(), cmd.ErrOrStderr())
+				return err
 			}
 			return publish(cmd.Context(), cfg, runOptions{allowMassStale: allowMassStale}, now(), cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},

@@ -319,7 +319,7 @@ func TestTransportErrorLeaksNoToken(t *testing.T) {
 	srv := httptest.NewServer(http.NotFoundHandler())
 	url := srv.URL
 	srv.Close()
-	c, err := New(url, fakeToken)
+	c, err := New(url, fakeToken, WithSleep(func(context.Context, time.Duration) error { return nil }))
 	if err != nil {
 		t.Fatal(err)
 	}

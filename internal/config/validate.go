@@ -3,9 +3,11 @@ package config
 import (
 	"fmt"
 	"maps"
+	"net/netip"
 	"net/url"
 	"regexp"
 	"slices"
+	"strings"
 
 	"github.com/JtheGunner/youtrack-docgen/internal/filter"
 )
@@ -53,8 +55,8 @@ func (c *Config) validate() []string {
 		problems = append(problems, "redact: "+err.Error())
 	}
 
-	problems = append(problems, validateModules("collectors", c.Collectors, collectorSpecs)...)
-	problems = append(problems, validateModules("sinks", c.Sinks, sinkSpecs)...)
+	problems = append(problems, validateModules("collectors", c.Collectors, collectorSpecs, c.AllowInsecureHTTP)...)
+	problems = append(problems, validateModules("sinks", c.Sinks, sinkSpecs, c.AllowInsecureHTTP)...)
 
 	if len(c.EnabledCollectors()) == 0 {
 		problems = append(problems, "at least one collector must be enabled")
@@ -74,6 +76,8 @@ func (c *Config) validateYouTrack() []string {
 		problems = append(problems, "youtrack.url: required")
 	case !validURL(c.YouTrack.URL):
 		problems = append(problems, "youtrack.url: "+urlHint)
+	case !c.AllowInsecureHTTP && c.YouTrack.Token.IsSet() && insecureTokenURL(c.YouTrack.URL):
+		problems = append(problems, "youtrack.url: "+insecureHint)
 	}
 	if !c.YouTrack.Token.IsSet() {
 		problems = append(problems, "youtrack.token: required")
@@ -87,7 +91,7 @@ func (c *Config) validateYouTrack() []string {
 	return problems
 }
 
-func validateModules(section string, modules map[string]Module, specs map[string]moduleSpec) []string {
+func validateModules(section string, modules map[string]Module, specs map[string]moduleSpec, allowInsecure bool) []string {
 	var problems []string
 	for _, name := range slices.Sorted(maps.Keys(modules)) {
 		m := modules[name]
@@ -102,6 +106,8 @@ func validateModules(section string, modules map[string]Module, specs map[string
 		}
 		if m.URL != "" && !validURL(m.URL) {
 			problems = append(problems, path+".url: "+urlHint)
+		} else if !allowInsecure && m.Token.IsSet() && insecureTokenURL(m.URL) {
+			problems = append(problems, path+".url: "+insecureHint)
 		}
 		problems = append(problems, validateMatches(path+".allow", m.Allow)...)
 		problems = append(problems, validateMatches(path+".deny", m.Deny)...)
@@ -192,6 +198,23 @@ func hasInvalidSetting(m Module, key string, spec moduleSpec) bool {
 	}
 	v, present := m.Settings[key]
 	return present && checkSetting(v, kind) != ""
+}
+
+const insecureHint = "uses http:// and would send the token unencrypted; use https:// or set allow_insecure_http: true (loopback hosts such as localhost are always allowed)"
+
+// insecureTokenURL reports whether raw is a plain-http URL on a non-loopback
+// host. Such a URL must not receive a token unless explicitly allowed.
+func insecureTokenURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "http" {
+		return false
+	}
+	host := u.Hostname()
+	if strings.EqualFold(host, "localhost") {
+		return false
+	}
+	ip, err := netip.ParseAddr(host)
+	return err != nil || !ip.IsLoopback()
 }
 
 func validURL(raw string) bool {

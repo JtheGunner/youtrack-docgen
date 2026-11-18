@@ -90,6 +90,8 @@ type opList struct {
 	// that was claimed for it; see orphans. Such an article is not written, but
 	// it is the parent of its children.
 	adopted map[string]string
+	// warnings describe articles whose markers are damaged, see strayMarkers.
+	warnings []string
 }
 
 // buildOps decides what a run does. It reads existing and lost and writes
@@ -113,7 +115,7 @@ func buildOps(existing map[string]client.Article, lost *orphans, root render.Doc
 	}
 	b.reconcileStale()
 
-	list := &opList{ops: b.ops, adopted: map[string]string{}}
+	list := &opList{ops: b.ops, adopted: map[string]string{}, warnings: b.warnings}
 	for key, a := range b.adopted {
 		list.adopted[key] = a.ID
 	}
@@ -136,6 +138,7 @@ type opBuilder struct {
 	after     map[string]articleState
 	active    map[string]bool // nil: every source
 	ops       []op
+	warnings  []string
 }
 
 func activeSet(sources []string) map[string]bool {
@@ -213,6 +216,11 @@ func (b *opBuilder) document(d render.Document, parentKey string) error {
 		return nil
 	}
 
+	if stray := strayMarkers(cur.Content); len(stray) > 0 {
+		b.warnings = append(b.warnings, fmt.Sprintf(
+			"article %s %q has damaged docgen markers (%s); they were left as text. Restore the missing marker line, or remove the leftover one, so the section is managed again",
+			cur.IDReadable, cur.Summary, strings.Join(stray, ", ")))
+	}
 	merged := mergeContent(cur.Content, blocks)
 	curParent := b.parentKeyOf(cur)
 	wantParent := curParent

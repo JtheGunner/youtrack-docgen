@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/JtheGunner/youtrack-docgen/internal/config"
+	"github.com/JtheGunner/youtrack-docgen/internal/filter"
 	"github.com/JtheGunner/youtrack-docgen/internal/model"
 )
 
@@ -23,7 +25,7 @@ var collectedKinds = []model.Kind{model.KindNamespace, model.KindWorkload, model
 func collect(t *testing.T, paths ...string) *model.Graph {
 	t.Helper()
 	g := model.NewGraph()
-	if err := NewFromPaths(paths...).Collect(context.Background(), g); err != nil {
+	if err := NewFromPaths(paths...).WithWarnings(io.Discard).Collect(context.Background(), g); err != nil {
 		t.Fatalf("Collect() error = %v", err)
 	}
 	return g
@@ -180,29 +182,22 @@ func TestCollectErrors(t *testing.T) {
 		}
 		return dir
 	}
-	svc := "apiVersion: v1\nkind: Service\nmetadata:\n  name: a\n"
 	tests := []struct {
 		name  string
 		setup func(t *testing.T) string
 		want  string
-		dup   bool
 	}{
-		{"missing path", func(t *testing.T) string { return filepath.Join(t.TempDir(), "nope") }, "no such file", false},
-		{"invalid yaml", func(t *testing.T) string { return write(t, map[string]string{"bad.yaml": "kind: [\n"}) }, "bad.yaml", false},
-		{"duplicate object", func(t *testing.T) string { return write(t, map[string]string{"a.yaml": svc, "b.yml": svc}) }, "", true},
+		{"missing path", func(t *testing.T) string { return filepath.Join(t.TempDir(), "nope") }, "no such file"},
 		{"nameless service", func(t *testing.T) string {
 			return write(t, map[string]string{"a.yaml": "apiVersion: v1\nkind: Service\n"})
-		}, "no name", false},
+		}, "no name"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			g := model.NewGraph()
-			err := NewFromPaths(tt.setup(t)).Collect(context.Background(), g)
+			err := NewFromPaths(tt.setup(t)).WithWarnings(io.Discard).Collect(context.Background(), g)
 			if err == nil {
 				t.Fatal("Collect() error = nil")
-			}
-			if tt.dup && !errors.Is(err, model.ErrDuplicateEntity) {
-				t.Errorf("error = %v, want ErrDuplicateEntity", err)
 			}
 			if tt.want != "" && !strings.Contains(err.Error(), tt.want) {
 				t.Errorf("error = %v, want it to contain %q", err, tt.want)
@@ -308,14 +303,186 @@ func TestCollectMapsNodesAndPinnedWorkloads(t *testing.T) {
 	}
 }
 
-func TestCollectRejectsDuplicateNode(t *testing.T) {
+func writeTree(t *testing.T, files map[string]string) string {
+	t.Helper()
 	dir := t.TempDir()
-	manifest := "apiVersion: v1\nkind: Node\nmetadata:\n  name: n1\n"
-	if err := os.WriteFile(filepath.Join(dir, "a.yaml"), []byte(manifest+"---\n"+manifest), 0o600); err != nil {
+	for name, content := range files {
+		p := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+func collectWithWarnings(t *testing.T, paths ...string) (*model.Graph, string) {
+	t.Helper()
+	var warnings strings.Builder
+	g := model.NewGraph()
+	if err := NewFromPaths(paths...).WithWarnings(&warnings).Collect(context.Background(), g); err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+	return g, warnings.String()
+}
+
+const (
+	webDeployment = "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n  namespace: shop\nspec:\n  replicas: 2\n"
+	webPatch      = "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n  namespace: shop\nspec:\n  replicas: 5\n"
+)
+
+func TestCollectToleratesGitOpsInputs(t *testing.T) {
+	dir := writeTree(t, map[string]string{
+		"a-base/deploy.yaml":             webDeployment,
+		"b-overlay/patch.yaml":           webPatch,
+		"c-helm/templates/svc.yaml":      "apiVersion: v1\nkind: Service\nmetadata:\n  name: {{ .Release.Name }}\n",
+		"d-patch/json6902.yaml":          "- op: replace\n  path: /spec/replicas\n  value: 3\n",
+		"e-crd/widget.yaml":              "apiVersion: example.com/v1\nkind: Widget\nmetadata:\n  name: w\nspec:\n  replicas: [1, 2]\n  template: 7\n",
+		"f-quoted/deploy.yaml":           "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: quoted\nspec:\n  replicas: \"3\"\n",
+		"g-ns/ns1.yaml":                  "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: shop\n",
+		"g-ns/ns2.yaml":                  "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: shop\n",
+		"h-kustomize/kustomization.yaml": "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources: [deploy.yaml]\n",
+	})
+	g, warnings := collectWithWarnings(t, dir)
+
+	web, ok := g.Entity("kubernetes:workload:shop/deployment/web")
+	if !ok || web.Attrs["replicas"] != "2" {
+		t.Errorf("first duplicate must win: %+v", web)
+	}
+	quoted, ok := g.Entity("kubernetes:workload:default/deployment/quoted")
+	if !ok || quoted.Attrs["replicas"] != "3" {
+		t.Errorf("string replicas = %+v", quoted)
+	}
+	if got := len(g.ByKind(model.KindNamespace)); got != 2 { // shop, default
+		t.Errorf("namespaces = %d, want 2", got)
+	}
+	for _, want := range []string{
+		filepath.Join("b-overlay", "patch.yaml"), "duplicate Deployment shop/web",
+		filepath.Join("c-helm", "templates", "svc.yaml"),
+		filepath.Join("d-patch", "json6902.yaml"),
+		filepath.Join("g-ns", "ns2.yaml"), "duplicate Namespace shop",
+	} {
+		if !strings.Contains(warnings, want) {
+			t.Errorf("warnings missing %q:\n%s", want, warnings)
+		}
+	}
+	if strings.Contains(warnings, "widget.yaml") || strings.Contains(warnings, "no Kubernetes objects") {
+		t.Errorf("unexpected warnings:\n%s", warnings)
+	}
+}
+
+func TestCollectFollowsSymlinkedRoot(t *testing.T) {
+	target := writeTree(t, map[string]string{"deploy.yaml": webDeployment})
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	g, warnings := collectWithWarnings(t, link)
+	if _, ok := g.Entity("kubernetes:workload:shop/deployment/web"); !ok {
+		t.Errorf("symlinked path yielded no objects; warnings:\n%s", warnings)
+	}
+}
+
+func TestCollectWarnsAboutPathWithoutObjects(t *testing.T) {
+	dir := writeTree(t, map[string]string{"values.yaml": "replicaCount: 2\n"})
+	g, warnings := collectWithWarnings(t, dir)
+	if len(allEntities(g)) != 0 {
+		t.Error("expected no entities")
+	}
+	if !strings.Contains(warnings, dir) || !strings.Contains(warnings, "no Kubernetes objects") {
+		t.Errorf("warnings = %q", warnings)
+	}
+}
+
+func labelManifests() string {
+	return "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n  namespace: shop\n" +
+		"  labels:\n    team: payments\n    namespace: spoofed\n    api-token: FAKE-SECRET-LABEL-7\n" +
+		"  annotations:\n    note: FAKE-SECRET-ANNOTATION-8\n---\n" +
+		"apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: batch\n  namespace: shop\n  labels:\n    team: data\n"
+}
+
+func TestCollectTakesOverLabelsAndLabelRulesFilter(t *testing.T) {
+	g, _ := collectWithWarnings(t, writeTree(t, map[string]string{"d.yaml": labelManifests()}))
+	web, _ := g.Entity("kubernetes:workload:shop/deployment/web")
+	if web.Labels["label.team"] != "payments" || web.Labels["namespace"] != "shop" {
+		t.Errorf("labels = %v", web.Labels)
+	}
+
+	f, err := filter.New(filter.Config{Collectors: map[string]filter.Rules{
+		Source: {Deny: []filter.Match{{Kinds: []string{"workload"}, Labels: map[string]string{"label.team": "data"}}}},
+	}})
+	if err != nil {
 		t.Fatal(err)
 	}
-	err := NewFromPaths(dir).Collect(context.Background(), model.NewGraph())
-	if !errors.Is(err, model.ErrDuplicateEntity) {
-		t.Errorf("error = %v, want ErrDuplicateEntity", err)
+	out, err := f.Apply(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := out.Entity("kubernetes:workload:shop/deployment/batch"); ok {
+		t.Error("label deny rule did not drop the batch workload")
+	}
+	if _, ok := out.Entity("kubernetes:workload:shop/deployment/web"); !ok {
+		t.Error("label deny rule dropped the wrong workload")
+	}
+}
+
+func TestLabelsAndAnnotationsNeverLeakSecrets(t *testing.T) {
+	g, _ := collectWithWarnings(t, writeTree(t, map[string]string{"d.yaml": labelManifests()}))
+	f, err := filter.New(filter.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := f.Apply(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range out.ByKind(model.KindWorkload) {
+		if dump := fmt.Sprintf("%+v", e); strings.Contains(dump, "FAKE-SECRET") {
+			t.Errorf("seeded secret reached filtered entity %s: %s", e.ID, dump)
+		}
+	}
+}
+
+func TestManifestLabelsCannotSpoofFilterDimensions(t *testing.T) {
+	labels := "  labels:\n    tenant: acme\n    role: web\n    tag.public: \"true\"\n    namespace: spoofed\n"
+	dir := writeTree(t, map[string]string{
+		"d.yaml": "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: shop\n" + labels + "---\n" +
+			"apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n  namespace: shop\n" + labels + "---\n" +
+			"apiVersion: v1\nkind: Service\nmetadata:\n  name: web\n  namespace: shop\n" + labels + "---\n" +
+			"apiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: web\n  namespace: shop\n" + labels,
+	})
+	g, _ := collectWithWarnings(t, dir)
+	for _, e := range allEntities(g) {
+		for _, reserved := range []string{"tenant", "role", "tag.public"} {
+			if _, ok := e.Labels[reserved]; ok {
+				t.Errorf("%s: manifest label set reserved key %q: %v", e.ID, reserved, e.Labels)
+			}
+		}
+		if ns, ok := e.Labels["namespace"]; ok && ns == "spoofed" {
+			t.Errorf("%s: manifest label overrode namespace", e.ID)
+		}
+		if e.Labels["label.tenant"] != "acme" {
+			t.Errorf("%s: manifest label not kept under prefix: %v", e.ID, e.Labels)
+		}
+	}
+
+	// An allow rule on each reserved dimension must not admit any object.
+	for _, m := range []filter.Match{
+		{Tenants: []string{"acme"}}, {Roles: []string{"web"}},
+		{Tags: []string{"public"}}, {Namespaces: []string{"spoofed"}},
+	} {
+		f, err := filter.New(filter.Config{Collectors: map[string]filter.Rules{Source: {Allow: []filter.Match{m}}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := f.Apply(g)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n := len(allEntities(out)); n != 0 {
+			t.Errorf("rule %+v admitted %d spoofed entities", m, n)
+		}
 	}
 }
