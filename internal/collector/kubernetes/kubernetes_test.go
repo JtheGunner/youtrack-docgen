@@ -406,12 +406,12 @@ func labelManifests() string {
 func TestCollectTakesOverLabelsAndLabelRulesFilter(t *testing.T) {
 	g, _ := collectWithWarnings(t, writeTree(t, map[string]string{"d.yaml": labelManifests()}))
 	web, _ := g.Entity("kubernetes:workload:shop/deployment/web")
-	if web.Labels["team"] != "payments" || web.Labels["namespace"] != "shop" {
+	if web.Labels["label.team"] != "payments" || web.Labels["namespace"] != "shop" {
 		t.Errorf("labels = %v", web.Labels)
 	}
 
 	f, err := filter.New(filter.Config{Collectors: map[string]filter.Rules{
-		Source: {Deny: []filter.Match{{Kinds: []string{"workload"}, Labels: map[string]string{"team": "data"}}}},
+		Source: {Deny: []filter.Match{{Kinds: []string{"workload"}, Labels: map[string]string{"label.team": "data"}}}},
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -441,6 +441,48 @@ func TestLabelsAndAnnotationsNeverLeakSecrets(t *testing.T) {
 	for _, e := range out.ByKind(model.KindWorkload) {
 		if dump := fmt.Sprintf("%+v", e); strings.Contains(dump, "FAKE-SECRET") {
 			t.Errorf("seeded secret reached filtered entity %s: %s", e.ID, dump)
+		}
+	}
+}
+
+func TestManifestLabelsCannotSpoofFilterDimensions(t *testing.T) {
+	labels := "  labels:\n    tenant: acme\n    role: web\n    tag.public: \"true\"\n    namespace: spoofed\n"
+	dir := writeTree(t, map[string]string{
+		"d.yaml": "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: shop\n" + labels + "---\n" +
+			"apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n  namespace: shop\n" + labels + "---\n" +
+			"apiVersion: v1\nkind: Service\nmetadata:\n  name: web\n  namespace: shop\n" + labels + "---\n" +
+			"apiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: web\n  namespace: shop\n" + labels,
+	})
+	g, _ := collectWithWarnings(t, dir)
+	for _, e := range allEntities(g) {
+		for _, reserved := range []string{"tenant", "role", "tag.public"} {
+			if _, ok := e.Labels[reserved]; ok {
+				t.Errorf("%s: manifest label set reserved key %q: %v", e.ID, reserved, e.Labels)
+			}
+		}
+		if ns, ok := e.Labels["namespace"]; ok && ns == "spoofed" {
+			t.Errorf("%s: manifest label overrode namespace", e.ID)
+		}
+		if e.Labels["label.tenant"] != "acme" {
+			t.Errorf("%s: manifest label not kept under prefix: %v", e.ID, e.Labels)
+		}
+	}
+
+	// An allow rule on each reserved dimension must not admit any object.
+	for _, m := range []filter.Match{
+		{Tenants: []string{"acme"}}, {Roles: []string{"web"}},
+		{Tags: []string{"public"}}, {Namespaces: []string{"spoofed"}},
+	} {
+		f, err := filter.New(filter.Config{Collectors: map[string]filter.Rules{Source: {Allow: []filter.Match{m}}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := f.Apply(g)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n := len(allEntities(out)); n != 0 {
+			t.Errorf("rule %+v admitted %d spoofed entities", m, n)
 		}
 	}
 }

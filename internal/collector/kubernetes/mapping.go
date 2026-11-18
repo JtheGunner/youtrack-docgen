@@ -3,7 +3,6 @@ package kubernetes
 import (
 	"errors"
 	"fmt"
-	"maps"
 	"net/netip"
 	"slices"
 	"strconv"
@@ -63,7 +62,7 @@ func (b *builder) build(objects []parsed) error {
 			if err != nil {
 				return err
 			}
-			maps.Copy(b.entities[id].Labels, o.Metadata.Labels)
+			addManifestLabels(b.entities[id], o.Metadata.Labels)
 		}
 	}
 	// Nodes before workloads so a workload can point at its node.
@@ -384,12 +383,23 @@ func (b *builder) addIngress(o parsed) error {
 	return nil
 }
 
-// applyLabels copies metadata.labels onto e so label rules can match them. The
-// namespace label is set last: it is the collector's own and a manifest label
-// must not override it.
+// manifestLabelPrefix namespaces manifest labels. Entity labels also carry the
+// collector's own filter dimensions (namespace, role, tenant, tag.*); a manifest
+// must not be able to set those, so its labels live under their own prefix and
+// rules match them as "label.<key>".
+const manifestLabelPrefix = "label."
+
+// addManifestLabels copies metadata.labels onto e under manifestLabelPrefix.
+func addManifestLabels(e *model.Entity, labels map[string]string) {
+	for k, v := range labels {
+		e.Labels[manifestLabelPrefix+k] = v
+	}
+}
+
+// applyLabels sets the namespace label and the prefixed manifest labels.
 func applyLabels(e *model.Entity, o parsed, ns string) {
-	maps.Copy(e.Labels, o.Metadata.Labels)
 	e.Labels["namespace"] = ns
+	addManifestLabels(e, o.Metadata.Labels)
 }
 
 func sanitizeKey(k string) string { return strings.ReplaceAll(k, ":", "_") }
