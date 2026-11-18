@@ -50,6 +50,7 @@ The project is in early development. The pipeline runs end to end from NetBox an
 The tool reads `docgen.yaml`. Every collector and sink has its own block, so each module is configured on its own.
 
 ```yaml
+allow_insecure_http: false    # optional: accept http:// URLs on non-loopback hosts (see below)
 youtrack:                      # connection, used by the youtrack sink
   url: https://youtrack.example.com
   token: ${YOUTRACK_TOKEN}
@@ -75,6 +76,8 @@ sinks:
 ```
 
 - **Secrets come from the environment.** `${VAR}` must be set and non-empty. `${VAR:-default}` falls back to a default, and `$$` writes a literal `$`. All missing variables are reported at once, by name and config path, never with a value.
+- **Tokens only travel over HTTPS.** A `url` with `http://` next to a token is an error, because the token would cross the network unencrypted. `localhost`, `127.0.0.0/8` and `::1` are always allowed, for example for a local test instance. Set `allow_insecure_http: true` at the top level to accept plain HTTP on other hosts.
+- **The YouTrack client retries transient failures.** Reads and idempotent writes are retried up to 5 times with exponential backoff (at most 30 seconds per wait) on HTTP 429, 502, 503, 504 and network errors; `Retry-After` is honored as seconds or as an HTTP date. Creating an article or tag is retried on 429 only, so a retry can never create a duplicate. Error messages never contain the token, even if the server echoes it.
 - **Unknown keys are errors.** Typos in the top level, in `youtrack`, and in the settings of the built-in modules (`netbox`, `kubernetes`, `youtrack`, `markdown`) are caught. Modules with another name, such as one from a private overlay, keep their own settings unchecked.
 - **Allow/deny rules** are lists. A rule can combine `kinds`, `tags`, `roles`, `tenants`, `namespaces` and `labels` (all must match); values are case-insensitive globs. An empty rule is an error.
 - **A disabled module still needs its variables.** Use `${VAR:-}` for a token you do not set while the module is off.
