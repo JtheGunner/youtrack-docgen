@@ -99,6 +99,18 @@ youtrack-docgen generate --config docgen.yaml
 - `index.md` is the entry page. Every other document gets its own file named after its ID, for example `netbox-host-srv01-example-com.md`. Files the tool does not generate are left alone.
 - The `netbox` and `kubernetes` collectors are supported; set `enabled: false` on any other collector. Kubernetes workloads pinned to a node, services with `externalIPs` and ingress hostnames are linked to NetBox hosts (`runs_on`, `exposes`) when exactly one host matches by IP or hostname. An enabled `youtrack` sink is skipped with a note; use [`publish`](#-publish) to write to YouTrack.
 
+### Kubernetes inputs
+
+The `kubernetes` collector reads plain YAML manifests from the files and directories in `paths`. It never talks to a cluster.
+
+- **Supported:** `Namespace`, `Node`, `Deployment`, `StatefulSet`, `DaemonSet`, `Job`, `CronJob`, `Service`, `Ingress`, and `List` wrappers around them. Other kinds (CRDs, `Kustomization`, `Secret`, ...) are ignored without looking at their `spec`.
+- **Directories** are walked in lexical order. Hidden directories and non-YAML files are skipped. A symlinked path is resolved; symlinked directories below it are not followed.
+- **Labels:** `metadata.labels` is copied to the entity, so `labels` allow/deny rules work. The `namespace` label is always the object's namespace. Annotations, Secret data, environment values and container arguments are never read. Node labels are not read.
+- **Not rendered:** Helm templates and Kustomize overlays are not rendered. Point `paths` at rendered output (for example from `helm template` or `kustomize build`). Files that are not valid YAML, such as templates containing `{{ }}`, and documents with an unexpected shape, such as JSON6902 patches, are skipped with a warning naming the file; the run continues.
+- **Duplicates:** if the same object (kind, namespace, name) appears more than once, for example a Kustomize base and an overlay patch, the first one in path order and lexical file order wins. Later ones are skipped with a warning.
+- **Warnings** go to standard error. A configured path that yields no objects at all produces a warning.
+- `spec.replicas` may be an integer or a quoted integer.
+
 ---
 
 ## 🚀 Publish
