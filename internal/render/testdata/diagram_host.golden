@@ -28,8 +28,10 @@ flowchart LR
     n2 -->|runs_on| n0
     n3["db01"]
     n0 -->|depends_on| n3
-    n4{{"servers"}}
-    n0 -->|in_network| n4
+    n4["eth0"]
+    n4 -->|member_of| n0
+    n5{{"servers"}}
+    n0 -->|in_network| n5
 ```
 
 ## Runs here
