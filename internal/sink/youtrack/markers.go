@@ -34,7 +34,10 @@ type span struct {
 
 // parseBlocks returns the marked blocks of content in order. A block runs
 // from a begin marker to the next end marker with the same ID; begin markers
-// inside it are part of its body. For a begin marker without end marker,
+// of other IDs inside it are part of its body. Another begin marker with the
+// same ID ends the search: the earlier one lost its end marker and must never
+// be paired with the end marker of a later copy, or the manual text between
+// them would count as block content. For a begin marker without end marker,
 // closed is false and the span covers the begin marker only.
 //
 // Article text is written by other people, so this is one pass over the
@@ -49,9 +52,22 @@ func parseBlocks(content string) []span {
 		id := content[loc[2]:loc[3]]
 		ends[id] = append(ends[id], loc)
 	}
+	// limit[i] is where the search for the end of begins[i] stops: the next
+	// begin marker with the same ID, or the end of the content.
+	limit := make([]int, len(begins))
+	nextBegin := map[string]int{}
+	for i := len(begins) - 1; i >= 0; i-- {
+		id := content[begins[i][2]:begins[i][3]]
+		if at, ok := nextBegin[id]; ok {
+			limit[i] = at
+		} else {
+			limit[i] = len(content)
+		}
+		nextBegin[id] = begins[i][0]
+	}
 	var out []span
 	pos := 0
-	for _, loc := range begins {
+	for i, loc := range begins {
 		if loc[0] < pos {
 			continue // inside the previous block
 		}
@@ -65,13 +81,38 @@ func parseBlocks(content string) []span {
 		for len(queue) > 0 && queue[0][0] < loc[1] {
 			queue = queue[1:]
 		}
-		if len(queue) > 0 {
+		if len(queue) > 0 && queue[0][0] < limit[i] {
 			sp.end, sp.closed = queue[0][1], true
 			queue = queue[1:]
 		}
 		ends[sp.id] = queue
 		out = append(out, sp)
 		pos = sp.end
+	}
+	return out
+}
+
+// strayMarkers lists the markers of content that belong to no closed block: a
+// begin marker whose end marker is missing and an end marker whose begin
+// marker is missing. Both are kept as manual text. The result has one
+// description per marker: the begin markers first, then the end markers.
+func strayMarkers(content string) []string {
+	spans := parseBlocks(content)
+	var out []string
+	for _, sp := range spans {
+		if !sp.closed {
+			out = append(out, "begin "+sp.id+" without end")
+		}
+	}
+	next := 0 // spans and end markers are both in document order
+	for _, loc := range endRe.FindAllStringSubmatchIndex(content, -1) {
+		for next < len(spans) && spans[next].end <= loc[0] {
+			next++
+		}
+		inside := next < len(spans) && spans[next].closed && loc[0] >= spans[next].start
+		if !inside {
+			out = append(out, "end "+content[loc[2]:loc[3]]+" without begin")
+		}
 	}
 	return out
 }
