@@ -19,6 +19,9 @@ const (
 	articleFields = "id,idReadable,summary,content,project(id),parentArticle(id,idReadable),tags(id,name)"
 	maxErrorBody  = 512
 	searchPage    = 100
+	// maxResponseBody is the most bytes read from one response. Larger
+	// responses fail instead of exhausting memory.
+	maxResponseBody = 16 << 20
 )
 
 // Article is a Knowledge Base article.
@@ -93,7 +96,15 @@ type Option func(*Client)
 // WithHTTPClient sets the HTTP client used for requests.
 func WithHTTPClient(h *http.Client) Option { return func(c *Client) { c.http = h } }
 
-// WithMaxRetries sets how often a rate-limited request is retried.
+// WithMaxRetries sets how often a failed request is retried (default 5, so at
+// most 6 attempts per request). Requests are retried on HTTP 429, 502, 503
+// and 504 and on network errors. A request that is not idempotent (creating an
+// article or a tag) is retried on 429 only, because the server rejected it
+// without acting; after any other failure it may or may not have been applied,
+// and a retry could create a duplicate. The wait between attempts is the
+// Retry-After hint or an exponential backoff, never longer than the maximum
+// delay (default 30s), so retries add at most (retries * maximum delay) of
+// waiting to a request.
 func WithMaxRetries(n int) Option { return func(c *Client) { c.maxRetries = n } }
 
 // WithBackoff sets the base and maximum delay used when the server gives no
@@ -116,6 +127,7 @@ type Client struct {
 	baseDelay  time.Duration
 	maxDelay   time.Duration
 	sleep      func(context.Context, time.Duration) error
+	now        func() time.Time
 }
 
 // New creates a Client. baseURL is the YouTrack base URL, token a permanent token.
@@ -135,6 +147,7 @@ func New(baseURL, token string, opts ...Option) (*Client, error) {
 		baseDelay:  time.Second,
 		maxDelay:   30 * time.Second,
 		sleep:      sleepContext,
+		now:        time.Now,
 	}
 	for _, o := range opts {
 		o(c)
@@ -278,7 +291,7 @@ func (c *Client) UpdateArticle(ctx context.Context, id string, u ArticleUpdate) 
 	}
 	var a Article
 	path := "/api/articles/" + url.PathEscape(id) + "?fields=" + url.QueryEscape(articleFields)
-	if err := c.do(ctx, http.MethodPost, path, body, &a); err != nil {
+	if err := c.doIdempotent(ctx, http.MethodPost, path, body, &a); err != nil {
 		return nil, err
 	}
 	return &a, nil
@@ -287,7 +300,7 @@ func (c *Client) UpdateArticle(ctx context.Context, id string, u ArticleUpdate) 
 // AddTag attaches an existing tag to an article.
 func (c *Client) AddTag(ctx context.Context, articleID, tagID string) error {
 	path := "/api/articles/" + url.PathEscape(articleID) + "/tags?fields=id"
-	return c.do(ctx, http.MethodPost, path, TagRef{ID: tagID}, nil)
+	return c.doIdempotent(ctx, http.MethodPost, path, TagRef{ID: tagID}, nil)
 }
 
 // RemoveTag detaches a tag from an article.
@@ -296,21 +309,28 @@ func (c *Client) RemoveTag(ctx context.Context, articleID, tagID string) error {
 	return c.do(ctx, http.MethodDelete, path, nil, nil)
 }
 
-// FindTag returns the tag with the exact name, or nil if none exists.
+// FindTag returns the tag with the exact name, or nil if none exists. It
+// pages through all matches.
 func (c *Client) FindTag(ctx context.Context, name string) (*TagRef, error) {
-	q := url.Values{}
-	q.Set("query", name)
-	q.Set("fields", "id,name")
-	var tags []TagRef
-	if err := c.do(ctx, http.MethodGet, "/api/tags?"+q.Encode(), nil, &tags); err != nil {
-		return nil, err
-	}
-	for i := range tags {
-		if tags[i].Name == name {
-			return &tags[i], nil
+	for skip := 0; ; skip += searchPage {
+		q := url.Values{}
+		q.Set("query", name)
+		q.Set("fields", "id,name")
+		q.Set("$top", strconv.Itoa(searchPage))
+		q.Set("$skip", strconv.Itoa(skip))
+		var batch []TagRef
+		if err := c.do(ctx, http.MethodGet, "/api/tags?"+q.Encode(), nil, &batch); err != nil {
+			return nil, err
+		}
+		for i := range batch {
+			if batch[i].Name == name {
+				return &batch[i], nil
+			}
+		}
+		if len(batch) < searchPage {
+			return nil, nil
 		}
 	}
-	return nil, nil
 }
 
 // CreateTag creates a tag.
@@ -322,7 +342,36 @@ func (c *Client) CreateTag(ctx context.Context, name string) (*TagRef, error) {
 	return &t, nil
 }
 
+// do sends a request. POST requests are not idempotent and are only retried
+// when the server answered 429; see WithMaxRetries.
 func (c *Client) do(ctx context.Context, method, path string, in, out any) error {
+	return c.exec(ctx, method, path, in, out, method != http.MethodPost)
+}
+
+// doIdempotent sends a POST that sets state and can safely be repeated.
+func (c *Client) doIdempotent(ctx context.Context, method, path string, in, out any) error {
+	return c.exec(ctx, method, path, in, out, true)
+}
+
+// shouldRetry reports whether a response with this status is worth repeating.
+func shouldRetry(status int, idempotent bool) bool {
+	switch status {
+	case http.StatusTooManyRequests:
+		return true
+	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return idempotent
+	}
+	return false
+}
+
+// transportError marks a failure below HTTP (connection refused, reset,
+// timeout), which may be transient.
+type transportError struct{ err error }
+
+func (e *transportError) Error() string { return e.err.Error() }
+func (e *transportError) Unwrap() error { return e.err }
+
+func (c *Client) exec(ctx context.Context, method, path string, in, out any, idempotent bool) error {
 	var payload []byte
 	if in != nil {
 		var err error
@@ -332,17 +381,25 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 	}
 	for attempt := 0; ; attempt++ {
 		status, header, body, err := c.send(ctx, method, path, payload)
+		canRetry := attempt < c.maxRetries
 		if err != nil {
-			return err
+			var netErr *transportError
+			if !canRetry || !idempotent || !errors.As(err, &netErr) {
+				return err
+			}
+			if sleepErr := c.sleep(ctx, c.delay(nil, attempt)); sleepErr != nil {
+				return fmt.Errorf("youtrack: waiting to retry: %w", sleepErr)
+			}
+			continue
 		}
-		if status == http.StatusTooManyRequests && attempt < c.maxRetries {
+		if canRetry && shouldRetry(status, idempotent) {
 			if err := c.sleep(ctx, c.delay(header, attempt)); err != nil {
-				return fmt.Errorf("youtrack: waiting for rate limit: %w", err)
+				return fmt.Errorf("youtrack: waiting to retry: %w", err)
 			}
 			continue
 		}
 		if status < 200 || status > 299 {
-			return &APIError{Method: method, Path: stripQuery(path), StatusCode: status, Message: errorMessage(body)}
+			return &APIError{Method: method, Path: stripQuery(path), StatusCode: status, Message: c.errorMessage(body)}
 		}
 		if out == nil || len(body) == 0 {
 			return nil
@@ -378,21 +435,28 @@ func (c *Client) send(ctx context.Context, method, path string, payload []byte) 
 		if cause == nil {
 			cause = errors.New("request failed")
 		}
-		return 0, nil, nil, fmt.Errorf("youtrack: %s %s: %w", method, stripQuery(path), cause)
+		return 0, nil, nil, &transportError{err: fmt.Errorf("youtrack: %s %s: %w", method, stripQuery(path), cause)}
 	}
 	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody+1))
 	if err != nil {
-		return 0, nil, nil, fmt.Errorf("youtrack: read response of %s %s: %w", method, stripQuery(path), err)
+		return 0, nil, nil, &transportError{err: fmt.Errorf("youtrack: read response of %s %s: %w", method, stripQuery(path), err)}
+	}
+	if len(body) > maxResponseBody {
+		return 0, nil, nil, fmt.Errorf("youtrack: response of %s %s exceeds %d bytes", method, stripQuery(path), maxResponseBody)
 	}
 	return resp.StatusCode, resp.Header, body, nil
 }
 
-// delay honors Retry-After (seconds) and otherwise backs off exponentially.
+// delay honors Retry-After (seconds or HTTP date) and otherwise backs off
+// exponentially. The result never exceeds the maximum delay.
 func (c *Client) delay(h http.Header, attempt int) time.Duration {
-	if s := h.Get("Retry-After"); s != "" {
+	if s := strings.TrimSpace(h.Get("Retry-After")); s != "" {
 		if secs, err := strconv.Atoi(s); err == nil && secs >= 0 {
 			return min(time.Duration(secs)*time.Second, c.maxDelay)
+		}
+		if at, err := http.ParseTime(s); err == nil {
+			return min(max(at.Sub(c.now()), 0), c.maxDelay)
 		}
 	}
 	d := c.baseDelay << min(attempt, 20)
@@ -407,17 +471,22 @@ func stripQuery(path string) string {
 	return p
 }
 
-func errorMessage(body []byte) string {
+// errorMessage renders a response body for an error text. The access token is
+// removed first, so a server or proxy that echoes it cannot leak it, and
+// before truncation so a cut cannot leave part of a token behind.
+func (c *Client) errorMessage(body []byte) string {
+	text := strings.ReplaceAll(string(body), c.token, "[redacted]")
 	var e struct {
 		Error       string `json:"error"`
 		Description string `json:"error_description"`
 	}
-	if json.Unmarshal(body, &e) == nil && (e.Error != "" || e.Description != "") {
-		return strings.TrimSpace(e.Error + " " + e.Description)
+	if json.Unmarshal([]byte(text), &e) == nil && (e.Error != "" || e.Description != "") {
+		// A token written with JSON escapes only shows up after decoding.
+		return strings.ReplaceAll(strings.TrimSpace(e.Error+" "+e.Description), c.token, "[redacted]")
 	}
-	s := strings.TrimSpace(string(body))
+	s := strings.TrimSpace(text)
 	if len(s) > maxErrorBody {
-		s = s[:maxErrorBody] + "..."
+		s = strings.ToValidUTF8(s[:maxErrorBody], "") + "..."
 	}
 	return s
 }

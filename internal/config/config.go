@@ -24,6 +24,9 @@ type Config struct {
 	Redact filter.RedactConfig `yaml:"redact"`
 	// Sinks maps a module name to its configuration.
 	Sinks map[string]Module `yaml:"sinks"`
+	// AllowInsecureHTTP permits http:// URLs on non-loopback hosts for
+	// endpoints that receive a token. Loopback hosts are always allowed.
+	AllowInsecureHTTP bool `yaml:"allow_insecure_http"`
 }
 
 // YouTrack is the connection to the YouTrack instance.
