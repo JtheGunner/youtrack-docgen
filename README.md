@@ -45,6 +45,33 @@ The project is in early development. The pipeline runs end to end from NetBox an
 
 ---
 
+## 📦 Install
+
+Pin a released version so runs are reproducible. Replace `v0.1.0` with the release you want; see [Releases](https://github.com/JtheGunner/youtrack-docgen/releases) and the [changelog](CHANGELOG.md).
+
+**With Go:**
+
+```sh
+go install github.com/JtheGunner/youtrack-docgen/cmd/youtrack-docgen@v0.1.0
+```
+
+**From a release binary** (macOS and Linux, `amd64` and `arm64`). Download the archive named `youtrack-docgen_<version>_<os>_<arch>.tar.gz` and `checksums.txt` from the release page, then verify and unpack:
+
+```sh
+sha256sum --ignore-missing -c checksums.txt   # macOS: shasum -a 256 --ignore-missing -c checksums.txt
+tar -xzf youtrack-docgen_v0.1.0_linux_amd64.tar.gz
+```
+
+Check what you installed:
+
+```sh
+youtrack-docgen --version
+```
+
+Avoid `@main` in automation: it changes under you.
+
+---
+
 ## ⚙️ Configuration
 
 The tool reads `docgen.yaml`. Every collector and sink has its own block, so each module is configured on its own.
@@ -227,6 +254,12 @@ docgen never deletes articles, so the test cannot either. Its articles are title
 ## 📜 License
 
 Released under the [MIT License](LICENSE).
+
+---
+
+## 📝 Changelog
+
+Release notes are kept in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
