@@ -8,6 +8,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 
 	"github.com/JtheGunner/youtrack-docgen/internal/config"
 	"github.com/JtheGunner/youtrack-docgen/internal/model"
@@ -18,7 +20,8 @@ const Source = "kubernetes"
 
 // Collector implements collector.Collector for Kubernetes manifests.
 type Collector struct {
-	paths []string
+	paths    []string
+	warnings io.Writer
 }
 
 // New builds a collector from the "kubernetes" collector module config. The
@@ -45,17 +48,25 @@ func New(m config.Module) (*Collector, error) {
 
 // NewFromPaths builds a collector that reads the given files and directories.
 func NewFromPaths(paths ...string) *Collector {
-	return &Collector{paths: paths}
+	return &Collector{paths: paths, warnings: os.Stderr}
+}
+
+// WithWarnings sends warnings about skipped files, skipped documents and empty
+// paths to w instead of standard error.
+func (c *Collector) WithWarnings(w io.Writer) *Collector {
+	c.warnings = w
+	return c
 }
 
 // Name returns the source name.
 func (*Collector) Name() string { return Source }
 
 // Collect reads the manifests and adds their entities and relations to g.
-// Nothing is added when reading or mapping fails, so a partial view never
+// Unreadable files, undecodable documents and duplicates are skipped with a
+// warning. Nothing is added when reading or mapping fails, so a partial view never
 // reaches the graph.
 func (c *Collector) Collect(ctx context.Context, g *model.Graph) error {
-	objects, err := readObjects(ctx, c.paths)
+	objects, err := readObjects(ctx, c.paths, c.warn)
 	if err != nil {
 		return err
 	}
@@ -64,4 +75,8 @@ func (c *Collector) Collect(ctx context.Context, g *model.Graph) error {
 		return fmt.Errorf("kubernetes: %w", err)
 	}
 	return b.commit(g)
+}
+
+func (c *Collector) warn(msg string) {
+	fmt.Fprintf(c.warnings, "warning: kubernetes: %s\n", msg) //nolint:errcheck // a failing warning stream must not stop the run
 }

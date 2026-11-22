@@ -116,3 +116,16 @@ func TestUnknownCommandFails(t *testing.T) {
 		t.Fatal("unknown command error = nil, want an error")
 	}
 }
+
+func TestVersionFlagPrintsVersionAndCommit(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	cmd := NewRootCmd(&stdout, &stderr)
+	cmd.SetArgs([]string{"--version"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("--version failed: %v", err)
+	}
+	got := stdout.String()
+	if !strings.HasPrefix(got, "youtrack-docgen ") || !strings.Contains(got, "(commit ") {
+		t.Errorf("unexpected --version output %q", got)
+	}
+}

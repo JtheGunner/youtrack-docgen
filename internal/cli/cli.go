@@ -2,14 +2,20 @@
 package cli
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/JtheGunner/youtrack-docgen/internal/config"
+	"github.com/JtheGunner/youtrack-docgen/internal/version"
 )
 
 const defaultConfigPath = "docgen.yaml"
@@ -26,7 +32,9 @@ func newRootCmd(stdout, stderr io.Writer, now func() time.Time) *cobra.Command {
 		Short:         "Generate infrastructure documentation for the YouTrack Knowledge Base",
 		SilenceUsage:  true,
 		SilenceErrors: false,
+		Version:       version.String(),
 	}
+	root.SetVersionTemplate("youtrack-docgen {{.Version}}\n")
 	root.SetOut(stdout)
 	root.SetErr(stderr)
 	root.AddCommand(newValidateConfigCmd(), newGenerateCmd(now), newDiffCmd(now), newPublishCmd(now))
@@ -60,7 +68,36 @@ func names(list []string) string {
 	return strings.Join(list, ", ")
 }
 
-// Execute runs the command line with the process streams.
+// exitCodeChanges is the exit status of `diff --exit-code` when the Knowledge
+// Base differs from the generated documentation.
+const exitCodeChanges = 2
+
+// errChanges reports that diff found differences. It is not a failure, so the
+// command prints nothing for it and only the exit status carries the result.
+var errChanges = errors.New("the knowledge base differs from the generated documentation")
+
+// Execute runs the command line with the process streams. SIGINT and SIGTERM
+// cancel the context of the running command, so a collection stops and no
+// output file stays half-written.
 func Execute(stdout, stderr io.Writer) error {
-	return NewRootCmd(stdout, stderr).Execute()
+	return executeWithSignals(NewRootCmd(stdout, stderr))
+}
+
+func executeWithSignals(root *cobra.Command) error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return root.ExecuteContext(ctx)
+}
+
+// ExitCode maps an error returned by Execute to the process exit status: 0 for
+// none, 2 when `diff --exit-code` found differences, 1 for every other error.
+func ExitCode(err error) int {
+	switch {
+	case err == nil:
+		return 0
+	case errors.Is(err, errChanges):
+		return exitCodeChanges
+	default:
+		return 1
+	}
 }

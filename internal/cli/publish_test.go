@@ -82,7 +82,7 @@ func TestPublishReportsArticlesMarkedStale(t *testing.T) {
 	}}
 	yt.nextID = 900
 
-	stdout, stderr, err := runCLI(t, diffConfig(nb.URL, yt.srv.URL, t.TempDir()), "publish")
+	stdout, stderr, err := runCLI(t, diffConfig(nb.URL, yt.srv.URL, t.TempDir()), "publish", "--allow-mass-stale")
 	if err != nil {
 		t.Fatalf("error = %v\nstderr: %s", err, stderr)
 	}
@@ -249,7 +249,7 @@ func TestDryRunCountsMatchWhatPublishWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 	created := strconv.Itoa(len(yt.articles))
-	if !strings.HasSuffix(preview, "sink youtrack (dry run): "+created+" to create, 0 to update, 0 unchanged\n") {
+	if !strings.HasSuffix(preview, "sink youtrack (dry run): "+created+" to create, 0 to update, 0 unchanged, 0 to mark stale, 0 to restore\n") {
 		t.Errorf("preview does not announce the %s articles publish created:\n%s", created, preview)
 	}
 
@@ -288,7 +288,7 @@ func TestPublishLaterOnSameDataWritesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "sink youtrack (dry run): 0 to create, 0 to update, " + created + " unchanged\n"; preview != want {
+	if want := "sink youtrack (dry run): 0 to create, 0 to update, " + created + " unchanged, 0 to mark stale, 0 to restore\n"; preview != want {
 		t.Errorf("diff = %q, want %q", preview, want)
 	}
 	stdout, _, err := runCLIAt(t, later, cfg, "publish")
@@ -371,5 +371,78 @@ func TestArticleWithoutDocumentMarkerIsReportedOnStderr(t *testing.T) {
 	}
 	if len(yt.articles) != count || len(yt.writes()) != writes {
 		t.Errorf("articles %d->%d, writes %d->%d: want nothing written", count, len(yt.articles), writes, len(yt.writes()))
+	}
+}
+
+// seedVanishedArticle puts the article of a host that the sources do not
+// list into the fake YouTrack: the only article of the project, so a run marks
+// all of the managed articles as stale.
+func seedVanishedArticle(yt *fakeYouTrack) {
+	yt.articles = []map[string]any{{
+		"id":      "1-900",
+		"summary": "gone.example.com",
+		"content": "<!-- docgen:doc netbox:host:gone.example.com -->\n",
+		"project": map[string]any{"id": fakeProjectID},
+	}}
+	yt.nextID = 900
+}
+
+func TestPublishRefusesMassStaleBeforeWriting(t *testing.T) {
+	publishEnv(t)
+	nb := fakeNetBox(t)
+	yt := newFakeYouTrack(t)
+	seedVanishedArticle(yt)
+
+	_, _, err := runCLI(t, diffConfig(nb.URL, yt.srv.URL, t.TempDir()), "publish")
+	if err == nil || !strings.Contains(err.Error(), "--allow-mass-stale") {
+		t.Fatalf("error = %v, want the hint for --allow-mass-stale", err)
+	}
+	if w := yt.writes(); len(w) > 0 {
+		t.Errorf("publish wrote before refusing: %v", w)
+	}
+}
+
+func TestPublishHonoursMaxStaleRatioFromTheConfig(t *testing.T) {
+	publishEnv(t)
+	nb := fakeNetBox(t)
+	yt := newFakeYouTrack(t)
+	seedVanishedArticle(yt)
+	cfg := strings.Replace(diffConfig(nb.URL, yt.srv.URL, t.TempDir()), "  project: INFRA\n", "  project: INFRA\n  max_stale_ratio: 1\n", 1)
+
+	if _, stderr, err := runCLI(t, cfg, "publish"); err != nil {
+		t.Fatalf("error = %v\nstderr: %s", err, stderr)
+	}
+}
+
+func TestDryRunShowsStaleChangesAndTheGuard(t *testing.T) {
+	for _, cmd := range [][]string{{"diff"}, {"publish", "--dry-run"}} {
+		t.Run(strings.Join(cmd, " "), func(t *testing.T) {
+			publishEnv(t)
+			nb := fakeNetBox(t)
+			yt := newFakeYouTrack(t)
+			seedVanishedArticle(yt)
+			cfg := diffConfig(nb.URL, yt.srv.URL, t.TempDir())
+
+			stdout, _, err := runCLI(t, cfg, cmd...)
+			if err == nil || !strings.Contains(err.Error(), "--allow-mass-stale") {
+				t.Fatalf("error = %v, want the stale guard", err)
+			}
+			for _, want := range []string{"netbox:host:gone.example.com", "+Tags: docgen-stale", "1 to mark stale"} {
+				if !strings.Contains(stdout, want) {
+					t.Errorf("stdout does not show %q:\n%s", want, stdout)
+				}
+			}
+
+			stdout, stderr, err := runCLI(t, cfg, append(cmd, "--allow-mass-stale")...)
+			if err != nil {
+				t.Fatalf("error = %v\nstderr: %s", err, stderr)
+			}
+			if !strings.Contains(stdout, "1 to mark stale") {
+				t.Errorf("stdout = %s", stdout)
+			}
+			if w := yt.writes(); len(w) > 0 {
+				t.Errorf("dry run made write requests: %v", w)
+			}
+		})
 	}
 }

@@ -65,37 +65,71 @@ func (r *renderer) countHostsIn(n network) int {
 	return count
 }
 
-// ipAllocation lists every address owned by an entity, in address order.
+// ipAllocation lists every address once, with the host and interface that
+// carry it. An address NetBox knows as an IP address object, as an interface
+// address and as a host address is one row, not three.
 func (r *renderer) ipAllocation() Document {
 	type row struct {
-		addr   netip.Addr
-		owner  model.Entity
-		source string
+		addr      netip.Addr
+		owner     model.Entity
+		iface     string
+		source    string
+		sortOwner model.ID
 	}
 	var rows []row
-	for _, kind := range []model.Kind{model.KindHost, model.KindIPAddress, model.KindService, model.KindWorkload, model.KindIngress, model.KindInterface} {
+	seen := map[string]bool{}
+	// Most specific first, so the richest description of an address wins.
+	for _, kind := range []model.Kind{model.KindIPAddress, model.KindInterface, model.KindHost, model.KindService, model.KindWorkload, model.KindIngress} {
 		for _, e := range r.g.ByKind(kind) {
+			owner, iface := r.addressOwner(e)
 			for _, a := range e.Addresses {
-				rows = append(rows, row{addr: a, owner: e, source: e.Source})
+				key := a.String() + "|" + string(owner.ID)
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				rows = append(rows, row{addr: a, owner: owner, iface: iface, source: owner.Source, sortOwner: owner.ID})
 			}
 		}
 	}
 	slices.SortFunc(rows, func(a, b row) int {
-		return cmp.Or(a.addr.Compare(b.addr), strings.Compare(string(a.owner.ID), string(b.owner.ID)))
+		return cmp.Or(a.addr.Compare(b.addr), strings.Compare(string(a.sortOwner), string(b.sortOwner)), strings.Compare(a.iface, b.iface))
 	})
 
 	var block Block = Paragraph("No IP addresses are known.")
 	if len(rows) > 0 {
-		t := Table{Header: []string{"IP address", "Owner", "Kind", "Network", "Source"}}
+		t := Table{Header: []string{"IP address", "Host", "Interface", "Kind", "Network", "Source"}}
 		for _, rw := range rows {
 			t.Rows = append(t.Rows, []string{
-				rw.addr.String(), rw.owner.Name, string(rw.owner.Kind),
+				rw.addr.String(), rw.owner.Name, dash(rw.iface), string(rw.owner.Kind),
 				joinOrDash(r.networkNames(rw.addr)), rw.source,
 			})
 		}
 		block = t
 	}
 	return r.overview(IPAllocationID, "IP allocation", block, r.g.ByKind(model.KindHost), r.g.ByKind(model.KindIPAddress))
+}
+
+// addressOwner resolves the entity that holds the addresses of e and the name
+// of the interface they sit on. An IP address assigned to an interface and an
+// interface both resolve to their host; everything else owns its addresses.
+func (r *renderer) addressOwner(e model.Entity) (owner model.Entity, iface string) {
+	switch e.Kind {
+	case model.KindIPAddress:
+		for _, rel := range r.g.RelationsFrom(e.ID) {
+			if nic, ok := r.g.Entity(rel.To); ok && rel.Kind == model.RelMemberOf && nic.Kind == model.KindInterface {
+				host, _ := r.addressOwner(nic)
+				return host, nic.Name
+			}
+		}
+	case model.KindInterface:
+		for _, rel := range r.g.RelationsFrom(e.ID) {
+			if host, ok := r.g.Entity(rel.To); ok && rel.Kind == model.RelMemberOf && host.Kind == model.KindHost {
+				return host, e.Name
+			}
+		}
+	}
+	return e, ""
 }
 
 // services lists every service with where it runs and how to reach it.

@@ -48,26 +48,22 @@
 +<!-- docgen:end generated -->
 --- /dev/null
 +++ b/overview:ip-allocation
-@@ -0,0 +1,26 @@
+@@ -0,0 +1,22 @@
 +Title: IP allocation
 +Parent: overview:root
 +
 +<!-- docgen:doc overview:ip-allocation -->
 +
-+<!-- docgen:begin table hash=11ff1f1f7727e2c1 -->
++<!-- docgen:begin table hash=14b65287259dedb4 -->
 +## IP allocation
 +
-+| IP address | Owner | Kind | Network | Source |
-+| --- | --- | --- | --- | --- |
-+| 10.0.5.1 | 10.0.5.1/24 | ipaddress | 10.0.0.0/16 | netbox |
-+| 192.0.2.10 | srv01.example.com | host | servers | netbox |
-+| 192.0.2.10 | srv01.example.com eth0 | interface | servers | netbox |
-+| 192.0.2.10 | 192.0.2.10/24 | ipaddress | servers | netbox |
-+| 192.0.2.10 | 192.0.2.10/24 | ipaddress | servers | netbox |
-+| 192.0.2.20 | vm01.example.com | host | servers | netbox |
-+| 192.0.2.20 | vm01.example.com ens3 | interface | servers | netbox |
-+| 192.0.2.20 | 192.0.2.20/24 | ipaddress | servers | netbox |
-+| 2001:db8::10 | 2001:db8::10/64 | ipaddress | 2001:db8::/32 | netbox |
++| IP address | Host | Interface | Kind | Network | Source |
++| --- | --- | --- | --- | --- | --- |
++| 10.0.5.1 | 10.0.5.1/24 | - | ipaddress | 10.0.0.0/16 | netbox |
++| 192.0.2.10 | srv01.example.com | srv01.example.com eth0 | host | servers | netbox |
++| 192.0.2.10 | 192.0.2.10/24 | - | ipaddress | servers | netbox |
++| 192.0.2.20 | vm01.example.com | vm01.example.com ens3 | host | servers | netbox |
++| 2001:db8::10 | 2001:db8::10/64 | - | ipaddress | 2001:db8::/32 | netbox |
 +<!-- docgen:end table -->
 +
 +<!-- docgen:begin generated hash=4906562d1ceab345 -->
@@ -394,4 +390,4 @@
 +
 +Generated at 2026-01-02T03:04:05Z from netbox.
 +<!-- docgen:end generated -->
-sink youtrack (dry run): 10 to create, 0 to update, 0 unchanged
+sink youtrack (dry run): 10 to create, 0 to update, 0 unchanged, 0 to mark stale, 0 to restore

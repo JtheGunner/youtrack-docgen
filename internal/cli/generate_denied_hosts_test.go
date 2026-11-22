@@ -67,7 +67,7 @@ sinks:
 			}
 		}
 	}
-	const keptRow = "| 10.96.0.10 | edge | service |"
+	const keptRow = "| 10.96.0.10 | edge | - | service |"
 	var documented bool
 	for _, body := range outputs {
 		if strings.Contains(body, keptRow) {
@@ -135,7 +135,7 @@ sinks:
 		if strings.Contains(strings.ToLower(name+"\n"+body), "node-a.example.com") {
 			t.Errorf("%s reveals the denied name node-a.example.com:\n%s", name, body)
 		}
-		if strings.Contains(body, "| 10.96.0.10 | edge | service |") {
+		if strings.Contains(body, "| 10.96.0.10 | edge | - | service |") {
 			documented = true
 		}
 	}

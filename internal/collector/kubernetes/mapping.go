@@ -58,9 +58,11 @@ func (b *builder) build(objects []parsed) error {
 	// Namespaces first so every namespaced object can link to its namespace.
 	for _, o := range objects {
 		if o.Kind == "Namespace" {
-			if _, err := b.addNamespace(o.Metadata.Name, true); err != nil {
+			id, err := b.addNamespace(o.Metadata.Name, true)
+			if err != nil {
 				return err
 			}
+			addManifestLabels(b.entities[id], o.Metadata.Labels)
 		}
 	}
 	// Nodes before workloads so a workload can point at its node.
@@ -178,12 +180,10 @@ func (b *builder) addWorkload(o parsed) error {
 	if o.Kind == "CronJob" {
 		tmpl = o.Spec.JobTemplate.Spec.Template
 	}
-	e.Labels["namespace"] = ns
+	applyLabels(e, o, ns)
 	e.Attrs["kind"] = o.Kind
 	e.Attrs["namespace"] = ns
-	if o.Spec.Replicas != nil {
-		e.Attrs["replicas"] = strconv.Itoa(*o.Spec.Replicas)
-	}
+	setAttr(e, "replicas", string(o.Spec.Replicas))
 	if o.Spec.Schedule != "" {
 		e.Attrs["schedule"] = o.Spec.Schedule
 	}
@@ -275,7 +275,7 @@ func (b *builder) addService(o parsed) error {
 	if err != nil {
 		return fmt.Errorf("service %s/%s: %w", ns, o.Metadata.Name, err)
 	}
-	e.Labels["namespace"] = ns
+	applyLabels(e, o, ns)
 	e.Attrs["namespace"] = ns
 	setAttr(e, "type", firstNonEmpty(o.Spec.Type, "ClusterIP"))
 	setAttr(e, "ports", strings.Join(servicePorts(o.Spec.Ports), ", "))
@@ -340,7 +340,7 @@ func (b *builder) addIngress(o parsed) error {
 	if err != nil {
 		return fmt.Errorf("ingress %s/%s: %w", ns, o.Metadata.Name, err)
 	}
-	e.Labels["namespace"] = ns
+	applyLabels(e, o, ns)
 	e.Attrs["namespace"] = ns
 	setAttr(e, "class", o.Spec.IngressClassName)
 	b.relate(e.ID, nsID, model.RelMemberOf)
@@ -381,6 +381,25 @@ func (b *builder) addIngress(o parsed) error {
 		}
 	}
 	return nil
+}
+
+// manifestLabelPrefix namespaces manifest labels. Entity labels also carry the
+// collector's own filter dimensions (namespace, role, tenant, tag.*); a manifest
+// must not be able to set those, so its labels live under their own prefix and
+// rules match them as "label.<key>".
+const manifestLabelPrefix = "label."
+
+// addManifestLabels copies metadata.labels onto e under manifestLabelPrefix.
+func addManifestLabels(e *model.Entity, labels map[string]string) {
+	for k, v := range labels {
+		e.Labels[manifestLabelPrefix+k] = v
+	}
+}
+
+// applyLabels sets the namespace label and the prefixed manifest labels.
+func applyLabels(e *model.Entity, o parsed, ns string) {
+	e.Labels["namespace"] = ns
+	addManifestLabels(e, o.Metadata.Labels)
 }
 
 func sanitizeKey(k string) string { return strings.ReplaceAll(k, ":", "_") }

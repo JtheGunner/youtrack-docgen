@@ -24,6 +24,9 @@ type Config struct {
 	Redact filter.RedactConfig `yaml:"redact"`
 	// Sinks maps a module name to its configuration.
 	Sinks map[string]Module `yaml:"sinks"`
+	// AllowInsecureHTTP permits http:// URLs on non-loopback hosts for
+	// endpoints that receive a token. Loopback hosts are always allowed.
+	AllowInsecureHTTP bool `yaml:"allow_insecure_http"`
 }
 
 // YouTrack is the connection to the YouTrack instance.
@@ -31,6 +34,9 @@ type YouTrack struct {
 	URL     string `yaml:"url"`
 	Token   Secret `yaml:"token"`
 	Project string `yaml:"project"`
+	// MaxStaleRatio is the largest share of the managed articles one run may
+	// mark as stale, between 0 and 1. Unset means the sink default (0.5).
+	MaxStaleRatio float64 `yaml:"max_stale_ratio"`
 }
 
 // Module configures one collector or sink. Every module has its own block;

@@ -35,14 +35,14 @@ Generated at 2025-01-02T03:04:05Z from netbox.
 
 ## IP allocation
 
-| IP address | Owner | Kind | Network | Source |
-| --- | --- | --- | --- | --- |
-| 10.0.10.5 | web01 | host | servers | k8s |
-| 10.0.10.5 | web01 | host | servers | netbox |
-| 10.0.10.6 | web01 | host | servers | netbox |
-| 10.0.20.5 | db01 | host | databases | netbox |
-| 10.96.0.10 | shop | service | - | k8s |
-| 192.0.2.10 | shop-vip | ipaddress | management | netbox |
+| IP address | Host | Interface | Kind | Network | Source |
+| --- | --- | --- | --- | --- | --- |
+| 10.0.10.5 | web01 | - | host | servers | k8s |
+| 10.0.10.5 | web01 | eth0 | host | servers | netbox |
+| 10.0.10.6 | web01 | - | host | servers | netbox |
+| 10.0.20.5 | db01 | - | host | databases | netbox |
+| 10.96.0.10 | shop | - | service | - | k8s |
+| 192.0.2.10 | shop-vip | - | ipaddress | management | netbox |
 
 ## Generated
 
@@ -239,8 +239,10 @@ flowchart LR
     n2 -->|runs_on| n0
     n3["db01"]
     n0 -->|depends_on| n3
-    n4{{"servers"}}
-    n0 -->|in_network| n4
+    n4["eth0"]
+    n4 -->|member_of| n0
+    n5{{"servers"}}
+    n0 -->|in_network| n5
 ```
 
 ## Runs here

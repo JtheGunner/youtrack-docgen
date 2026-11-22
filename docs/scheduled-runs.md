@@ -8,8 +8,20 @@ What a scheduled run can do today:
 |---|---|---|
 | `validate-config` | Checks `docgen.yaml` and the environment variables it references | non-zero on an invalid config |
 | `generate` | Collects, filters, renders, and writes Markdown files into `sinks.markdown.dir` | non-zero if the config, a collector, the filter, or the sink fails |
-| `diff` / `publish --dry-run` | Prints what `publish` would create or update in the YouTrack Knowledge Base; writes nothing | non-zero on any error |
+| `diff` / `publish --dry-run` | Prints what `publish` would create or update in the YouTrack Knowledge Base; writes nothing | non-zero on any error; `diff --exit-code` also exits 2 on changes |
 | `publish` | Collects, filters, renders, and creates or updates the articles in the YouTrack Knowledge Base | non-zero if the config, a collector, the filter, or YouTrack fails |
+
+## Exit codes and aborting
+
+| Status | Meaning |
+|---|---|
+| 0 | Success. For `diff --exit-code`: nothing would change |
+| 1 | Any error: invalid config, a failing collector, filter or sink, or an abort by signal |
+| 2 | Only `diff --exit-code`: the Knowledge Base differs from the generated documentation |
+
+Use `diff --exit-code` as a drift check in CI: status 2 means someone should run `publish`, status 1 means the check itself failed. Without the flag, `diff` exits 0 even when articles would change.
+
+`SIGINT` and `SIGTERM` (a scheduler timeout, a cancelled CI job) abort the run through its context and the command exits with status 1. The Markdown sink writes each file through a temporary file and a rename, so an abort never leaves a half-written file. `publish` stops between API calls; the articles written so far stay and the next run continues from there.
 
 > [!NOTE]
 > `publish` sends nothing to YouTrack when a collector or the filter fails. If YouTrack fails in the middle of a run, the articles written so far stay; the next run continues from there.
