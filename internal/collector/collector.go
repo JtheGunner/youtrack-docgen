@@ -17,3 +17,11 @@ type Collector interface {
 	// Collect reads the source and adds its entities and relations to g.
 	Collect(ctx context.Context, g *model.Graph) error
 }
+
+// CompletenessReporter is implemented by collectors that tolerate broken input
+// by skipping it. After Collect, Incomplete returns the reasons the collection
+// may lack objects that exist in the source; it is empty for a complete read.
+// A publish run must not treat the missing objects as vanished.
+type CompletenessReporter interface {
+	Incomplete() []string
+}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"slices"
 	"time"
 
@@ -57,15 +58,19 @@ func publish(ctx context.Context, cfg *config.Config, opts runOptions, at time.T
 	if err != nil {
 		return err
 	}
-	root, err := buildDocuments(ctx, cfg, at)
+	b, err := buildDocuments(ctx, cfg, at)
 	if err != nil {
 		return err
 	}
+	root := b.root
 	target, err := resolveProject(ctx, api, cfg)
 	if err != nil {
 		return err
 	}
-	s, err := youtrack.New(api, sinkConfig(target, cfg, opts))
+	if err := printIncompleteSources(stderr, b.incomplete); err != nil {
+		return err
+	}
+	s, err := youtrack.New(api, sinkConfig(target, cfg, opts, b.incomplete))
 	if err != nil {
 		return err
 	}
@@ -115,13 +120,37 @@ func resolveProject(ctx context.Context, api *client.Client, cfg *config.Config)
 }
 
 // sinkConfig adds what the run decides to the resolved project: only the
-// collectors that ran can see an object vanish, and a person may allow a run
-// that marks most articles as stale.
-func sinkConfig(target youtrack.Config, cfg *config.Config, opts runOptions) youtrack.Config {
-	target.ActiveSources = cfg.EnabledCollectors()
+// collectors that ran completely can see an object vanish, and a person may
+// allow a run that marks most articles as stale. A source in incomplete is
+// left out, so its missing objects are not marked as stale.
+func sinkConfig(target youtrack.Config, cfg *config.Config, opts runOptions, incomplete map[string][]string) youtrack.Config {
+	target.ActiveSources = slices.DeleteFunc(slices.Clone(cfg.EnabledCollectors()), func(name string) bool {
+		_, skip := incomplete[name]
+		return skip
+	})
+	if len(target.ActiveSources) == 0 {
+		// An empty list means every source to the sink; here it must mean none.
+		target.ActiveSources = []string{noActiveSource}
+	}
 	target.MaxStaleRatio = cfg.YouTrack.MaxStaleRatio
 	target.AllowMassStale = opts.allowMassStale
 	return target
+}
+
+// noActiveSource is a source name no collector uses. It stands for "no source
+// may become stale" where an empty ActiveSources would mean every source.
+const noActiveSource = "-"
+
+// printIncompleteSources tells why articles of a source are not marked as
+// stale in this run.
+func printIncompleteSources(stderr io.Writer, incomplete map[string][]string) error {
+	for _, name := range slices.Sorted(maps.Keys(incomplete)) {
+		if _, err := fmt.Fprintf(stderr, "warning: %s: collection is incomplete (%d problems); its articles are not marked as stale in this run\n",
+			name, len(incomplete[name])); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // printWarnings writes one line per warning of the youtrack sink.

@@ -54,15 +54,19 @@ func diffYouTrack(ctx context.Context, cfg *config.Config, opts runOptions, at t
 	if err != nil {
 		return false, err
 	}
-	root, err := buildDocuments(ctx, cfg, at)
+	b, err := buildDocuments(ctx, cfg, at)
 	if err != nil {
 		return false, err
 	}
+	root := b.root
 	target, err := resolveProject(ctx, api, cfg)
 	if err != nil {
 		return false, err
 	}
-	planner, err := youtrack.NewPlanner(api, sinkConfig(target, cfg, opts))
+	if err := printIncompleteSources(stderr, b.incomplete); err != nil {
+		return false, err
+	}
+	planner, err := youtrack.NewPlanner(api, sinkConfig(target, cfg, opts, b.incomplete))
 	if err != nil {
 		return false, err
 	}

@@ -153,11 +153,26 @@ func supportedKind(kind string) bool {
 	return workloadKinds[kind]
 }
 
+// reporter receives the warnings of a read. A skip that can hide an object
+// that exists in the sources is also recorded as a reason the read is
+// incomplete; a skipped duplicate is not, because the object is still read.
+type reporter struct {
+	warn       func(string)
+	incomplete []string
+}
+
+// skipped warns about msg and records it as a reason the read is incomplete.
+func (r *reporter) skipped(msg string) {
+	r.warn(msg)
+	r.incomplete = append(r.incomplete, msg)
+}
+
 // readObjects reads every path. Files and documents that cannot be decoded and
-// duplicate objects are skipped with a warning; only I/O failures abort. When
+// duplicate objects are skipped with a warning; only I/O failures abort. Every
+// skip that may hide an object is also recorded in r.incomplete. When
 // the same object (kind, namespace, name) appears more than once, the first
 // one in path order and lexical file order wins.
-func readObjects(ctx context.Context, paths []string, warn func(string)) ([]parsed, error) {
+func readObjects(ctx context.Context, paths []string, r *reporter) ([]parsed, error) {
 	var out []parsed
 	seen := map[string]string{}
 	for _, root := range paths {
@@ -170,19 +185,19 @@ func readObjects(ctx context.Context, paths []string, warn func(string)) ([]pars
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
-			objs, err := readFile(f, warn)
+			objs, err := readFile(f, r)
 			if err != nil {
 				return nil, err
 			}
 			found += len(objs)
 			for _, o := range objs {
 				if o.Kind == "Namespace" && o.Metadata.Name == "" {
-					warn(fmt.Sprintf("%s: skipping Namespace without metadata.name", o.origin))
+					r.skipped(fmt.Sprintf("%s: skipping Namespace without metadata.name", o.origin))
 					continue
 				}
 				key := identity(o)
 				if first, dup := seen[key]; dup {
-					warn(fmt.Sprintf("%s: duplicate %s ignored, first defined in %s", o.origin, key, first))
+					r.warn(fmt.Sprintf("%s: duplicate %s ignored, first defined in %s", o.origin, key, first))
 					continue
 				}
 				seen[key] = o.origin
@@ -190,7 +205,7 @@ func readObjects(ctx context.Context, paths []string, warn func(string)) ([]pars
 			}
 		}
 		if found == 0 {
-			warn(fmt.Sprintf("%s: no Kubernetes objects found", root))
+			r.skipped(fmt.Sprintf("%s: no Kubernetes objects found", root))
 		}
 	}
 	return out, nil
@@ -250,7 +265,7 @@ func manifestFiles(root string) ([]string, error) {
 // (a Helm template, for example) is skipped as a whole, because the decoder
 // cannot resynchronise after it; a document with an unexpected shape (a
 // JSON6902 patch, a wrong field type) is skipped on its own.
-func readFile(path string, warn func(string)) ([]parsed, error) {
+func readFile(path string, r *reporter) ([]parsed, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("kubernetes: %w", err)
@@ -264,13 +279,13 @@ func readFile(path string, warn func(string)) ([]parsed, error) {
 			return out, nil
 		}
 		if err != nil {
-			warn(fmt.Sprintf("%s: skipping file, not valid YAML (document %d): %v", path, i, err))
+			r.skipped(fmt.Sprintf("%s: skipping file, not valid YAML (document %d): %v", path, i, err))
 			return nil, nil
 		}
 		origin := fmt.Sprintf("%s (document %d)", path, i)
 		objs, err := decodeNode(&node, origin)
 		if err != nil {
-			warn(fmt.Sprintf("%s: skipping document: %v", origin, err))
+			r.skipped(fmt.Sprintf("%s: skipping document: %v", origin, err))
 			continue
 		}
 		out = append(out, objs...)
