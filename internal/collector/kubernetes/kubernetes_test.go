@@ -513,3 +513,19 @@ func TestCollectSkipsNamespaceWithoutName(t *testing.T) {
 		})
 	}
 }
+
+func TestCollectReadsLoadBalancerIPs(t *testing.T) {
+	g := collect(t, filepath.Join("testdata", "linking"))
+	svc, ok := g.Entity("kubernetes:service:shop/lb")
+	if !ok {
+		t.Fatal("service shop/lb missing")
+	}
+	if got := svc.Attrs[model.AttrExternalIPs]; got != "192.0.2.41,192.0.2.40" {
+		t.Errorf("external_ips = %q, want the external IP and the load balancer IP once each", got)
+	}
+	for _, a := range []string{"10.96.0.30", "192.0.2.40", "192.0.2.41"} {
+		if !slices.Contains(svc.Addresses, netip.MustParseAddr(a)) {
+			t.Errorf("service addresses %v miss %s", svc.Addresses, a)
+		}
+	}
+}

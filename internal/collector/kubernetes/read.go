@@ -59,6 +59,13 @@ type status struct {
 		Type    string `yaml:"type"`
 		Address string `yaml:"address"`
 	} `yaml:"addresses"`
+	// LoadBalancer is set on a Service by the cloud or the load balancer
+	// controller; manifests exported from a cluster carry it.
+	LoadBalancer struct {
+		Ingress []struct {
+			IP string `yaml:"ip"`
+		} `yaml:"ingress"`
+	} `yaml:"loadBalancer"`
 }
 
 type spec struct {

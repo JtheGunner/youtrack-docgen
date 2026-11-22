@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -53,6 +54,9 @@ func generate(ctx context.Context, cfg *config.Config, at time.Time, stdout, std
 	if err != nil {
 		return err
 	}
+	if err := printWarnings(stderr, built.linkWarnings); err != nil {
+		return err
+	}
 	root := built.root
 
 	count := 0
@@ -80,6 +84,22 @@ type built struct {
 	// decideDenied answers from an ID alone whether the rules deny it; it
 	// covers articles of objects that were not collected.
 	decideDenied func(id string) (denied, decided bool)
+	// linkWarnings describe ambiguous host matches that were not linked. A
+	// warning that names a denied entity is dropped.
+	linkWarnings []string
+}
+
+// publishableLinkWarnings returns the messages of the warnings whose entities
+// all survived the filter, so a denied host never shows up in the output.
+func publishableLinkWarnings(warnings []model.LinkWarning, kept map[model.ID]bool) []string {
+	var out []string
+	for _, w := range warnings {
+		if slices.ContainsFunc(w.IDs, func(id model.ID) bool { return !kept[id] }) {
+			continue
+		}
+		out = append(out, w.Message)
+	}
+	return out
 }
 
 // buildDocuments runs collector -> filter -> render and returns the document
@@ -105,7 +125,7 @@ func buildDocuments(ctx context.Context, cfg *config.Config, at time.Time) (buil
 			}
 		}
 	}
-	model.Link(graph)
+	_, linkWarnings := model.LinkWithWarnings(graph)
 	filtered, err := flt.Apply(graph)
 	if err != nil {
 		return built{}, err
@@ -132,6 +152,7 @@ func buildDocuments(ctx context.Context, cfg *config.Config, at time.Time) (buil
 	return built{
 		root:       render.Render(filtered, render.Options{GeneratedAt: at}),
 		incomplete: incomplete, denied: denied, decideDenied: decide,
+		linkWarnings: publishableLinkWarnings(linkWarnings, kept),
 	}, nil
 }
 

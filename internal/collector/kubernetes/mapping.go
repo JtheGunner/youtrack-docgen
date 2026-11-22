@@ -243,14 +243,18 @@ func (b *builder) addService(o parsed) error {
 	e.Attrs["namespace"] = ns
 	mapbuild.SetAttr(e, "type", mapbuild.FirstNonEmpty(o.Spec.Type, "ClusterIP"))
 	mapbuild.SetAttr(e, "ports", strings.Join(servicePorts(o.Spec.Ports), ", "))
+	published := slices.Clone(o.Spec.ExternalIPs)
+	for _, in := range o.Status.LoadBalancer.Ingress {
+		published = append(published, in.IP)
+	}
 	var external []string
-	for _, raw := range o.Spec.ExternalIPs {
+	for _, raw := range published {
 		if addr, err := netip.ParseAddr(raw); err == nil && !slices.Contains(external, addr.String()) {
 			external = append(external, addr.String())
 		}
 	}
 	mapbuild.SetAttr(e, model.AttrExternalIPs, strings.Join(external, ","))
-	for _, raw := range append(append([]string{o.Spec.ClusterIP}, o.Spec.ClusterIPs...), o.Spec.ExternalIPs...) {
+	for _, raw := range append(append([]string{o.Spec.ClusterIP}, o.Spec.ClusterIPs...), published...) {
 		addr, err := netip.ParseAddr(raw)
 		if err != nil || slices.Contains(e.Addresses, addr) {
 			continue // "None", "" and duplicates carry no address

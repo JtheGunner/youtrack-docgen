@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"net/netip"
 	"slices"
 	"strings"
@@ -8,15 +9,20 @@ import (
 
 // linkPlacement derives where workloads run and what hosts expose, from the
 // graph as it stands after same_as linking. A relation is only added when the
-// target host is unambiguous: zero or several candidate hosts add nothing.
+// target host is unambiguous: zero candidates add nothing and several add
+// nothing but a warning. It returns the number of relations added.
 //
 //   - A workload that runs_on a host of its own source (a Kubernetes node)
 //     also runs_on the single host of another source that node is same_as.
-//   - A host of another source owning a service's external IP exposes that
-//     service.
+//   - A host of another source owning one of a service's external or load
+//     balancer IPs exposes that service.
 //   - A host of another source whose name or alias equals an ingress hostname
-//     exposes that ingress.
-func linkPlacement(g *Graph) int {
+//     (or is its short name) exposes that ingress.
+//
+// A workload that is not pinned to a node gets no host: without Node manifests
+// the cluster does not say where it runs, and guessing would be wrong.
+func linkPlacement(g *Graph) (int, []LinkWarning) {
+	var warnings []LinkWarning
 	added := 0
 	add := func(rel Relation) {
 		if _, exists := g.relations[rel]; !exists {
@@ -31,8 +37,13 @@ func linkPlacement(g *Graph) int {
 			if rel.Kind != RelRunsOn || !ok || node.Kind != KindHost || node.Source != w.Source {
 				continue
 			}
-			if twin, ok := soleTwin(g, node); ok {
-				add(Relation{From: w.ID, To: twin, Kind: RelRunsOn})
+			twins := twinsOf(g, node)
+			switch len(twins) {
+			case 0:
+			case 1:
+				add(Relation{From: w.ID, To: twins[0], Kind: RelRunsOn})
+			default:
+				warnings = append(warnings, ambiguous(fmt.Sprintf("node %s of workload %s is the same machine as %d hosts", node.ID, w.ID, len(twins)), w.ID, twins))
 			}
 		}
 	}
@@ -44,23 +55,35 @@ func linkPlacement(g *Graph) int {
 			if err != nil {
 				continue
 			}
-			if id, ok := soleForeignHost(hosts, s.Source, func(h Entity) bool { return slices.Contains(h.Addresses, addr) }); ok {
-				add(Relation{From: id, To: s.ID, Kind: RelExposes})
+			found := foreignHosts(hosts, s.Source, func(h Entity) bool { return slices.Contains(h.Addresses, addr) })
+			switch len(found) {
+			case 0:
+			case 1:
+				add(Relation{From: found[0], To: s.ID, Kind: RelExposes})
+			default:
+				warnings = append(warnings, ambiguous(fmt.Sprintf("external IP %s of service %s belongs to %d hosts", addr, s.ID, len(found)), s.ID, found))
 			}
 		}
 	}
 	for _, in := range g.ByKind(KindIngress) {
 		for _, name := range hostnames(in) {
-			if id, ok := soleForeignHost(hosts, in.Source, func(h Entity) bool { return slices.Contains(hostnames(h), name) }); ok {
-				add(Relation{From: id, To: in.ID, Kind: RelExposes})
+			found := foreignHosts(hosts, in.Source, func(h Entity) bool {
+				return slices.ContainsFunc(hostnames(h), func(n string) bool { return hostnamesMatch(n, name) })
+			})
+			switch len(found) {
+			case 0:
+			case 1:
+				add(Relation{From: found[0], To: in.ID, Kind: RelExposes})
+			default:
+				warnings = append(warnings, ambiguous(fmt.Sprintf("hostname %s of ingress %s matches %d hosts", name, in.ID, len(found)), in.ID, found))
 			}
 		}
 	}
-	return added
+	return added, warnings
 }
 
-// soleTwin returns the only host of another source that is same_as node.
-func soleTwin(g *Graph, node Entity) (ID, bool) {
+// twinsOf returns the hosts of other sources that are same_as node.
+func twinsOf(g *Graph, node Entity) []ID {
 	var twins []ID
 	for rel := range g.relations {
 		if rel.Kind != RelSameAs {
@@ -79,22 +102,17 @@ func soleTwin(g *Graph, node Entity) (ID, bool) {
 			twins = append(twins, other)
 		}
 	}
-	if len(twins) != 1 {
-		return "", false
-	}
-	return twins[0], true
+	slices.Sort(twins)
+	return twins
 }
 
-// soleForeignHost returns the only host outside source that satisfies match.
-func soleForeignHost(hosts []Entity, source string, match func(Entity) bool) (ID, bool) {
+// foreignHosts returns the IDs of the hosts outside source that satisfy match.
+func foreignHosts(hosts []Entity, source string, match func(Entity) bool) []ID {
 	var found []ID
 	for _, h := range hosts {
 		if h.Source != source && match(h) {
 			found = append(found, h.ID)
 		}
 	}
-	if len(found) != 1 {
-		return "", false
-	}
-	return found[0], true
+	return found
 }

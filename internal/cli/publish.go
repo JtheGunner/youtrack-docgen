@@ -62,6 +62,9 @@ func publish(ctx context.Context, cfg *config.Config, opts runOptions, at time.T
 	if err != nil {
 		return err
 	}
+	if err := printWarnings(stderr, b.linkWarnings); err != nil {
+		return err
+	}
 	root := b.root
 	target, err := resolveProject(ctx, api, cfg)
 	if err != nil {

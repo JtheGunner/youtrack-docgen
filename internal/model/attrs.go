@@ -21,7 +21,11 @@ const (
 	// AttrGateway is the IP address of a network's default gateway.
 	AttrGateway = "gateway"
 	// AttrExternalIPs is the service attribute that lists, comma separated,
-	// the addresses a service is published on outside the cluster (as opposed
-	// to its cluster-internal IPs, which never identify a host).
+	// the addresses a service is published on outside the cluster: its
+	// externalIPs and the IPs of its load balancer (as opposed to its
+	// cluster-internal IPs, which never identify a host).
 	AttrExternalIPs = "external_ips"
+	// AttrVRF is the name of the VRF an IP address entity lives in. Addresses
+	// of different VRFs are different addresses even when they read the same.
+	AttrVRF = "vrf"
 )
