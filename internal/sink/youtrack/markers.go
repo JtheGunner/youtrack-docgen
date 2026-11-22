@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 	"unicode"
@@ -198,6 +199,21 @@ func docKey(id string) string {
 		}
 	}
 	return b.String()
+}
+
+// idFromKey is the inverse of docKey: it returns the document ID a key stands
+// for. A key without the escape prefix is its own ID (legacy keys included).
+// ok is false when an escaped key is not the exact encoding of any ID.
+func idFromKey(key string) (id string, ok bool) {
+	encoded, escaped := strings.CutPrefix(key, escapedKeyPrefix)
+	if !escaped {
+		return key, true
+	}
+	decoded, err := url.PathUnescape(encoded)
+	if err != nil || docKey(decoded) != key {
+		return "", false
+	}
+	return decoded, true
 }
 
 // resolveKey returns the key under which the document with the given ID is or

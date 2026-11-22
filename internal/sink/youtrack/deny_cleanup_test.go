@@ -93,7 +93,7 @@ func TestDenyCheckDecidesArticlesOfInactiveSources(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			api := publishedAPI(t, hostTree(map[string]string{"old": "a"}))
 			before := len(api.writeCalls())
-			s := newSinkWith(t, api, func(c *Config) { k8sOnly(c); c.DenyCheck = tt.check })
+			s := newSinkWith(t, api, func(c *Config) { k8sOnly(c); c.IncompleteSources = []string{"netbox"}; c.DenyCheck = tt.check })
 
 			res, err := s.Publish(context.Background(), hostTree(nil))
 			if !errors.Is(err, tt.wantErr) {
@@ -122,6 +122,7 @@ func TestDenyCheckSkipsArticlesThatAreAlreadyStale(t *testing.T) {
 	before := len(api.writeCalls())
 	s := newSinkWith(t, api, func(c *Config) {
 		k8sOnly(c)
+		c.IncompleteSources = []string{"netbox"}
 		c.DenyCheck = func(string) (bool, bool) { return false, false }
 	})
 	if _, err := s.Publish(context.Background(), hostTree(nil)); err != nil {
@@ -129,5 +130,135 @@ func TestDenyCheckSkipsArticlesThatAreAlreadyStale(t *testing.T) {
 	}
 	if got := api.writeCalls(); len(got) != before {
 		t.Errorf("unexpected writes: %v", got[before:])
+	}
+}
+
+func incompleteNetBox(c *Config) { k8sOnly(c); c.IncompleteSources = []string{"netbox"} }
+
+// A switched-off source is not an incomplete one: its articles are left alone
+// whatever the rules look like.
+func TestDenyCheckIgnoresSourcesThatAreSwitchedOff(t *testing.T) {
+	api := publishedAPI(t, hostTree(map[string]string{"old": "a"}))
+	before := len(api.writeCalls())
+	asked := false
+	s := newSinkWith(t, api, func(c *Config) {
+		k8sOnly(c)
+		c.DenyCheck = func(string) (bool, bool) { asked = true; return false, false }
+	})
+	if _, err := s.Publish(context.Background(), hostTree(nil)); err != nil {
+		t.Fatalf("err = %v, want the switched-off source untouched", err)
+	}
+	if asked || len(api.writeCalls()) != before {
+		t.Errorf("asked = %v, writes = %v", asked, api.writeCalls()[before:])
+	}
+}
+
+func TestIDFromKeyInvertsDocKey(t *testing.T) {
+	for _, id := range []string{"netbox:host:web-1", "netbox:host:a--b", "netbox:host:a b", "netbox:host:100%", "esc:netbox:host:x", "kubernetes:workload:ns--1/deployment/web"} {
+		got, ok := idFromKey(docKey(id))
+		if !ok || got != id {
+			t.Errorf("idFromKey(docKey(%q)) = %q, %v", id, got, ok)
+		}
+	}
+	for _, key := range []string{"esc:netbox:host:a%ZZ", "esc:netbox:host:a--b", "esc:netbox:host:a%41"} {
+		if got, ok := idFromKey(key); ok {
+			t.Errorf("idFromKey(%q) = %q, want failure", key, got)
+		}
+	}
+}
+
+// The rules must see the real ID, not the encoded key.
+func TestDenyCheckReceivesTheDecodedIDOfEscapedKeys(t *testing.T) {
+	for _, verdict := range []struct {
+		name            string
+		denied, decided bool
+		wantStale       int
+	}{{"deny", true, true, 1}, {"allow", false, true, 0}} {
+		t.Run(verdict.name, func(t *testing.T) {
+			api := publishedAPI(t, hostTree(map[string]string{"a--b": "x"}))
+			var got []string
+			s := newSinkWith(t, api, func(c *Config) {
+				incompleteNetBox(c)
+				c.DenyCheck = func(id string) (bool, bool) { got = append(got, id); return verdict.denied, verdict.decided }
+			})
+			res, err := s.Publish(context.Background(), hostTree(nil))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(got, []string{"netbox:host:a--b"}) {
+				t.Errorf("DenyCheck saw %v, want the decoded ID", got)
+			}
+			if res.Stale != verdict.wantStale {
+				t.Errorf("Stale = %d, want %d", res.Stale, verdict.wantStale)
+			}
+		})
+	}
+}
+
+func TestUndecodableKeyOfAnIncompleteSourceBlocks(t *testing.T) {
+	api := publishedAPI(t, hostTree(map[string]string{"old": "a"}))
+	api.byKey(t, "netbox:host:old").Content = docMarker("esc:netbox:host:a%ZZ") + "\n"
+	s := newSinkWith(t, api, func(c *Config) {
+		incompleteNetBox(c)
+		c.DenyCheck = func(string) (bool, bool) { return false, true }
+	})
+	if _, err := s.Publish(context.Background(), hostTree(nil)); !errors.Is(err, ErrDenyCleanup) {
+		t.Fatalf("err = %v, want ErrDenyCleanup", err)
+	}
+}
+
+// A key that is no entity ID cannot match a rule: it warns and does not block.
+func TestKeyThatIsNoEntityIDWarnsWithoutBlocking(t *testing.T) {
+	api := publishedAPI(t, hostTree(map[string]string{"a:b": "x"}))
+	before := len(api.writeCalls())
+	s := newSinkWith(t, api, func(c *Config) {
+		incompleteNetBox(c)
+		c.DenyCheck = func(string) (bool, bool) { return false, false }
+	})
+	res, err := s.Publish(context.Background(), hostTree(nil))
+	if err != nil {
+		t.Fatalf("err = %v, want no block", err)
+	}
+	if !slices.ContainsFunc(res.Warnings, func(w string) bool { return strings.Contains(w, "not an entity ID") }) {
+		t.Errorf("warnings = %v, want a note", res.Warnings)
+	}
+	if len(api.writeCalls()) != before {
+		t.Errorf("unexpected writes: %v", api.writeCalls()[before:])
+	}
+}
+
+// An article that looks clean but still holds an interrupted block is not
+// clean: it needs a decision like any other.
+func TestUnterminatedBlockKeepsAStaleArticleFromCountingAsClean(t *testing.T) {
+	api := publishedAPI(t, hostTree(map[string]string{"old": "a"}))
+	deny := func(c *Config) { c.ForceStaleIDs = []string{"netbox:host:old"} }
+	if _, err := newSinkWith(t, api, deny).Publish(context.Background(), hostTree(nil)); err != nil {
+		t.Fatal(err)
+	}
+	article := api.byKey(t, "netbox:host:old")
+	article.Content += "\n<!-- docgen:begin summary hash=abc -->\n" + fakeLeak + "\n"
+	s := newSinkWith(t, api, func(c *Config) {
+		incompleteNetBox(c)
+		c.DenyCheck = func(string) (bool, bool) { return false, false }
+	})
+	if _, err := s.Publish(context.Background(), hostTree(nil)); !errors.Is(err, ErrDenyCleanup) {
+		t.Fatalf("err = %v, want ErrDenyCleanup", err)
+	}
+}
+
+// A denied article found by ID passes the same unterminated-block gate.
+func TestDeniedByIDWithUnterminatedBlockBlocks(t *testing.T) {
+	api := publishedAPI(t, hostTree(map[string]string{"old": "a"}))
+	api.byKey(t, "netbox:host:old").Content = docMarker("netbox:host:old") + "\n<!-- docgen:begin summary hash=abc -->\n" + fakeLeak + "\n"
+	before := len(api.writeCalls())
+	s := newSinkWith(t, api, func(c *Config) {
+		incompleteNetBox(c)
+		c.DenyCheck = func(string) (bool, bool) { return true, true }
+	})
+	if _, err := s.Publish(context.Background(), hostTree(nil)); !errors.Is(err, ErrDenyCleanup) {
+		t.Fatalf("err = %v, want ErrDenyCleanup", err)
+	}
+	if len(api.writeCalls()) != before {
+		t.Errorf("writes before the abort: %v", api.writeCalls()[before:])
 	}
 }

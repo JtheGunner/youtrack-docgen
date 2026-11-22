@@ -48,10 +48,14 @@ type Config struct {
 	// when their source is not in ActiveSources, so denied content does not
 	// stay in the Knowledge Base because a collection was incomplete.
 	ForceStaleIDs []string
+	// IncompleteSources names the sources that were read incompletely in this
+	// run. Their unpublished articles may belong to objects that were never
+	// collected, so DenyCheck is asked about them. Sources that are switched
+	// off are not listed and their articles are left alone.
+	IncompleteSources []string
 	// DenyCheck decides from a document ID alone whether the rules deny the
-	// object. It is asked about articles of sources not in ActiveSources that
-	// the run did not publish, which may belong to a denied object that was
-	// never collected. decided is false when the ID does not carry enough to
+	// object. It is only asked about unpublished articles of sources in
+	// IncompleteSources. decided is false when the ID does not carry enough to
 	// tell; Publish then fails before it writes. Nil asks nothing.
 	DenyCheck func(id string) (denied, decided bool)
 	// MaxStaleRatio is the largest share of the managed articles one run may

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/JtheGunner/youtrack-docgen/internal/diff"
+	"github.com/JtheGunner/youtrack-docgen/internal/model"
 	"github.com/JtheGunner/youtrack-docgen/internal/render"
 	"github.com/JtheGunner/youtrack-docgen/internal/sink/youtrack/client"
 )
@@ -110,14 +111,15 @@ type opList struct {
 // so a dry run can still show it; for any other error it is nil.
 func buildOps(existing map[string]client.Article, lost *orphans, root render.Document, cfg Config) (*opList, error) {
 	b := &opBuilder{
-		denyCheck: cfg.DenyCheck,
-		existing:  existing,
-		keyOfID:   make(map[string]string, len(existing)),
-		orphans:   lost,
-		adopted:   map[string]client.Article{},
-		published: map[string]bool{},
-		after:     map[string]articleState{},
-		active:    activeSet(cfg.ActiveSources),
+		denyCheck:  cfg.DenyCheck,
+		incomplete: activeSet(cfg.IncompleteSources),
+		existing:   existing,
+		keyOfID:    make(map[string]string, len(existing)),
+		orphans:    lost,
+		adopted:    map[string]client.Article{},
+		published:  map[string]bool{},
+		after:      map[string]articleState{},
+		active:     activeSet(cfg.ActiveSources),
 	}
 	for key, a := range existing {
 		b.keyOfID[a.ID] = key
@@ -148,8 +150,9 @@ type opBuilder struct {
 	keyOfID  map[string]string // article database ID -> document key
 	orphans  *orphans
 	// denyCheck decides from a document ID whether the rules deny it; may be nil.
-	denyCheck func(id string) (denied, decided bool)
-	adopted   map[string]client.Article
+	denyCheck  func(id string) (denied, decided bool)
+	incomplete map[string]bool
+	adopted    map[string]client.Article
 	// published holds the keys of the documents of this run; after holds
 	// their articles as the update leaves them.
 	published map[string]bool
@@ -295,34 +298,63 @@ func (b *opBuilder) reconcileStale() {
 		a := b.existing[key]
 		if b.published[key] {
 			b.clearStale(key, a)
-		} else if b.inScope(key) || b.force[key] || b.deniedByID(key, a) {
+		} else if b.mayCheckDeny(key) && !b.checkDeny(key, a) {
+			continue
+		} else if b.inScope(key) || b.force[key] {
 			b.markStale(key, a)
 		}
 	}
 }
 
-// deniedByID asks the rules about an unpublished article of a source that did
-// not run. A denied one is cleaned like any forced article; one the ID cannot
-// decide is recorded as blocked, because its content may have to go.
-func (b *opBuilder) deniedByID(key string, a client.Article) bool {
-	if b.denyCheck == nil || strings.HasPrefix(key, overviewPref) || strings.HasPrefix(key, groupPrefix) {
-		return false
+// mayCheckDeny reports whether the key is one of an entity article that the
+// deny rules can apply to when sources were read incompletely.
+func (b *opBuilder) mayCheckDeny(key string) bool {
+	return len(b.incomplete) > 0 && b.denyCheck != nil &&
+		!strings.HasPrefix(key, overviewPref) && !strings.HasPrefix(key, groupPrefix)
+}
+
+// checkDeny asks the rules about an unpublished article of a source that was
+// read incompletely, because it may belong to a denied object that was never
+// collected. A denied article is marked forced, so it is cleaned like any
+// other denied one. It returns false when the article must not be touched in
+// this run because the ID cannot decide. A key that is no entity ID is not
+// checked and does not block.
+func (b *opBuilder) checkDeny(key string, a client.Article) (proceed bool) {
+	id, ok := idFromKey(key)
+	if !ok {
+		if source, _, found := strings.Cut(strings.TrimPrefix(key, escapedKeyPrefix), ":"); found && b.incomplete[source] {
+			b.block(a, "its document key cannot be decoded, so it cannot be told whether the article must be cleaned")
+			return false
+		}
+		return true
 	}
-	id := strings.TrimPrefix(key, escapedKeyPrefix)
+	source, _, _, err := model.ParseID(model.ID(id))
+	if err != nil {
+		if s, _, found := strings.Cut(id, ":"); found && b.incomplete[s] {
+			b.warnings = append(b.warnings, fmt.Sprintf(
+				"article %s %q has the key %q, which is not an entity ID; no deny rule was checked for it", a.IDReadable, a.Summary, key))
+		}
+		return true
+	}
+	if !b.incomplete[source] || b.denyCheck == nil || b.force[key] {
+		return true
+	}
 	denied, decided := b.denyCheck(id)
 	switch {
 	case decided && denied:
 		b.force[key] = true
-		return true
 	case decided:
+	case staleContent(a.Content) == a.Content && hasStaleTag(a) && !hasUnterminatedBlock(a.Content):
+		// already clean: nothing left to decide
+	default:
+		b.block(a, "its source was read incompletely and the deny rules use labels the document ID does not carry, so it cannot be told whether the article must be cleaned")
 		return false
-	case staleContent(a.Content) == a.Content && hasStaleTag(a):
-		return false // already clean: nothing left to decide
 	}
-	b.blocked = append(b.blocked, fmt.Sprintf(
-		"article %s %q: its source was read incompletely and the deny rules use labels the document ID does not carry, so it cannot be told whether the article must be cleaned",
-		a.IDReadable, a.Summary))
-	return false
+	return true
+}
+
+func (b *opBuilder) block(a client.Article, reason string) {
+	b.blocked = append(b.blocked, fmt.Sprintf("article %s %q: %s", a.IDReadable, a.Summary, reason))
 }
 
 // markStale empties the generated sections of a, so names and addresses of an
@@ -335,9 +367,7 @@ func (b *opBuilder) markStale(key string, a client.Article) {
 			"article %s %q has damaged docgen markers (%s); they were left as text. Restore the missing marker line, or remove the leftover one, so the section is managed again",
 			a.IDReadable, a.Summary, strings.Join(stray, ", ")))
 		if forced && hasUnterminatedBlock(a.Content) {
-			b.blocked = append(b.blocked, fmt.Sprintf(
-				"article %s %q is denied but has a generated block without end marker, so its content cannot be emptied safely; fix the markers or remove the article content by hand",
-				a.IDReadable, a.Summary))
+			b.block(a, "it is denied but has a generated block without end marker, so its content cannot be emptied safely; fix the markers or remove the article content by hand")
 			return
 		}
 	}

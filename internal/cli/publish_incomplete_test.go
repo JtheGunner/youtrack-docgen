@@ -154,3 +154,22 @@ func TestIncompleteReadChecksDenyRulesForUncollectedArticles(t *testing.T) {
 		}
 	})
 }
+
+// A collector that is switched off is not an incomplete one: its articles stay
+// as they are, even when a rule could not be decided from their IDs.
+func TestSwitchedOffSourceIsNotCheckedAgainstDenyRules(t *testing.T) {
+	cfg, yt := kubernetesOnlyRun(t, map[string]string{"ok.yaml": incompleteTestDeployment})
+	yt.articles[0]["content"] = "<!-- docgen:doc netbox:host:old -->\n"
+	cfg = strings.Replace(cfg, "\nsinks:",
+		"\n  netbox:\n    enabled: false\n    deny:\n      - tags: [lab]\n      - labels: {label.team: payments}\nsinks:", 1)
+
+	_, stderr, err := runCLI(t, cfg, "publish")
+	if err != nil {
+		t.Fatalf("error = %v, want the switched-off source left alone\nstderr: %s", err, stderr)
+	}
+	for _, w := range yt.writes() {
+		if strings.Contains(w, "/api/articles/1-900") {
+			t.Errorf("the switched-off source's article was written: %v", yt.writes())
+		}
+	}
+}

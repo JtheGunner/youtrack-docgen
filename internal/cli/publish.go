@@ -136,6 +136,7 @@ func sinkConfig(target youtrack.Config, cfg *config.Config, opts runOptions, b b
 		target.ActiveSources = []string{noActiveSource}
 	}
 	target.ForceStaleIDs = b.denied
+	target.IncompleteSources = slices.Sorted(maps.Keys(incomplete))
 	target.DenyCheck = b.decideDenied
 	target.MaxStaleRatio = cfg.YouTrack.MaxStaleRatio
 	target.AllowMassStale = opts.allowMassStale
