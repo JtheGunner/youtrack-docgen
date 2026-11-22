@@ -25,21 +25,20 @@
 +<!-- docgen:end generated -->
 --- /dev/null
 +++ b/overview:vlans
-@@ -0,0 +1,21 @@
+@@ -0,0 +1,20 @@
 +Title: VLANs
 +Parent: overview:root
 +
 +<!-- docgen:doc overview:vlans -->
 +
-+<!-- docgen:begin table hash=a18ae9a54233af24 -->
++<!-- docgen:begin table hash=6e046122b4175f5a -->
 +## VLANs
 +
-+| VLAN | Network | Prefix | Hosts | Source |
-+| --- | --- | --- | --- | --- |
-+| - | 10.0.0.0/16 | - | 0 | netbox |
-+| - | 192.0.2.0/24 | - | 0 | netbox |
-+| - | 2001:db8::/32 | - | 0 | netbox |
-+| - | servers | - | 0 | netbox |
++| VLAN | Network | Prefix | Gateway | Hosts | Source |
++| --- | --- | --- | --- | --- | --- |
++| 100 | servers | 192.0.2.0/24 | 192.0.2.1 | 2 | netbox |
++| - | 10.0.0.0/16 | 10.0.0.0/16 | - | 0 | netbox |
++| - | 2001:db8::/32 | 2001:db8::/32 | - | 0 | netbox |
 +<!-- docgen:end table -->
 +
 +<!-- docgen:begin generated hash=4906562d1ceab345 -->
@@ -55,16 +54,16 @@
 +
 +<!-- docgen:doc overview:ip-allocation -->
 +
-+<!-- docgen:begin table hash=1d5a6672743e44bb -->
++<!-- docgen:begin table hash=14b65287259dedb4 -->
 +## IP allocation
 +
 +| IP address | Host | Interface | Kind | Network | Source |
 +| --- | --- | --- | --- | --- | --- |
-+| 10.0.5.1 | 10.0.5.1/24 | - | ipaddress | - | netbox |
-+| 192.0.2.10 | srv01.example.com | srv01.example.com eth0 | host | - | netbox |
-+| 192.0.2.10 | 192.0.2.10/24 | - | ipaddress | - | netbox |
-+| 192.0.2.20 | vm01.example.com | vm01.example.com ens3 | host | - | netbox |
-+| 2001:db8::10 | 2001:db8::10/64 | - | ipaddress | - | netbox |
++| 10.0.5.1 | 10.0.5.1/24 | - | ipaddress | 10.0.0.0/16 | netbox |
++| 192.0.2.10 | srv01.example.com | srv01.example.com eth0 | host | servers | netbox |
++| 192.0.2.10 | 192.0.2.10/24 | - | ipaddress | servers | netbox |
++| 192.0.2.20 | vm01.example.com | vm01.example.com ens3 | host | servers | netbox |
++| 2001:db8::10 | 2001:db8::10/64 | - | ipaddress | 2001:db8::/32 | netbox |
 +<!-- docgen:end table -->
 +
 +<!-- docgen:begin generated hash=4906562d1ceab345 -->
@@ -93,25 +92,24 @@
 +<!-- docgen:end generated -->
 --- /dev/null
 +++ b/overview:network-diagram
-@@ -0,0 +1,26 @@
+@@ -0,0 +1,25 @@
 +Title: Network diagram
 +Parent: overview:root
 +
 +<!-- docgen:doc overview:network-diagram -->
 +
-+<!-- docgen:begin table hash=e578011f1eb9c735 -->
++<!-- docgen:begin table hash=b19109a2f075f79e -->
 +## Network diagram
-+
-+No network prefixes are known, so the diagram shows the IP addresses of each host.
 +
 +```mermaid
 +flowchart LR
-+    n0["srv01.example.com"]
-+    n1["192.0.2.10"]
-+    n0 --- n1
-+    n2["vm01.example.com"]
-+    n3["192.0.2.20"]
-+    n2 --- n3
++    n0{{"10.0.0.0/16"}}
++    n1{{"servers 192.0.2.0/24"}}
++    n2["srv01.example.com"]
++    n1 --- n2
++    n3["vm01.example.com"]
++    n1 --- n3
++    n4{{"2001:db8::/32"}}
 +```
 +<!-- docgen:end table -->
 +
@@ -174,10 +172,10 @@
 +Nothing is known to depend on this host.
 +<!-- docgen:end needed-by -->
 +
-+<!-- docgen:begin links hash=f133c5784446c1c5 -->
++<!-- docgen:begin links hash=f9aa3934b96cc6fe -->
 +## Links
 +
-+No links are known.
++- Source record in netbox: https://netbox.example.com/dcim/devices/3/
 +<!-- docgen:end links -->
 +
 +<!-- docgen:begin generated hash=4906562d1ceab345 -->
@@ -187,16 +185,17 @@
 +<!-- docgen:end generated -->
 --- /dev/null
 +++ b/netbox:host:srv01.example.com
-@@ -0,0 +1,66 @@
+@@ -0,0 +1,69 @@
 +Title: srv01.example.com
 +Parent: group:hosts
 +
 +<!-- docgen:doc netbox:host:srv01.example.com -->
 +
-+<!-- docgen:begin summary hash=01b0b22712a729df -->
++<!-- docgen:begin summary hash=799158da95b855c8 -->
 +## Summary
 +
 +- Hostname: srv01.example.com
++- FQDN: srv01.example.com
 +- Aliases: web.example.com
 +- IP addresses: 192.0.2.10
 +- Role: server
@@ -204,15 +203,15 @@
 +- Source: netbox
 +<!-- docgen:end summary -->
 +
-+<!-- docgen:begin network hash=70d6b84c1ae86612 -->
++<!-- docgen:begin network hash=f324fcfa8efa1ae2 -->
 +## Network
 +
 +| IP address | Network | VLAN |
 +| --- | --- | --- |
-+| 192.0.2.10 | - | - |
++| 192.0.2.10 | servers | 100 |
 +<!-- docgen:end network -->
 +
-+<!-- docgen:begin diagram hash=bd7d7eaa3a0c7866 -->
++<!-- docgen:begin diagram hash=7dc98db492bf1db9 -->
 +## Diagram
 +
 +```mermaid
@@ -220,8 +219,10 @@
 +    n0["srv01.example.com"]
 +    n1["srv01.example.com eth0"]
 +    n1 -->|member_of| n0
-+    n2["Example HQ"]
-+    n0 -->|member_of| n2
++    n2{{"192.0.2.0/24"}}
++    n0 -->|in_network| n2
++    n3["Example HQ"]
++    n0 -->|member_of| n3
 +```
 +<!-- docgen:end diagram -->
 +
@@ -243,10 +244,10 @@
 +Nothing is known to depend on this host.
 +<!-- docgen:end needed-by -->
 +
-+<!-- docgen:begin links hash=f133c5784446c1c5 -->
++<!-- docgen:begin links hash=37f3f9ad7a4456c4 -->
 +## Links
 +
-+No links are known.
++- Source record in netbox: https://netbox.example.com/dcim/devices/2/
 +<!-- docgen:end links -->
 +
 +<!-- docgen:begin generated hash=4906562d1ceab345 -->
@@ -256,16 +257,17 @@
 +<!-- docgen:end generated -->
 --- /dev/null
 +++ b/netbox:host:sw01.example.com
-@@ -0,0 +1,62 @@
+@@ -0,0 +1,63 @@
 +Title: sw01.example.com
 +Parent: group:hosts
 +
 +<!-- docgen:doc netbox:host:sw01.example.com -->
 +
-+<!-- docgen:begin summary hash=9bf0360ae8e0ac45 -->
++<!-- docgen:begin summary hash=8763e87cc99f8944 -->
 +## Summary
 +
 +- Hostname: sw01.example.com
++- FQDN: sw01.example.com
 +- Role: core-switch
 +- Description: login with \[REDACTED\]
 +- Source: netbox
@@ -308,10 +310,10 @@
 +Nothing is known to depend on this host.
 +<!-- docgen:end needed-by -->
 +
-+<!-- docgen:begin links hash=f133c5784446c1c5 -->
++<!-- docgen:begin links hash=6baf9aee5288f459 -->
 +## Links
 +
-+No links are known.
++- Source record in netbox: https://netbox.example.com/dcim/devices/1/
 +<!-- docgen:end links -->
 +
 +<!-- docgen:begin generated hash=4906562d1ceab345 -->
@@ -321,31 +323,32 @@
 +<!-- docgen:end generated -->
 --- /dev/null
 +++ b/netbox:host:vm01.example.com
-@@ -0,0 +1,63 @@
+@@ -0,0 +1,66 @@
 +Title: vm01.example.com
 +Parent: group:hosts
 +
 +<!-- docgen:doc netbox:host:vm01.example.com -->
 +
-+<!-- docgen:begin summary hash=e456729454d4b896 -->
++<!-- docgen:begin summary hash=6667ba5fc415d5a0 -->
 +## Summary
 +
 +- Hostname: vm01.example.com
++- FQDN: vm01.example.com
 +- IP addresses: 192.0.2.20
 +- Role: k8s-node
 +- Description: login with \[REDACTED\]
 +- Source: netbox
 +<!-- docgen:end summary -->
 +
-+<!-- docgen:begin network hash=ba84109799fd7c27 -->
++<!-- docgen:begin network hash=e528673fe4a74e50 -->
 +## Network
 +
 +| IP address | Network | VLAN |
 +| --- | --- | --- |
-+| 192.0.2.20 | - | - |
++| 192.0.2.20 | servers | 100 |
 +<!-- docgen:end network -->
 +
-+<!-- docgen:begin diagram hash=918bb3b694e16f97 -->
++<!-- docgen:begin diagram hash=ce1593ac3ea47738 -->
 +## Diagram
 +
 +```mermaid
@@ -353,6 +356,8 @@
 +    n0["vm01.example.com"]
 +    n1["vm01.example.com ens3"]
 +    n1 -->|member_of| n0
++    n2{{"192.0.2.0/24"}}
++    n0 -->|in_network| n2
 +```
 +<!-- docgen:end diagram -->
 +
@@ -374,10 +379,10 @@
 +Nothing is known to depend on this host.
 +<!-- docgen:end needed-by -->
 +
-+<!-- docgen:begin links hash=f133c5784446c1c5 -->
++<!-- docgen:begin links hash=ffc3d5cf91112723 -->
 +## Links
 +
-+No links are known.
++- Source record in netbox: https://netbox.example.com/virtualization/virtual-machines/1/
 +<!-- docgen:end links -->
 +
 +<!-- docgen:begin generated hash=4906562d1ceab345 -->

@@ -39,6 +39,20 @@ Rules every collector follows:
 - `Graph.AddRelation` rejects unknown kinds, self-relations, and relations whose ends are not in the graph yet. Add entities first, then relations.
 - **Labels** are what allow/deny rules match on: `role`, `tenant`, `namespace`, one `tag.<slug>` = `true` per tag, and any custom key. Use the constants in `internal/model/labels.go`.
 - **Attrs** are free-form strings shown in the article. Keys that look like secrets (`password`, `token`, `api-key`, ...) and the prefixes `env.`, `secret.` and `secretdata.` are redacted by the filter. Put sensitive data under those names so redaction applies.
+- **Rendered attributes** have fixed keys. Use the constants in `internal/model/attrs.go`; an attribute under another key is carried along but never shown in a table, a diagram or a link.
+
+  | Constant | Key | Entity | Shown as |
+  |---|---|---|---|
+  | `model.AttrFQDN` | `fqdn` | host | FQDN line in the host summary |
+  | `model.AttrDescription` | `description` | host | Description line in the host summary |
+  | `model.AttrURL` | `url` | host | Link to the source record in the Links section; must be an absolute `http(s)` URL |
+  | `model.AttrPrefix` | `prefix` | network | Prefix column; hosts are matched to the network by it in the tables and the network diagram |
+  | `model.AttrVLAN` | `vlan` | network | VLAN column; the numeric VLAN ID |
+  | `model.AttrGateway` | `gateway` | network | Gateway column of the VLAN overview |
+  | `model.AttrDNSName` | `dns_name` | ipaddress | Not shown; deny rules for hosts match on it |
+  | `model.AttrExternalIPs` | `external_ips` | service | Not shown; links a service to the hosts that expose it |
+
+  A network without a prefix that other networks are a `member_of` (a VLAN) is shown through those networks: each takes the VLAN's name unless it has a name of its own.
 - **Aliases and Addresses** are repeated as plain text in the article, so YouTrack search finds them.
 
 ## A minimal collector

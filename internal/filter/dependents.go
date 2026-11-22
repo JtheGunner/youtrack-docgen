@@ -172,7 +172,7 @@ func (d dependents) namesDenied(e model.Entity) bool {
 	if d.nameRE == nil {
 		return false
 	}
-	return d.nameRE.MatchString(e.Attrs["dns_name"]) || slices.ContainsFunc(e.Aliases, d.nameRE.MatchString)
+	return d.nameRE.MatchString(e.Attrs[model.AttrDNSName]) || slices.ContainsFunc(e.Aliases, d.nameRE.MatchString)
 }
 
 // active reports whether there is anything to scrub.

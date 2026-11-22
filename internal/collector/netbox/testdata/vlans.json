@@ -1,4 +1,4 @@
 {"count": 1, "next": null, "previous": null, "results": [
-  {"id": 1, "vid": 100, "name": "servers", "site": {"id": 1, "name": "Example HQ", "slug": "example-hq"},
+  {"id": 1, "display_url": "https://netbox.example.com/ipam/vlans/1/", "vid": 100, "name": "servers", "site": {"id": 1, "name": "Example HQ", "slug": "example-hq"},
    "status": {"value": "active"}, "tags": []}
 ]}

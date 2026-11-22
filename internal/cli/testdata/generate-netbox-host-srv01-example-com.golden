@@ -3,6 +3,7 @@
 ## Summary
 
 - Hostname: srv01.example.com
+- FQDN: srv01.example.com
 - Aliases: web.example.com
 - IP addresses: 192.0.2.10
 - Role: server
@@ -13,7 +14,7 @@
 
 | IP address | Network | VLAN |
 | --- | --- | --- |
-| 192.0.2.10 | - | - |
+| 192.0.2.10 | servers | 100 |
 
 ## Diagram
 
@@ -22,8 +23,10 @@ flowchart LR
     n0["srv01.example.com"]
     n1["srv01.example.com eth0"]
     n1 -->|member_of| n0
-    n2["Example HQ"]
-    n0 -->|member_of| n2
+    n2{{"192.0.2.0/24"}}
+    n0 -->|in_network| n2
+    n3["Example HQ"]
+    n0 -->|member_of| n3
 ```
 
 ## Runs here
@@ -40,7 +43,7 @@ Nothing is known to depend on this host.
 
 ## Links
 
-No links are known.
+- Source record in netbox: https://netbox.example.com/dcim/devices/2/
 
 ## Generated
 

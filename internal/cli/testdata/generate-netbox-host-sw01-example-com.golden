@@ -3,6 +3,7 @@
 ## Summary
 
 - Hostname: sw01.example.com
+- FQDN: sw01.example.com
 - Role: core-switch
 - Description: login with \[REDACTED\]
 - Source: netbox
@@ -36,7 +37,7 @@ Nothing is known to depend on this host.
 
 ## Links
 
-No links are known.
+- Source record in netbox: https://netbox.example.com/dcim/devices/1/
 
 ## Generated
 

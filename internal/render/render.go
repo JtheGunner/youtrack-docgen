@@ -32,7 +32,7 @@ type Options struct {
 // host, sorted by host ID.
 //
 // Only an explicit set of entity fields is rendered (name, aliases, addresses,
-// the "fqdn", "description", "vlan", "prefix" and "url" attributes and the
+// the attributes named by the model.Attr constants and the
 // "role" label). Every other attribute or label never reaches a document, and
 // URLs are stripped of credentials, query and fragment.
 func Render(g *model.Graph, opts Options) Document {
@@ -64,17 +64,49 @@ type renderer struct {
 
 type network struct {
 	entity model.Entity
-	prefix netip.Prefix // invalid when the entity has no valid "prefix" attribute
+	// name is what the network is called in articles. A prefix that has no
+	// name of its own takes the name of the VLAN it belongs to.
+	name   string
+	prefix netip.Prefix // invalid when the entity has no valid prefix attribute
+	// shownByMember is set for a network without prefix (a VLAN) that has
+	// member networks with a prefix: those rows already show it.
+	shownByMember bool
+}
+
+// label is the name with the prefix, for diagrams.
+func (n network) label() string {
+	if n.name == n.prefix.String() {
+		return n.name
+	}
+	return n.name + " " + n.prefix.String()
 }
 
 func indexNetworks(g *model.Graph) []network {
 	var out []network
+	index := map[model.ID]int{}
 	for _, e := range g.ByKind(model.KindNetwork) {
-		n := network{entity: e}
-		if p, err := netip.ParsePrefix(e.Attrs["prefix"]); err == nil {
+		n := network{entity: e, name: e.Name}
+		if p, err := netip.ParsePrefix(e.Attrs[model.AttrPrefix]); err == nil {
 			n.prefix = p.Masked()
 		}
+		index[e.ID] = len(out)
 		out = append(out, n)
+	}
+	for i := range out {
+		n := &out[i]
+		if !n.prefix.IsValid() {
+			continue
+		}
+		for _, rel := range g.RelationsFrom(n.entity.ID) {
+			p, isNetwork := index[rel.To]
+			if rel.Kind != model.RelMemberOf || !isNetwork || out[p].prefix.IsValid() {
+				continue
+			}
+			out[p].shownByMember = true
+			if n.entity.Name == n.entity.Attrs[model.AttrPrefix] {
+				n.name = out[p].entity.Name
+			}
+		}
 	}
 	return out
 }
@@ -134,7 +166,7 @@ func (r *renderer) networkNames(addr netip.Addr) []string {
 	var out []string
 	for _, n := range r.nets {
 		if n.prefix.IsValid() && n.prefix.Contains(addr) {
-			out = append(out, n.entity.Name)
+			out = append(out, n.name)
 		}
 	}
 	return out

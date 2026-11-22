@@ -4,11 +4,11 @@
 
 | IP address | Host | Interface | Kind | Network | Source |
 | --- | --- | --- | --- | --- | --- |
-| 10.0.5.1 | 10.0.5.1/24 | - | ipaddress | - | netbox |
-| 192.0.2.10 | srv01.example.com | srv01.example.com eth0 | host | - | netbox |
-| 192.0.2.10 | 192.0.2.10/24 | - | ipaddress | - | netbox |
-| 192.0.2.20 | vm01.example.com | vm01.example.com ens3 | host | - | netbox |
-| 2001:db8::10 | 2001:db8::10/64 | - | ipaddress | - | netbox |
+| 10.0.5.1 | 10.0.5.1/24 | - | ipaddress | 10.0.0.0/16 | netbox |
+| 192.0.2.10 | srv01.example.com | srv01.example.com eth0 | host | servers | netbox |
+| 192.0.2.10 | 192.0.2.10/24 | - | ipaddress | servers | netbox |
+| 192.0.2.20 | vm01.example.com | vm01.example.com ens3 | host | servers | netbox |
+| 2001:db8::10 | 2001:db8::10/64 | - | ipaddress | 2001:db8::/32 | netbox |
 
 ## Generated
 

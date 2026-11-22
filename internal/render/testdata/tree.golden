@@ -20,11 +20,11 @@ Generated at 2025-01-02T03:04:05Z from k8s, netbox.
 
 ## VLANs
 
-| VLAN | Network | Prefix | Hosts | Source |
-| --- | --- | --- | --- | --- |
-| 10 | servers | 10.0.10.0/24 | 2 | netbox |
-| 20 | databases | 10.0.20.0/24 | 1 | netbox |
-| - | management | 192.0.2.0/24 | 0 | netbox |
+| VLAN | Network | Prefix | Gateway | Hosts | Source |
+| --- | --- | --- | --- | --- | --- |
+| 10 | servers | 10.0.10.0/24 | - | 2 | netbox |
+| 20 | databases | 10.0.20.0/24 | - | 1 | netbox |
+| - | management | 192.0.2.0/24 | - | 0 | netbox |
 
 ## Generated
 

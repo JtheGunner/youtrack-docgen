@@ -3,6 +3,7 @@
 ## Summary
 
 - Hostname: vm01.example.com
+- FQDN: vm01.example.com
 - IP addresses: 192.0.2.20
 - Role: k8s-node
 - Description: login with \[REDACTED\]
@@ -12,7 +13,7 @@
 
 | IP address | Network | VLAN |
 | --- | --- | --- |
-| 192.0.2.20 | - | - |
+| 192.0.2.20 | servers | 100 |
 
 ## Diagram
 
@@ -21,6 +22,8 @@ flowchart LR
     n0["vm01.example.com"]
     n1["vm01.example.com ens3"]
     n1 -->|member_of| n0
+    n2{{"192.0.2.0/24"}}
+    n0 -->|in_network| n2
 ```
 
 ## Runs here
@@ -37,7 +40,7 @@ Nothing is known to depend on this host.
 
 ## Links
 
-No links are known.
+- Source record in netbox: https://netbox.example.com/virtualization/virtual-machines/1/
 
 ## Generated
 
