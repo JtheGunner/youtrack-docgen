@@ -47,11 +47,16 @@ type vlan struct {
 }
 
 type prefix struct {
-	ID          int    `json:"id"`
-	Prefix      string `json:"prefix"`
-	Status      choice `json:"status"`
-	VRF         *ref   `json:"vrf"`
-	Site        *ref   `json:"site"`
+	ID     int    `json:"id"`
+	Prefix string `json:"prefix"`
+	Status choice `json:"status"`
+	VRF    *ref   `json:"vrf"`
+	Site   *ref   `json:"site"`
+	// NetBox >= 4.2 replaces site with a generic scope: scope_type names the
+	// object type ("dcim.site", "dcim.region", ...) and scope_id its ID.
+	ScopeType   string `json:"scope_type"`
+	ScopeID     *int   `json:"scope_id"`
+	Scope       *ref   `json:"scope"`
 	VLAN        *ref   `json:"vlan"`
 	Role        *ref   `json:"role"`
 	Description string `json:"description"`
@@ -60,6 +65,27 @@ type prefix struct {
 	DisplayURL  string `json:"display_url"`
 	// CustomFields are site-defined; their values can have any JSON type.
 	CustomFields map[string]json.RawMessage `json:"custom_fields"`
+}
+
+const scopeTypeSite = "dcim.site"
+
+// siteID returns the ID of the site the prefix belongs to: the site field of
+// older NetBox versions, or a scope that points to a site. Any other scope
+// (region, location, ...) means the prefix has no site.
+func (p prefix) siteID() (int, bool) {
+	if p.Site != nil {
+		return p.Site.ID, true
+	}
+	if p.ScopeType != scopeTypeSite {
+		return 0, false
+	}
+	if p.ScopeID != nil {
+		return *p.ScopeID, true
+	}
+	if p.Scope != nil {
+		return p.Scope.ID, true
+	}
+	return 0, false
 }
 
 type ipAddress struct {
