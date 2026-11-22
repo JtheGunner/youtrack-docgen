@@ -103,6 +103,25 @@ func TestIncompleteReadStillCleansDeniedObjects(t *testing.T) {
 	}
 }
 
+// A published article whose key contains a secret is cleaned like a denied one,
+// even without any deny rule and although the source was read incompletely.
+func TestIncompleteReadCleansArticlesWithSecretKeys(t *testing.T) {
+	cfg, yt := kubernetesOnlyRun(t, map[string]string{"ok.yaml": incompleteTestDeployment, "bad.yaml": "a: [unclosed\n"})
+	yt.articles[0]["summary"] = "password=FAKE-KEY-SECRET-3"
+	yt.articles[0]["content"] = "<!-- docgen:doc kubernetes:workload:shop/deployment/password=FAKE-KEY-SECRET-3 -->\n"
+
+	_, stderr, err := runCLI(t, cfg, "publish", "--allow-mass-stale")
+	if err != nil {
+		t.Fatalf("error = %v\nstderr: %s", err, stderr)
+	}
+	if !strings.Contains(stderr, "kubernetes: collection is incomplete") {
+		t.Errorf("stderr = %q, want a note about the incomplete collection", stderr)
+	}
+	if !slices.Contains(yt.writes(), "POST /api/articles/1-900/tags") {
+		t.Errorf("the article with a secret key was not cleaned and tagged: %v", yt.writes())
+	}
+}
+
 // The article of an object that only lives in a skipped file is not in the
 // graph. Whether it is denied is decided from its document ID, and an
 // undecidable case stops publish before the first write.
