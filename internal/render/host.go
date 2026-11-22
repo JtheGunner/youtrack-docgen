@@ -54,16 +54,13 @@ func (r *renderer) hostNetwork(h model.Entity) Block {
 	}
 	t := Table{Header: []string{"IP address", "Network", "VLAN"}}
 	for _, addr := range slices.SortedFunc(slices.Values(h.Addresses), netip.Addr.Compare) {
-		var names, vlans []string
-		for _, n := range r.nets {
-			if n.prefix.IsValid() && n.prefix.Contains(addr) {
-				names = append(names, n.name)
-				if v := n.entity.Attrs[model.AttrVLAN]; v != "" {
-					vlans = append(vlans, v)
-				}
+		var vlans []string
+		for _, n := range r.networksOf(addr) {
+			if v := n.entity.Attrs[model.AttrVLAN]; v != "" {
+				vlans = append(vlans, v)
 			}
 		}
-		t.Rows = append(t.Rows, []string{addr.String(), joinOrDash(names), joinOrDash(vlans)})
+		t.Rows = append(t.Rows, []string{addr.String(), joinOrDash(r.networkNames(addr)), joinOrDash(vlans)})
 	}
 	return t
 }

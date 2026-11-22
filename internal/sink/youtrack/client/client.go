@@ -244,16 +244,6 @@ func (c *Client) FindProject(ctx context.Context, shortName string) (*Project, e
 	}
 }
 
-// GetArticle fetches one article by ID.
-func (c *Client) GetArticle(ctx context.Context, id string) (*Article, error) {
-	var a Article
-	path := "/api/articles/" + url.PathEscape(id) + "?fields=" + url.QueryEscape(articleFields)
-	if err := c.do(ctx, http.MethodGet, path, nil, &a); err != nil {
-		return nil, err
-	}
-	return &a, nil
-}
-
 // CreateArticle creates an article, optionally below a parent and with tags.
 func (c *Client) CreateArticle(ctx context.Context, n NewArticle) (*Article, error) {
 	if n.ProjectID == "" || n.Summary == "" {

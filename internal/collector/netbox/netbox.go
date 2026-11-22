@@ -87,7 +87,7 @@ func (c *Collector) Collect(ctx context.Context, g *model.Graph) error {
 	if err := b.build(data); err != nil {
 		return fmt.Errorf("netbox: %w", err)
 	}
-	return b.commit(g)
+	return b.Commit(g)
 }
 
 type snapshot struct {

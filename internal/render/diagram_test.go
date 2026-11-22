@@ -1,6 +1,8 @@
 package render
 
 import (
+	"fmt"
+	"net/netip"
 	"strings"
 	"testing"
 
@@ -159,5 +161,64 @@ func TestDiagramCapsNeighbors(t *testing.T) {
 	}
 	if got := strings.Count(d.Source, "[\""); got != maxDiagramNeighbors+2 {
 		t.Errorf("box node count = %d, want %d", got, maxDiagramNeighbors+2)
+	}
+}
+
+func TestDiagramCapsAreVisibleInTheRenderedDocuments(t *testing.T) {
+	g := model.NewGraph()
+	add := func(e model.Entity) {
+		t.Helper()
+		if err := g.AddEntity(e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// One crowded network (maxNetworkDiagramHosts+4 hosts) plus enough empty
+	// networks to exceed maxNetworkDiagramNetworks.
+	const crowdedHosts = maxNetworkDiagramHosts + 4
+	const networks = maxNetworkDiagramNetworks + 5
+	for i := range networks {
+		prefix := fmt.Sprintf("198.51.%d.0/24", i)
+		add(model.Entity{
+			ID: model.ID(fmt.Sprintf("netbox:network:n%02d", i)), Kind: model.KindNetwork, Source: "netbox",
+			Name: prefix, Attrs: map[string]string{model.AttrPrefix: prefix},
+		})
+	}
+	for i := range crowdedHosts {
+		add(model.Entity{
+			ID: model.ID(fmt.Sprintf("netbox:host:h%02d", i)), Kind: model.KindHost, Source: "netbox",
+			Name:      fmt.Sprintf("h%02d.example.com", i),
+			Addresses: []netip.Addr{netip.MustParseAddr(fmt.Sprintf("198.51.0.%d", i+1))},
+		})
+	}
+	// A hub with more neighbours than maxDiagramNeighbors.
+	add(model.Entity{ID: "netbox:host:hub", Kind: model.KindHost, Source: "netbox", Name: "hub.example.com"})
+	for i := range maxDiagramNeighbors + 2 {
+		id := model.ID(fmt.Sprintf("netbox:host:dep%02d", i))
+		add(model.Entity{ID: id, Kind: model.KindHost, Source: "netbox", Name: string(id)})
+		if err := g.AddRelation(model.Relation{From: id, To: "netbox:host:hub", Kind: model.RelDependsOn}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	root := Render(g, Options{GeneratedAt: generatedAt})
+
+	overview := findDoc(t, root, NetworkMapID).Markdown()
+	for _, want := range []string{
+		fmt.Sprintf("+%d more hosts", crowdedHosts-maxNetworkDiagramHosts),
+		fmt.Sprintf("+%d more networks", networks-maxNetworkDiagramNetworks),
+	} {
+		if !strings.Contains(overview, want) {
+			t.Errorf("network overview lacks %q", want)
+		}
+	}
+	hub := findDoc(t, root, "netbox:host:hub").Markdown()
+	fence := "```"
+	_, afterOpen, _ := strings.Cut(hub, fence+"mermaid")
+	diagram, _, _ := strings.Cut(afterOpen, fence)
+	if want := "+2 more"; !strings.Contains(diagram, want) {
+		t.Errorf("host diagram lacks %q:\n%s", want, diagram)
+	}
+	if !strings.Contains(diagram, "dep00") || strings.Contains(diagram, fmt.Sprintf("dep%02d", maxDiagramNeighbors+1)) {
+		t.Errorf("host diagram does not stop at the neighbour cap:\n%s", diagram)
 	}
 }

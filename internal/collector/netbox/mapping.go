@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/JtheGunner/youtrack-docgen/internal/collector/mapbuild"
 	"github.com/JtheGunner/youtrack-docgen/internal/model"
 )
 
@@ -32,9 +33,7 @@ const gatewayKey = "gateway"
 type builder struct {
 	base *url.URL // NetBox UI root, for links to objects
 
-	entities map[model.ID]*model.Entity
-	order    []model.ID
-	rels     []model.Relation
+	*mapbuild.Builder
 
 	sites    map[int]model.ID
 	vlans    map[int]model.ID
@@ -46,7 +45,7 @@ type builder struct {
 func newBuilder(base *url.URL) *builder {
 	return &builder{
 		base:     base,
-		entities: map[model.ID]*model.Entity{},
+		Builder:  mapbuild.New(Source),
 		sites:    map[int]model.ID{},
 		vlans:    map[int]model.ID{},
 		hosts:    map[objRef]model.ID{},
@@ -74,52 +73,17 @@ func (b *builder) build(s snapshot) error {
 	return nil
 }
 
-func (b *builder) commit(g *model.Graph) error {
-	for _, id := range b.order {
-		if err := g.AddEntity(*b.entities[id]); err != nil {
-			return fmt.Errorf("netbox: %w", err)
-		}
-	}
-	for _, r := range b.rels {
-		if err := g.AddRelation(r); err != nil {
-			return fmt.Errorf("netbox: %w", err)
-		}
-	}
-	return nil
-}
-
-func (b *builder) add(kind model.Kind, key, name string) (*model.Entity, error) {
-	id, err := model.NewID(Source, kind, sanitizeKey(key))
-	if err != nil {
-		return nil, err
-	}
-	if _, dup := b.entities[id]; dup {
-		return nil, fmt.Errorf("%w: %s", model.ErrDuplicateEntity, id)
-	}
-	e := &model.Entity{
-		ID: id, Kind: kind, Name: name, Source: Source,
-		Labels: map[string]string{}, Attrs: map[string]string{},
-	}
-	b.entities[id] = e
-	b.order = append(b.order, id)
-	return e, nil
-}
-
-func (b *builder) relate(from, to model.ID, kind model.RelationKind) {
-	b.rels = append(b.rels, model.Relation{From: from, To: to, Kind: kind})
-}
-
 func (b *builder) addSites(sites []site) error {
 	for _, s := range sites {
-		key := firstNonEmpty(s.Slug, s.Name)
-		e, err := b.add(model.KindSite, key, firstNonEmpty(s.Name, s.Slug))
+		key := mapbuild.FirstNonEmpty(s.Slug, s.Name)
+		e, err := b.Add(model.KindSite, key, mapbuild.FirstNonEmpty(s.Name, s.Slug))
 		if err != nil {
 			return fmt.Errorf("site %d: %w", s.ID, err)
 		}
-		setAttr(e, "status", s.Status.Value)
-		setAttr(e, model.AttrDescription, s.Description)
+		mapbuild.SetAttr(e, "status", s.Status.Value)
+		mapbuild.SetAttr(e, model.AttrDescription, s.Description)
 		if s.Region != nil {
-			setAttr(e, "region", s.Region.Name)
+			mapbuild.SetAttr(e, "region", s.Region.Name)
 		}
 		setTags(e, s.Tags)
 		setTenant(e, s.Tenant)
@@ -132,16 +96,16 @@ func (b *builder) addVLANs(vlans []vlan) error {
 	for _, v := range vlans {
 		key := "vlan-" + strconv.Itoa(v.VID)
 		if v.Site != nil {
-			key = "vlan-" + firstNonEmpty(v.Site.Slug, v.Site.Name) + "-" + strconv.Itoa(v.VID)
+			key = "vlan-" + mapbuild.FirstNonEmpty(v.Site.Slug, v.Site.Name) + "-" + strconv.Itoa(v.VID)
 		}
-		e, err := b.add(model.KindNetwork, key, firstNonEmpty(v.Name, key))
+		e, err := b.Add(model.KindNetwork, key, mapbuild.FirstNonEmpty(v.Name, key))
 		if err != nil {
 			return fmt.Errorf("vlan %d: %w", v.ID, err)
 		}
-		setAttr(e, "type", "vlan")
-		setAttr(e, model.AttrVLAN, strconv.Itoa(v.VID))
-		setAttr(e, model.AttrURL, b.recordURL(v.DisplayURL, "ipam/vlans", v.ID))
-		setAttr(e, "status", v.Status.Value)
+		mapbuild.SetAttr(e, "type", "vlan")
+		mapbuild.SetAttr(e, model.AttrVLAN, strconv.Itoa(v.VID))
+		mapbuild.SetAttr(e, model.AttrURL, b.recordURL(v.DisplayURL, "ipam/vlans", v.ID))
+		mapbuild.SetAttr(e, "status", v.Status.Value)
 		setTags(e, v.Tags)
 		setTenant(e, v.Tenant)
 		b.vlans[v.ID] = e.ID
@@ -154,21 +118,21 @@ func (b *builder) addVLANs(vlans []vlan) error {
 
 func (b *builder) addPrefixes(prefixes []prefix) error {
 	for _, p := range prefixes {
-		e, err := b.add(model.KindNetwork, withVRF(p.Prefix, p.VRF), p.Prefix)
+		e, err := b.Add(model.KindNetwork, withVRF(p.Prefix, p.VRF), p.Prefix)
 		if err != nil {
 			return fmt.Errorf("prefix %d: %w", p.ID, err)
 		}
-		setAttr(e, "type", "prefix")
-		setAttr(e, model.AttrPrefix, p.Prefix)
-		setAttr(e, model.AttrGateway, customGateway(p.CustomFields))
-		setAttr(e, model.AttrURL, b.recordURL(p.DisplayURL, "ipam/prefixes", p.ID))
-		setAttr(e, "status", p.Status.Value)
-		setAttr(e, model.AttrDescription, p.Description)
+		mapbuild.SetAttr(e, "type", "prefix")
+		mapbuild.SetAttr(e, model.AttrPrefix, p.Prefix)
+		mapbuild.SetAttr(e, model.AttrGateway, customGateway(p.CustomFields))
+		mapbuild.SetAttr(e, model.AttrURL, b.recordURL(p.DisplayURL, "ipam/prefixes", p.ID))
+		mapbuild.SetAttr(e, "status", p.Status.Value)
+		mapbuild.SetAttr(e, model.AttrDescription, p.Description)
 		if p.VRF != nil {
-			setAttr(e, "vrf", p.VRF.Name)
+			mapbuild.SetAttr(e, "vrf", p.VRF.Name)
 		}
 		if p.Role != nil {
-			e.Labels["role"] = firstNonEmpty(p.Role.Slug, p.Role.Name)
+			e.Labels["role"] = mapbuild.FirstNonEmpty(p.Role.Slug, p.Role.Name)
 		}
 		setTags(e, p.Tags)
 		setTenant(e, p.Tenant)
@@ -178,7 +142,7 @@ func (b *builder) addPrefixes(prefixes []prefix) error {
 		if p.VLAN != nil {
 			b.relateIf(e.ID, b.vlans, p.VLAN.ID, model.RelMemberOf)
 			if vlanID, ok := b.vlans[p.VLAN.ID]; ok {
-				setAttr(e, model.AttrVLAN, b.entities[vlanID].Attrs[model.AttrVLAN])
+				mapbuild.SetAttr(e, model.AttrVLAN, b.Entities[vlanID].Attrs[model.AttrVLAN])
 			}
 		}
 	}
@@ -191,39 +155,39 @@ func (b *builder) addMachines(ms []machine, family string) error {
 		if m.Name != nil {
 			name = *m.Name
 		}
-		name = firstNonEmpty(name, fmt.Sprintf("%s-%d", family, m.ID))
-		e, err := b.add(model.KindHost, name, name)
+		name = mapbuild.FirstNonEmpty(name, fmt.Sprintf("%s-%d", family, m.ID))
+		e, err := b.Add(model.KindHost, name, name)
 		if err != nil {
 			return fmt.Errorf("%s %d: %w", family, m.ID, err)
 		}
-		setAttr(e, "type", family)
-		setAttr(e, "status", m.Status.Value)
-		setAttr(e, model.AttrDescription, m.Description)
-		setAttr(e, model.AttrURL, b.recordURL(m.DisplayURL, uiPath[family], m.ID))
+		mapbuild.SetAttr(e, "type", family)
+		mapbuild.SetAttr(e, "status", m.Status.Value)
+		mapbuild.SetAttr(e, model.AttrDescription, m.Description)
+		mapbuild.SetAttr(e, model.AttrURL, b.recordURL(m.DisplayURL, uiPath[family], m.ID))
 		if isFQDN(name) {
-			setAttr(e, model.AttrFQDN, name)
+			mapbuild.SetAttr(e, model.AttrFQDN, name)
 		}
 		if m.PrimaryIP4 != nil {
-			setAttr(e, "primary_ip4", m.PrimaryIP4.Address)
+			mapbuild.SetAttr(e, "primary_ip4", m.PrimaryIP4.Address)
 		}
 		if m.PrimaryIP6 != nil {
-			setAttr(e, "primary_ip6", m.PrimaryIP6.Address)
+			mapbuild.SetAttr(e, "primary_ip6", m.PrimaryIP6.Address)
 		}
 		if m.Platform != nil {
-			setAttr(e, "platform", m.Platform.Name)
+			mapbuild.SetAttr(e, "platform", m.Platform.Name)
 		}
 		if m.Cluster != nil {
-			setAttr(e, "cluster", m.Cluster.Name)
+			mapbuild.SetAttr(e, "cluster", m.Cluster.Name)
 		}
 		if m.DeviceType != nil {
-			setAttr(e, "model", m.DeviceType.Model)
+			mapbuild.SetAttr(e, "model", m.DeviceType.Model)
 		}
 		role := m.Role
 		if role == nil {
 			role = m.DeviceRole
 		}
 		if role != nil {
-			e.Labels["role"] = firstNonEmpty(role.Slug, role.Name)
+			e.Labels["role"] = mapbuild.FirstNonEmpty(role.Slug, role.Name)
 		}
 		setTags(e, m.Tags)
 		setTenant(e, m.Tenant)
@@ -253,25 +217,25 @@ func (b *builder) addInterfaces(nics []iface, family string) error {
 		if err != nil {
 			return err
 		}
-		e, err := b.add(model.KindInterface, hostKey+"/"+n.Name, hostKeyName(hostKey, n.Name))
+		e, err := b.Add(model.KindInterface, hostKey+"/"+n.Name, hostKeyName(hostKey, n.Name))
 		if err != nil {
 			return fmt.Errorf("interface %d: %w", n.ID, err)
 		}
-		setAttr(e, "enabled", strconv.FormatBool(n.Enabled))
-		setAttr(e, model.AttrDescription, n.Description)
+		mapbuild.SetAttr(e, "enabled", strconv.FormatBool(n.Enabled))
+		mapbuild.SetAttr(e, model.AttrDescription, n.Description)
 		if n.Type != nil {
-			setAttr(e, "type", n.Type.Value)
+			mapbuild.SetAttr(e, "type", n.Type.Value)
 		}
 		if n.MACAddress != nil {
-			setAttr(e, "mac", *n.MACAddress)
+			mapbuild.SetAttr(e, "mac", *n.MACAddress)
 		}
 		if n.MTU != nil {
-			setAttr(e, "mtu", strconv.Itoa(*n.MTU))
+			mapbuild.SetAttr(e, "mtu", strconv.Itoa(*n.MTU))
 		}
 		setTags(e, n.Tags)
 		b.ifaces[objRef{family, n.ID}] = e.ID
 		b.ifaceOwn[e.ID] = hostID
-		b.relate(e.ID, hostID, model.RelMemberOf)
+		b.Relate(e.ID, hostID, model.RelMemberOf)
 	}
 	return nil
 }
@@ -286,15 +250,15 @@ func (b *builder) addIPs(ips []ipAddress, prefixes []prefix) error {
 		if err != nil {
 			return fmt.Errorf("ip address %d: %w", ip.ID, err)
 		}
-		e, err := b.add(model.KindIPAddress, withVRF(ip.Address, ip.VRF), ip.Address)
+		e, err := b.Add(model.KindIPAddress, withVRF(ip.Address, ip.VRF), ip.Address)
 		if err != nil {
 			return fmt.Errorf("ip address %d: %w", ip.ID, err)
 		}
-		setAttr(e, "status", ip.Status.Value)
-		setAttr(e, model.AttrDescription, ip.Description)
-		setAttr(e, model.AttrDNSName, ip.DNSName)
+		mapbuild.SetAttr(e, "status", ip.Status.Value)
+		mapbuild.SetAttr(e, model.AttrDescription, ip.Description)
+		mapbuild.SetAttr(e, model.AttrDNSName, ip.DNSName)
 		if ip.VRF != nil {
-			setAttr(e, "vrf", ip.VRF.Name)
+			mapbuild.SetAttr(e, "vrf", ip.VRF.Name)
 		}
 		setTags(e, ip.Tags)
 		setTenant(e, ip.Tenant)
@@ -303,11 +267,11 @@ func (b *builder) addIPs(ips []ipAddress, prefixes []prefix) error {
 			e.Aliases = []string{ip.DNSName}
 		}
 		if best, ok := nets.mostSpecific(addr.Addr(), vrfID(ip.VRF)); ok {
-			b.relate(e.ID, best, model.RelMemberOf)
+			b.Relate(e.ID, best, model.RelMemberOf)
 			if hasTag(ip.Tags, gatewayKey) {
 				// The custom field of the prefix wins; then the first tagged address.
-				if network := b.entities[best]; network.Attrs[model.AttrGateway] == "" {
-					setAttr(network, model.AttrGateway, addr.Addr().String())
+				if network := b.Entities[best]; network.Attrs[model.AttrGateway] == "" {
+					mapbuild.SetAttr(network, model.AttrGateway, addr.Addr().String())
 				}
 			}
 		}
@@ -326,17 +290,17 @@ func (b *builder) assign(ipEntity *model.Entity, ip ipAddress, addr netip.Addr) 
 	if !ok {
 		return
 	}
-	b.relate(ipEntity.ID, nicID, model.RelMemberOf)
+	b.Relate(ipEntity.ID, nicID, model.RelMemberOf)
 	for _, id := range []model.ID{nicID, b.ifaceOwn[nicID]} {
-		owner := b.entities[id]
+		owner := b.Entities[id]
 		if !slices.Contains(owner.Addresses, addr) {
 			owner.Addresses = append(owner.Addresses, addr)
 		}
 	}
-	host := b.entities[b.ifaceOwn[nicID]]
+	host := b.Entities[b.ifaceOwn[nicID]]
 	isPrimary := ip.Address == host.Attrs["primary_ip4"] || ip.Address == host.Attrs["primary_ip6"]
 	if isPrimary && host.Attrs[model.AttrFQDN] == "" && isFQDN(ip.DNSName) {
-		setAttr(host, model.AttrFQDN, ip.DNSName)
+		mapbuild.SetAttr(host, model.AttrFQDN, ip.DNSName)
 	}
 	if ip.DNSName != "" && !slices.Contains(host.Aliases, ip.DNSName) && !strings.EqualFold(host.Name, ip.DNSName) {
 		host.Aliases = append(host.Aliases, ip.DNSName)
@@ -358,7 +322,7 @@ func (b *builder) networks(prefixes []prefix) (prefixIndex, error) {
 		if err != nil {
 			return nil, fmt.Errorf("prefix %d: %w", p.ID, err)
 		}
-		id, err := model.NewID(Source, model.KindNetwork, sanitizeKey(withVRF(p.Prefix, p.VRF)))
+		id, err := model.NewID(Source, model.KindNetwork, mapbuild.SanitizeKey(withVRF(p.Prefix, p.VRF)))
 		if err != nil {
 			return nil, err
 		}
@@ -383,7 +347,7 @@ func (idx prefixIndex) mostSpecific(addr netip.Addr, vrf int) (model.ID, bool) {
 
 func (b *builder) relateIf(from model.ID, targets map[int]model.ID, key int, kind model.RelationKind) {
 	if to, ok := targets[key]; ok {
-		b.relate(from, to, kind)
+		b.Relate(from, to, kind)
 	}
 }
 
@@ -398,22 +362,10 @@ func withVRF(key string, v *ref) string {
 	if v == nil {
 		return key
 	}
-	return key + "@" + firstNonEmpty(v.Slug, v.Name)
+	return key + "@" + mapbuild.FirstNonEmpty(v.Slug, v.Name)
 }
-
-// sanitizeKey removes the ID separator, which IPv6 addresses contain.
-func sanitizeKey(k string) string { return strings.ReplaceAll(k, ":", "_") }
 
 func hostKeyName(hostKey, nic string) string { return hostKey + " " + nic }
-
-func firstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
-}
 
 // uiPath maps a machine family to its path in the NetBox UI.
 var uiPath = map[string]string{
@@ -466,12 +418,6 @@ func hasTag(tags []tag, slug string) bool {
 	return slices.ContainsFunc(tags, func(t tag) bool { return t.Slug == slug })
 }
 
-func setAttr(e *model.Entity, k, v string) {
-	if v != "" {
-		e.Attrs[k] = v
-	}
-}
-
 func setTags(e *model.Entity, tags []tag) {
 	for _, t := range tags {
 		e.Labels[model.LabelTagPrefix+t.Slug] = "true"
@@ -480,6 +426,6 @@ func setTags(e *model.Entity, tags []tag) {
 
 func setTenant(e *model.Entity, tenant *ref) {
 	if tenant != nil {
-		e.Labels[model.LabelTenant] = firstNonEmpty(tenant.Slug, tenant.Name)
+		e.Labels[model.LabelTenant] = mapbuild.FirstNonEmpty(tenant.Slug, tenant.Name)
 	}
 }

@@ -29,9 +29,6 @@ func New(cfg Config) (*Filter, error) {
 	return &Filter{rules: cfg.Collectors, redactor: redactor}, nil
 }
 
-// Redactor exposes the redactor so renderers can scrub free text they compose.
-func (f *Filter) Redactor() *Redactor { return f.redactor }
-
 // allKinds lists every entity kind; model.Graph has no enumeration of its own.
 var allKinds = []model.Kind{
 	model.KindSite, model.KindNetwork, model.KindIPAddress, model.KindHost,

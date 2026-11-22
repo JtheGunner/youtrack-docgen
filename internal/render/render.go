@@ -161,13 +161,22 @@ func addrStrings(addrs []netip.Addr) []string {
 	return out
 }
 
+// networksOf returns the networks whose prefix contains addr.
+func (r *renderer) networksOf(addr netip.Addr) []network {
+	var out []network
+	for _, n := range r.nets {
+		if n.prefix.IsValid() && n.prefix.Contains(addr) {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
 // networkNames returns the names of the networks whose prefix contains addr.
 func (r *renderer) networkNames(addr netip.Addr) []string {
 	var out []string
-	for _, n := range r.nets {
-		if n.prefix.IsValid() && n.prefix.Contains(addr) {
-			out = append(out, n.name)
-		}
+	for _, n := range r.networksOf(addr) {
+		out = append(out, n.name)
 	}
 	return out
 }
