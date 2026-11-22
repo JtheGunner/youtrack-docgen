@@ -3,7 +3,6 @@ package model
 import (
 	"errors"
 	"fmt"
-	"net/netip"
 	"slices"
 	"strings"
 )
@@ -81,27 +80,6 @@ func (g *Graph) Entity(id ID) (Entity, bool) {
 // ByKind returns all entities of the given kind, sorted by ID.
 func (g *Graph) ByKind(kind Kind) []Entity {
 	return g.filter(func(e Entity) bool { return e.Kind == kind })
-}
-
-// ByAddress returns all entities that own addr, sorted by ID.
-func (g *Graph) ByAddress(addr netip.Addr) []Entity {
-	return g.filter(func(e Entity) bool { return slices.Contains(e.Addresses, addr) })
-}
-
-// ByHostname returns all entities whose name or alias equals name. The
-// comparison ignores case and a trailing dot; short names do not match their
-// fully qualified form.
-func (g *Graph) ByHostname(name string) []Entity {
-	want := normalizeHostname(name)
-	if want == "" {
-		return []Entity{}
-	}
-	return g.filter(func(e Entity) bool {
-		if normalizeHostname(e.Name) == want {
-			return true
-		}
-		return slices.ContainsFunc(e.Aliases, func(a string) bool { return normalizeHostname(a) == want })
-	})
 }
 
 // Relations returns every relation, sorted.

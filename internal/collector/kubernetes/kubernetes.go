@@ -81,7 +81,7 @@ func (c *Collector) Collect(ctx context.Context, g *model.Graph) error {
 	if err := b.build(objects); err != nil {
 		return fmt.Errorf("kubernetes: %w", err)
 	}
-	return b.commit(g)
+	return b.Commit(g)
 }
 
 // Incomplete returns the reasons the last Collect may have missed objects: a

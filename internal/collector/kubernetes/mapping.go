@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/JtheGunner/youtrack-docgen/internal/collector/mapbuild"
 	"github.com/JtheGunner/youtrack-docgen/internal/model"
 )
 
@@ -27,9 +28,7 @@ var workloadKinds = map[string]bool{
 }
 
 type builder struct {
-	entities map[model.ID]*model.Entity
-	order    []model.ID
-	rels     []model.Relation
+	*mapbuild.Builder
 
 	namespaces map[string]model.ID
 	declared   map[string]bool // namespaces with their own manifest
@@ -43,7 +42,7 @@ type builder struct {
 
 func newBuilder() *builder {
 	return &builder{
-		entities:   map[model.ID]*model.Entity{},
+		Builder:    mapbuild.New(Source),
 		namespaces: map[string]model.ID{},
 		declared:   map[string]bool{},
 		nodes:      map[string]model.ID{},
@@ -62,7 +61,7 @@ func (b *builder) build(objects []parsed) error {
 			if err != nil {
 				return err
 			}
-			addManifestLabels(b.entities[id], o.Metadata.Labels)
+			addManifestLabels(b.Entities[id], o.Metadata.Labels)
 		}
 	}
 	// Nodes before workloads so a workload can point at its node.
@@ -97,41 +96,6 @@ func (b *builder) build(objects []parsed) error {
 	return nil
 }
 
-func (b *builder) commit(g *model.Graph) error {
-	for _, id := range b.order {
-		if err := g.AddEntity(*b.entities[id]); err != nil {
-			return fmt.Errorf("kubernetes: %w", err)
-		}
-	}
-	for _, r := range b.rels {
-		if err := g.AddRelation(r); err != nil {
-			return fmt.Errorf("kubernetes: %w", err)
-		}
-	}
-	return nil
-}
-
-func (b *builder) add(kind model.Kind, key, name string) (*model.Entity, error) {
-	id, err := model.NewID(Source, kind, sanitizeKey(key))
-	if err != nil {
-		return nil, err
-	}
-	if _, dup := b.entities[id]; dup {
-		return nil, fmt.Errorf("%w: %s", model.ErrDuplicateEntity, id)
-	}
-	e := &model.Entity{
-		ID: id, Kind: kind, Name: name, Source: Source,
-		Labels: map[string]string{}, Attrs: map[string]string{},
-	}
-	b.entities[id] = e
-	b.order = append(b.order, id)
-	return e, nil
-}
-
-func (b *builder) relate(from, to model.ID, kind model.RelationKind) {
-	b.rels = append(b.rels, model.Relation{From: from, To: to, Kind: kind})
-}
-
 // addNamespace creates the namespace once. An explicit Namespace manifest may
 // follow an implicit one created from a referencing object; it is then a no-op.
 func (b *builder) addNamespace(name string, explicit bool) (model.ID, error) {
@@ -145,7 +109,7 @@ func (b *builder) addNamespace(name string, explicit bool) (model.ID, error) {
 		b.declared[name] = b.declared[name] || explicit
 		return id, nil
 	}
-	e, err := b.add(model.KindNamespace, name, name)
+	e, err := b.Add(model.KindNamespace, name, name)
 	if err != nil {
 		return "", err
 	}
@@ -172,7 +136,7 @@ func (b *builder) addWorkload(o parsed) error {
 		return err
 	}
 	kind := strings.ToLower(o.Kind)
-	e, err := b.add(model.KindWorkload, ns+"/"+kind+"/"+o.Metadata.Name, o.Metadata.Name)
+	e, err := b.Add(model.KindWorkload, ns+"/"+kind+"/"+o.Metadata.Name, o.Metadata.Name)
 	if err != nil {
 		return fmt.Errorf("%s %s/%s: %w", o.Kind, ns, o.Metadata.Name, err)
 	}
@@ -183,28 +147,28 @@ func (b *builder) addWorkload(o parsed) error {
 	applyLabels(e, o, ns)
 	e.Attrs["kind"] = o.Kind
 	e.Attrs["namespace"] = ns
-	setAttr(e, "replicas", string(o.Spec.Replicas))
+	mapbuild.SetAttr(e, "replicas", string(o.Spec.Replicas))
 	if o.Spec.Schedule != "" {
 		e.Attrs["schedule"] = o.Spec.Schedule
 	}
-	setAttr(e, "images", strings.Join(images(tmpl), ", "))
+	mapbuild.SetAttr(e, "images", strings.Join(images(tmpl), ", "))
 	b.podLabels[e.ID] = tmpl.Metadata.Labels
 	if node := pinnedNode(tmpl); node != "" {
 		nodeID, err := b.nodeHost(node)
 		if err != nil {
 			return err
 		}
-		b.relate(e.ID, nodeID, model.RelRunsOn)
+		b.Relate(e.ID, nodeID, model.RelRunsOn)
 	}
 	b.workloads[ns] = append(b.workloads[ns], e.ID)
-	b.relate(e.ID, nsID, model.RelMemberOf)
+	b.Relate(e.ID, nsID, model.RelMemberOf)
 	return nil
 }
 
 // pinnedNode returns the node a pod template is pinned to by nodeName or by a
 // kubernetes.io/hostname nodeSelector, or "" when it is not pinned.
 func pinnedNode(t podTemplate) string {
-	return firstNonEmpty(t.Spec.NodeName, t.Spec.NodeSelector[hostnameLabel])
+	return mapbuild.FirstNonEmpty(t.Spec.NodeName, t.Spec.NodeSelector[hostnameLabel])
 }
 
 // addNode maps a Node manifest to a host. Only the name and the reported
@@ -222,7 +186,7 @@ func (b *builder) addNode(o parsed) error {
 	if err != nil {
 		return err
 	}
-	e := b.entities[id]
+	e := b.Entities[id]
 	for _, a := range o.Status.Addresses {
 		switch a.Type {
 		case "InternalIP", "ExternalIP":
@@ -244,7 +208,7 @@ func (b *builder) nodeHost(name string) (model.ID, error) {
 	if id, ok := b.nodes[name]; ok {
 		return id, nil
 	}
-	e, err := b.add(model.KindHost, name, name)
+	e, err := b.Add(model.KindHost, name, name)
 	if err != nil {
 		return "", err
 	}
@@ -271,21 +235,21 @@ func (b *builder) addService(o parsed) error {
 	if err != nil {
 		return err
 	}
-	e, err := b.add(model.KindService, ns+"/"+o.Metadata.Name, o.Metadata.Name)
+	e, err := b.Add(model.KindService, ns+"/"+o.Metadata.Name, o.Metadata.Name)
 	if err != nil {
 		return fmt.Errorf("service %s/%s: %w", ns, o.Metadata.Name, err)
 	}
 	applyLabels(e, o, ns)
 	e.Attrs["namespace"] = ns
-	setAttr(e, "type", firstNonEmpty(o.Spec.Type, "ClusterIP"))
-	setAttr(e, "ports", strings.Join(servicePorts(o.Spec.Ports), ", "))
+	mapbuild.SetAttr(e, "type", mapbuild.FirstNonEmpty(o.Spec.Type, "ClusterIP"))
+	mapbuild.SetAttr(e, "ports", strings.Join(servicePorts(o.Spec.Ports), ", "))
 	var external []string
 	for _, raw := range o.Spec.ExternalIPs {
 		if addr, err := netip.ParseAddr(raw); err == nil && !slices.Contains(external, addr.String()) {
 			external = append(external, addr.String())
 		}
 	}
-	setAttr(e, model.AttrExternalIPs, strings.Join(external, ","))
+	mapbuild.SetAttr(e, model.AttrExternalIPs, strings.Join(external, ","))
 	for _, raw := range append(append([]string{o.Spec.ClusterIP}, o.Spec.ClusterIPs...), o.Spec.ExternalIPs...) {
 		addr, err := netip.ParseAddr(raw)
 		if err != nil || slices.Contains(e.Addresses, addr) {
@@ -294,13 +258,13 @@ func (b *builder) addService(o parsed) error {
 		e.Addresses = append(e.Addresses, addr)
 	}
 	b.services[ns+"/"+o.Metadata.Name] = e.ID
-	b.relate(e.ID, nsID, model.RelMemberOf)
+	b.Relate(e.ID, nsID, model.RelMemberOf)
 	if len(o.serviceSelector) == 0 {
 		return nil
 	}
 	for _, wid := range b.workloads[ns] {
 		if subset(o.serviceSelector, b.podLabels[wid]) {
-			b.relate(e.ID, wid, model.RelRoutesTo)
+			b.Relate(e.ID, wid, model.RelRoutesTo)
 		}
 	}
 	return nil
@@ -309,7 +273,7 @@ func (b *builder) addService(o parsed) error {
 func servicePorts(ports []servicePort) []string {
 	var out []string
 	for _, p := range ports {
-		s := strconv.Itoa(p.Port) + "/" + firstNonEmpty(p.Protocol, "TCP")
+		s := strconv.Itoa(p.Port) + "/" + mapbuild.FirstNonEmpty(p.Protocol, "TCP")
 		if t := fmt.Sprint(p.TargetPort); p.TargetPort != nil && t != strconv.Itoa(p.Port) {
 			s += "->" + t
 		}
@@ -336,14 +300,14 @@ func (b *builder) addIngress(o parsed) error {
 	if err != nil {
 		return err
 	}
-	e, err := b.add(model.KindIngress, ns+"/"+o.Metadata.Name, o.Metadata.Name)
+	e, err := b.Add(model.KindIngress, ns+"/"+o.Metadata.Name, o.Metadata.Name)
 	if err != nil {
 		return fmt.Errorf("ingress %s/%s: %w", ns, o.Metadata.Name, err)
 	}
 	applyLabels(e, o, ns)
 	e.Attrs["namespace"] = ns
-	setAttr(e, "class", o.Spec.IngressClassName)
-	b.relate(e.ID, nsID, model.RelMemberOf)
+	mapbuild.SetAttr(e, "class", o.Spec.IngressClassName)
+	b.Relate(e.ID, nsID, model.RelMemberOf)
 
 	var hosts []string
 	addHost := func(h string) {
@@ -372,12 +336,12 @@ func (b *builder) addIngress(o parsed) error {
 		}
 	}
 	e.Aliases = hosts
-	setAttr(e, "hosts", strings.Join(hosts, ", "))
+	mapbuild.SetAttr(e, "hosts", strings.Join(hosts, ", "))
 	seen := map[model.ID]bool{}
 	for _, name := range backends {
 		if id, ok := b.services[ns+"/"+name]; ok && !seen[id] {
 			seen[id] = true
-			b.relate(e.ID, id, model.RelRoutesTo)
+			b.Relate(e.ID, id, model.RelRoutesTo)
 		}
 	}
 	return nil
@@ -400,21 +364,4 @@ func addManifestLabels(e *model.Entity, labels map[string]string) {
 func applyLabels(e *model.Entity, o parsed, ns string) {
 	e.Labels["namespace"] = ns
 	addManifestLabels(e, o.Metadata.Labels)
-}
-
-func sanitizeKey(k string) string { return strings.ReplaceAll(k, ":", "_") }
-
-func firstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
-}
-
-func setAttr(e *model.Entity, k, v string) {
-	if v != "" {
-		e.Attrs[k] = v
-	}
 }

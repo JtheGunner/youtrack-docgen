@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/JtheGunner/youtrack-docgen/internal/collector"
 	"github.com/JtheGunner/youtrack-docgen/internal/collector/netbox"
@@ -178,9 +179,6 @@ func TestCollectAddressesAndAliases(t *testing.T) {
 	}
 	if len(host.Aliases) != 1 || host.Aliases[0] != "web.example.com" {
 		t.Errorf("host aliases = %v, want [web.example.com]", host.Aliases)
-	}
-	if got := g.ByHostname("web.example.com"); len(got) != 2 {
-		t.Errorf("ByHostname(web.example.com) = %d entities, want host and ip", len(got))
 	}
 	nic, _ := g.Entity("netbox:interface:srv01.example.com/eth0")
 	if len(nic.Addresses) != 1 || nic.Addresses[0] != addr {
@@ -538,5 +536,40 @@ func TestCollectFQDNFromPrimaryAddress(t *testing.T) {
 	e, _ := g.Entity("netbox:host:vm01")
 	if got := e.Attrs[model.AttrFQDN]; got != "vm01.example.com" {
 		t.Errorf("fqdn = %q, want the DNS name of the primary address", got)
+	}
+}
+
+func TestCollectTimeoutYieldsAClearErrorWithoutTheToken(t *testing.T) {
+	f := newFakeNetBox(t)
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	f.override["/api/dcim/sites/"] = func(_ http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}
+	c, err := netbox.New(
+		config.Module{URL: f.URL, Token: config.Secret(fakeToken)},
+		netbox.WithHTTPClient(&http.Client{Timeout: 50 * time.Millisecond}),
+	)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	g := model.NewGraph()
+	err = c.Collect(context.Background(), g)
+	if err == nil {
+		t.Fatal("Collect succeeded against a server that never answers")
+	}
+	for _, want := range []string{"netbox", "request failed", "deadline exceeded"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %q, want it to contain %q", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), fakeToken) {
+		t.Errorf("error leaks the token: %v", err)
+	}
+	if n := len(g.IDs()); n != 0 {
+		t.Errorf("graph has %d entities after a timeout, want 0", n)
 	}
 }

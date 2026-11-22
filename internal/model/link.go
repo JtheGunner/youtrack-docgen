@@ -5,7 +5,7 @@ import "slices"
 // Link connects hosts that different sources report for the same machine, for
 // example a Kubernetes node and its NetBox VM. Two hosts of different sources
 // are linked with a RelSameAs relation when they share an IP address or a
-// hostname (name or alias, compared as in Graph.ByHostname). The relation
+// hostname (name or alias, compared ignoring case and a trailing dot). The relation
 // points from the lower to the higher ID, so repeated runs add nothing new.
 // It then adds the runs_on and exposes relations between cluster objects and
 // those hosts (see linkPlacement). Link returns the number of relations it added.
