@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 
 	"github.com/JtheGunner/youtrack-docgen/internal/config"
 	"github.com/JtheGunner/youtrack-docgen/internal/model"
@@ -22,6 +23,9 @@ const Source = "kubernetes"
 type Collector struct {
 	paths    []string
 	warnings io.Writer
+	// incomplete holds the reasons the last Collect skipped something that may
+	// exist in the sources.
+	incomplete []string
 }
 
 // New builds a collector from the "kubernetes" collector module config. The
@@ -66,7 +70,10 @@ func (*Collector) Name() string { return Source }
 // warning. Nothing is added when reading or mapping fails, so a partial view never
 // reaches the graph.
 func (c *Collector) Collect(ctx context.Context, g *model.Graph) error {
-	objects, err := readObjects(ctx, c.paths, c.warn)
+	c.incomplete = nil
+	r := &reporter{warn: c.warn}
+	objects, err := readObjects(ctx, c.paths, r)
+	c.incomplete = r.incomplete
 	if err != nil {
 		return err
 	}
@@ -76,6 +83,13 @@ func (c *Collector) Collect(ctx context.Context, g *model.Graph) error {
 	}
 	return b.commit(g)
 }
+
+// Incomplete returns the reasons the last Collect may have missed objects: a
+// skipped file or document, a Namespace without a name, or a configured path
+// without any object. It is empty when the read was complete. Callers that
+// derive a vanished object from absence must not do so for an incomplete
+// source.
+func (c *Collector) Incomplete() []string { return slices.Clone(c.incomplete) }
 
 func (c *Collector) warn(msg string) {
 	fmt.Fprintf(c.warnings, "warning: kubernetes: %s\n", msg) //nolint:errcheck // a failing warning stream must not stop the run

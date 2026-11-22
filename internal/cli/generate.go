@@ -48,10 +48,11 @@ func generate(ctx context.Context, cfg *config.Config, at time.Time, stdout, std
 	if len(sinks) == 0 {
 		return errors.New("no sink to write to: enable the markdown sink")
 	}
-	root, err := buildDocuments(ctx, cfg, at)
+	built, err := buildDocuments(ctx, cfg, at)
 	if err != nil {
 		return err
 	}
+	root := built.root
 
 	count := 0
 	root.Walk(func(render.Document) { count++ })
@@ -66,29 +67,56 @@ func generate(ctx context.Context, cfg *config.Config, at time.Time, stdout, std
 	return nil
 }
 
+// built is the result of the pipeline up to rendering.
+type built struct {
+	root render.Document
+	// incomplete maps a source name to the reasons its collection may lack
+	// objects. Such a source must not make articles stale.
+	incomplete map[string][]string
+	// denied are the IDs of entities the filter removed. Their articles are
+	// cleaned even when their source was read incompletely.
+	denied []string
+}
+
 // buildDocuments runs collector -> filter -> render and returns the document
 // tree. It writes nothing.
-func buildDocuments(ctx context.Context, cfg *config.Config, at time.Time) (render.Document, error) {
+func buildDocuments(ctx context.Context, cfg *config.Config, at time.Time) (built, error) {
 	collectors, err := buildCollectors(cfg)
 	if err != nil {
-		return render.Document{}, err
+		return built{}, err
 	}
 	flt, err := cfg.Filter()
 	if err != nil {
-		return render.Document{}, err
+		return built{}, err
 	}
 	graph := model.NewGraph()
+	incomplete := map[string][]string{}
 	for _, c := range collectors {
 		if err := c.Collect(ctx, graph); err != nil {
-			return render.Document{}, fmt.Errorf("collector %s: %w", c.Name(), err)
+			return built{}, fmt.Errorf("collector %s: %w", c.Name(), err)
+		}
+		if r, ok := c.(collector.CompletenessReporter); ok {
+			if reasons := r.Incomplete(); len(reasons) > 0 {
+				incomplete[c.Name()] = reasons
+			}
 		}
 	}
 	model.Link(graph)
 	filtered, err := flt.Apply(graph)
 	if err != nil {
-		return render.Document{}, err
+		return built{}, err
 	}
-	return render.Render(filtered, render.Options{GeneratedAt: at}), nil
+	var denied []string
+	kept := map[model.ID]bool{}
+	for _, id := range filtered.IDs() {
+		kept[id] = true
+	}
+	for _, id := range graph.IDs() {
+		if !kept[id] {
+			denied = append(denied, string(id))
+		}
+	}
+	return built{root: render.Render(filtered, render.Options{GeneratedAt: at}), incomplete: incomplete, denied: denied}, nil
 }
 
 func buildCollectors(cfg *config.Config) ([]collector.Collector, error) {

@@ -110,6 +110,10 @@ func buildOps(existing map[string]client.Article, lost *orphans, root render.Doc
 	for key, a := range existing {
 		b.keyOfID[a.ID] = key
 	}
+	b.force = make(map[string]bool, len(cfg.ForceStaleIDs))
+	for _, id := range cfg.ForceStaleIDs {
+		b.force[resolveKey(existing, id)] = true
+	}
 	if err := b.documents(root); err != nil {
 		return nil, err
 	}
@@ -138,6 +142,7 @@ type opBuilder struct {
 	after     map[string]articleState
 	active    map[string]bool // nil: every source
 	ops       []op
+	force     map[string]bool
 	warnings  []string
 }
 
@@ -273,7 +278,7 @@ func (b *opBuilder) reconcileStale() {
 		a := b.existing[key]
 		if b.published[key] {
 			b.clearStale(key, a)
-		} else if b.inScope(key) {
+		} else if b.inScope(key) || b.force[key] {
 			b.markStale(key, a)
 		}
 	}
