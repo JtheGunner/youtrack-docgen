@@ -163,7 +163,7 @@ youtrack-docgen publish --config docgen.yaml
 - Host names with spaces or a double hyphen get an encoded key that starts with `esc:`.
 - An article whose object is gone from the sources gets the `docgen-stale` tag and a banner, and its generated sections are removed, so the names and addresses of a vanished or denied host do not stay in the Knowledge Base. Text you wrote outside the markers stays. When the object comes back, the sections return and tag and banner are removed.
 - Only articles of sources that took part in the run can become stale. If you switch a collector off, its articles are left alone.
-- A run that would mark more than `youtrack.max_stale_ratio` of the managed articles as stale (default `0.5`) stops before the first write, with the counts in the error. This is what an empty or broken collection looks like. Run again with `--allow-mass-stale` if the objects really are gone.
+- A run that would mark more than `youtrack.max_stale_ratio` of the live articles as stale (default `0.5`) stops before the first write, with the counts in the error. This is what an empty or broken collection looks like. Articles that already carry the stale tag and banner do not count, so the limit does not loosen as stale articles pile up. When no live article is left, any newly stale article stops the run. Run again with `--allow-mass-stale` if the objects really are gone.
 - A run on unchanged data writes nothing. The "Generated at" line of an article keeps the time of its last real change.
 - If a collector or the filter fails, nothing is sent to YouTrack.
 - The Markdown sink is not used by this command. The Markdown sink never removes files: files of objects that no longer exist stay in the output directory until you delete them.
