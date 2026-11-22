@@ -134,6 +134,9 @@ func (pl *Planner) Plan(ctx context.Context, root render.Document) (Plan, error)
 		return Plan{}, guardErr
 	}
 	plan := Plan{Warnings: append(lost.all(), list.warnings...)}
+	for _, reason := range list.blocked {
+		plan.Warnings = append(plan.Warnings, "publish would fail: "+reason)
+	}
 	for _, o := range list.ops {
 		switch o.kind {
 		case opUnchanged:

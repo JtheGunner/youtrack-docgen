@@ -20,6 +20,11 @@ const DefaultMaxStaleRatio = 0.5
 // silently returned nothing looks exactly like this.
 var ErrMassStale = errors.New("youtrack sink: refusing to mark most articles as stale")
 
+// ErrDenyCleanup is returned by Publish when an article of a denied object
+// cannot be cleaned safely, or when it cannot be told whether the rules deny
+// an article. Nothing was written. A dry run reports the same as a warning.
+var ErrDenyCleanup = errors.New("youtrack sink: cannot clean denied articles")
+
 const groupPrefix = "group:"
 
 // opKind is what one operation of a run does to one article.
@@ -56,6 +61,9 @@ type op struct {
 	removeTagID string
 	// newlyStale is true for an article that was not marked before.
 	newlyStale bool
+	// forced is true for a cleanup of a denied object. It is intended, so the
+	// mass-stale guard does not count it.
+	forced bool
 
 	diff string
 }
@@ -92,6 +100,9 @@ type opList struct {
 	adopted map[string]string
 	// warnings describe articles whose markers are damaged, see strayMarkers.
 	warnings []string
+	// blocked are articles that must be cleaned or checked but cannot be
+	// decided safely. Publish fails on them before the first write.
+	blocked []string
 }
 
 // buildOps decides what a run does. It reads existing and lost and writes
@@ -99,6 +110,7 @@ type opList struct {
 // so a dry run can still show it; for any other error it is nil.
 func buildOps(existing map[string]client.Article, lost *orphans, root render.Document, cfg Config) (*opList, error) {
 	b := &opBuilder{
+		denyCheck: cfg.DenyCheck,
 		existing:  existing,
 		keyOfID:   make(map[string]string, len(existing)),
 		orphans:   lost,
@@ -119,7 +131,7 @@ func buildOps(existing map[string]client.Article, lost *orphans, root render.Doc
 	}
 	b.reconcileStale()
 
-	list := &opList{ops: b.ops, adopted: map[string]string{}, warnings: b.warnings}
+	list := &opList{ops: b.ops, adopted: map[string]string{}, warnings: b.warnings, blocked: b.blocked}
 	for key, a := range b.adopted {
 		list.adopted[key] = a.ID
 	}
@@ -135,7 +147,9 @@ type opBuilder struct {
 	existing map[string]client.Article
 	keyOfID  map[string]string // article database ID -> document key
 	orphans  *orphans
-	adopted  map[string]client.Article
+	// denyCheck decides from a document ID whether the rules deny it; may be nil.
+	denyCheck func(id string) (denied, decided bool)
+	adopted   map[string]client.Article
 	// published holds the keys of the documents of this run; after holds
 	// their articles as the update leaves them.
 	published map[string]bool
@@ -144,6 +158,9 @@ type opBuilder struct {
 	ops       []op
 	force     map[string]bool
 	warnings  []string
+	// blocked are articles that must be cleaned or checked but cannot be
+	// decided safely. Publish fails on them before the first write.
+	blocked []string
 }
 
 func activeSet(sources []string) map[string]bool {
@@ -278,16 +295,52 @@ func (b *opBuilder) reconcileStale() {
 		a := b.existing[key]
 		if b.published[key] {
 			b.clearStale(key, a)
-		} else if b.inScope(key) || b.force[key] {
+		} else if b.inScope(key) || b.force[key] || b.deniedByID(key, a) {
 			b.markStale(key, a)
 		}
 	}
+}
+
+// deniedByID asks the rules about an unpublished article of a source that did
+// not run. A denied one is cleaned like any forced article; one the ID cannot
+// decide is recorded as blocked, because its content may have to go.
+func (b *opBuilder) deniedByID(key string, a client.Article) bool {
+	if b.denyCheck == nil || strings.HasPrefix(key, overviewPref) || strings.HasPrefix(key, groupPrefix) {
+		return false
+	}
+	id := strings.TrimPrefix(key, escapedKeyPrefix)
+	denied, decided := b.denyCheck(id)
+	switch {
+	case decided && denied:
+		b.force[key] = true
+		return true
+	case decided:
+		return false
+	case staleContent(a.Content) == a.Content && hasStaleTag(a):
+		return false // already clean: nothing left to decide
+	}
+	b.blocked = append(b.blocked, fmt.Sprintf(
+		"article %s %q: its source was read incompletely and the deny rules use labels the document ID does not carry, so it cannot be told whether the article must be cleaned",
+		a.IDReadable, a.Summary))
+	return false
 }
 
 // markStale empties the generated sections of a, so names and addresses of an
 // object that is gone (or was denied since) do not stay in the Knowledge Base,
 // and adds the banner and the tag. Text outside the markers stays.
 func (b *opBuilder) markStale(key string, a client.Article) {
+	forced := b.force[key]
+	if stray := strayMarkers(a.Content); len(stray) > 0 {
+		b.warnings = append(b.warnings, fmt.Sprintf(
+			"article %s %q has damaged docgen markers (%s); they were left as text. Restore the missing marker line, or remove the leftover one, so the section is managed again",
+			a.IDReadable, a.Summary, strings.Join(stray, ", ")))
+		if forced && hasUnterminatedBlock(a.Content) {
+			b.blocked = append(b.blocked, fmt.Sprintf(
+				"article %s %q is denied but has a generated block without end marker, so its content cannot be emptied safely; fix the markers or remove the article content by hand",
+				a.IDReadable, a.Summary))
+			return
+		}
+	}
 	content := staleContent(a.Content)
 	setContent, addTag := content != a.Content, !hasStaleTag(a)
 	if !setContent && !addTag {
@@ -296,10 +349,22 @@ func (b *opBuilder) markStale(key string, a client.Article) {
 	parent := b.parentKeyOf(a)
 	b.ops = append(b.ops, op{
 		kind: opMarkStale, key: key, article: a, content: content, setContent: setContent, addTag: addTag,
-		newlyStale: addTag || !hasBlock(a.Content, staleBlockID),
+		newlyStale: addTag || !hasBlock(a.Content, staleBlockID), forced: forced,
 		diff: diff.Unified("a/"+key, "b/"+key,
 			articleText(a.Summary, parent, a.Content, hasStaleTag(a)), articleText(a.Summary, parent, content, true), diffContext),
 	})
+}
+
+// hasUnterminatedBlock reports whether content has a begin marker without end
+// marker. What follows such a marker may be generated text, which a cleanup
+// cannot tell from manual text.
+func hasUnterminatedBlock(content string) bool {
+	for _, sp := range parseBlocks(content) {
+		if !sp.closed {
+			return true
+		}
+	}
+	return false
 }
 
 // clearStale removes banner and tag from an article whose object is back. The
@@ -379,13 +444,13 @@ func (b *opBuilder) guard(cfg Config) error {
 	}
 	total := 0
 	for key, a := range b.existing {
-		if b.inScope(key) && (!hasStaleTag(a) || !hasBlock(a.Content, staleBlockID)) {
+		if b.inScope(key) && !b.force[key] && (!hasStaleTag(a) || !hasBlock(a.Content, staleBlockID)) {
 			total++
 		}
 	}
 	newly := 0
 	for _, o := range b.ops {
-		if o.kind == opMarkStale && o.newlyStale {
+		if o.kind == opMarkStale && o.newlyStale && !o.forced {
 			newly++
 		}
 	}

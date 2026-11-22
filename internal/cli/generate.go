@@ -13,6 +13,7 @@ import (
 	"github.com/JtheGunner/youtrack-docgen/internal/collector/kubernetes"
 	"github.com/JtheGunner/youtrack-docgen/internal/collector/netbox"
 	"github.com/JtheGunner/youtrack-docgen/internal/config"
+	"github.com/JtheGunner/youtrack-docgen/internal/filter"
 	"github.com/JtheGunner/youtrack-docgen/internal/model"
 	"github.com/JtheGunner/youtrack-docgen/internal/render"
 	"github.com/JtheGunner/youtrack-docgen/internal/sink"
@@ -76,6 +77,9 @@ type built struct {
 	// denied are the IDs of entities the filter removed. Their articles are
 	// cleaned even when their source was read incompletely.
 	denied []string
+	// decideDenied answers from an ID alone whether the rules deny it; it
+	// covers articles of objects that were not collected.
+	decideDenied func(id string) (denied, decided bool)
 }
 
 // buildDocuments runs collector -> filter -> render and returns the document
@@ -116,7 +120,19 @@ func buildDocuments(ctx context.Context, cfg *config.Config, at time.Time) (buil
 			denied = append(denied, string(id))
 		}
 	}
-	return built{root: render.Render(filtered, render.Options{GeneratedAt: at}), incomplete: incomplete, denied: denied}, nil
+	decide := func(id string) (bool, bool) {
+		switch flt.DecideID(model.ID(id)) {
+		case filter.Denied:
+			return true, true
+		case filter.Permitted:
+			return false, true
+		}
+		return false, false
+	}
+	return built{
+		root:       render.Render(filtered, render.Options{GeneratedAt: at}),
+		incomplete: incomplete, denied: denied, decideDenied: decide,
+	}, nil
 }
 
 func buildCollectors(cfg *config.Config) ([]collector.Collector, error) {

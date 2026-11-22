@@ -123,7 +123,8 @@ func resolveProject(ctx context.Context, api *client.Client, cfg *config.Config)
 // collectors that ran completely can see an object vanish, and a person may
 // allow a run that marks most articles as stale. A source in incomplete is
 // left out, so its missing objects are not marked as stale. Objects the
-// filter removed on purpose are the exception: they are always cleaned.
+// filter removed on purpose are the exception: they are always cleaned, and
+// publish fails before it writes when that cannot be decided safely.
 func sinkConfig(target youtrack.Config, cfg *config.Config, opts runOptions, b built) youtrack.Config {
 	incomplete := b.incomplete
 	target.ActiveSources = slices.DeleteFunc(slices.Clone(cfg.EnabledCollectors()), func(name string) bool {
@@ -135,6 +136,7 @@ func sinkConfig(target youtrack.Config, cfg *config.Config, opts runOptions, b b
 		target.ActiveSources = []string{noActiveSource}
 	}
 	target.ForceStaleIDs = b.denied
+	target.DenyCheck = b.decideDenied
 	target.MaxStaleRatio = cfg.YouTrack.MaxStaleRatio
 	target.AllowMassStale = opts.allowMassStale
 	return target

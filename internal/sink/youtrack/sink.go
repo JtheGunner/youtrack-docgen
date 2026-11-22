@@ -48,6 +48,12 @@ type Config struct {
 	// when their source is not in ActiveSources, so denied content does not
 	// stay in the Knowledge Base because a collection was incomplete.
 	ForceStaleIDs []string
+	// DenyCheck decides from a document ID alone whether the rules deny the
+	// object. It is asked about articles of sources not in ActiveSources that
+	// the run did not publish, which may belong to a denied object that was
+	// never collected. decided is false when the ID does not carry enough to
+	// tell; Publish then fails before it writes. Nil asks nothing.
+	DenyCheck func(id string) (denied, decided bool)
 	// MaxStaleRatio is the largest share of the managed articles one run may
 	// mark as stale, between 0 and 1. A run above it fails before it writes.
 	// Zero means DefaultMaxStaleRatio.
@@ -125,6 +131,9 @@ func (s *Sink) Publish(ctx context.Context, root render.Document) (Result, error
 	res := Result{Warnings: lost.all()}
 	if list != nil {
 		res.Warnings = append(res.Warnings, list.warnings...)
+	}
+	if list != nil && len(list.blocked) > 0 {
+		return res, fmt.Errorf("%w: %s; nothing was written", ErrDenyCleanup, strings.Join(list.blocked, "; "))
 	}
 	if err != nil {
 		return res, err
