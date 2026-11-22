@@ -15,23 +15,33 @@ import (
 )
 
 // linkNetBoxDevices are the synthetic NetBox hosts the Kubernetes fixtures
-// are linked against: one owns the address and hostname of node-a, the other
-// is named like the ingress hostname. No host matches node-lost or node-ghost.
-const linkNetBoxDevices = `{"count": 2, "next": null, "previous": null, "results": [
+// are linked against: one owns the address and hostname of node-a, one is
+// named like the ingress hostname, one is the fully qualified name of the node
+// web01 (known by its short name only) and one owns the load balancer IP of a
+// service. No host matches node-lost or node-ghost.
+const linkNetBoxDevices = `{"count": 4, "next": null, "previous": null, "results": [
   {"id": 11, "name": "node-a.example.com", "status": {"value": "active"},
    "primary_ip4": {"id": 21, "address": "192.0.2.21/24"}, "primary_ip6": null, "description": "", "tags": []},
   {"id": 12, "name": "shop.example.com", "status": {"value": "active"},
-   "primary_ip4": {"id": 22, "address": "192.0.2.30/24"}, "primary_ip6": null, "description": "", "tags": []}
+   "primary_ip4": {"id": 22, "address": "192.0.2.30/24"}, "primary_ip6": null, "description": "", "tags": []},
+  {"id": 13, "name": "web01.example.com", "status": {"value": "active"},
+   "primary_ip4": null, "primary_ip6": null, "description": "", "tags": []},
+  {"id": 14, "name": "lb01.example.com", "status": {"value": "active"},
+   "primary_ip4": {"id": 23, "address": "192.0.2.40/24"}, "primary_ip6": null, "description": "", "tags": []}
 ]}`
 
-const linkNetBoxInterfaces = `{"count": 1, "next": null, "previous": null, "results": [
+const linkNetBoxInterfaces = `{"count": 2, "next": null, "previous": null, "results": [
   {"id": 31, "name": "eth0", "device": {"id": 11, "name": "node-a.example.com"}, "enabled": true,
+   "type": {"value": "1000base-t"}, "mac_address": null, "mtu": null, "description": "", "tags": []},
+  {"id": 32, "name": "eth0", "device": {"id": 14, "name": "lb01.example.com"}, "enabled": true,
    "type": {"value": "1000base-t"}, "mac_address": null, "mtu": null, "description": "", "tags": []}
 ]}`
 
-const linkNetBoxIPAddresses = `{"count": 1, "next": null, "previous": null, "results": [
+const linkNetBoxIPAddresses = `{"count": 2, "next": null, "previous": null, "results": [
   {"id": 21, "address": "192.0.2.21/24", "status": {"value": "active"}, "vrf": null, "dns_name": "",
-   "assigned_object_type": "dcim.interface", "assigned_object_id": 31, "description": "", "tags": []}
+   "assigned_object_type": "dcim.interface", "assigned_object_id": 31, "description": "", "tags": []},
+  {"id": 23, "address": "192.0.2.40/24", "status": {"value": "active"}, "vrf": null, "dns_name": "",
+   "assigned_object_type": "dcim.interface", "assigned_object_id": 32, "description": "", "tags": []}
 ]}`
 
 const emptyNetBoxPage = `{"count": 0, "next": null, "previous": null, "results": []}`
@@ -66,11 +76,11 @@ collectors:
     url: %s
     token: ${NETBOX_TOKEN}
   kubernetes:
-    paths: [%s, %s]
+    paths: [%s, %s, %s]
 sinks:
   markdown:
     dir: %s
-`, srv.URL, filepath.Join(k8s, "nodes"), filepath.Join(k8s, "manifests", "apps", "web.yaml"), t.TempDir()))
+`, srv.URL, filepath.Join(k8s, "nodes"), filepath.Join(k8s, "manifests", "apps", "web.yaml"), filepath.Join(k8s, "linking"), t.TempDir()))
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		t.Fatal(err)
@@ -91,7 +101,11 @@ sinks:
 		netboxNode = model.ID("netbox:host:node-a.example.com")
 		netboxShop = model.ID("netbox:host:shop.example.com")
 	)
-	for _, id := range []model.ID{netboxNode, netboxShop} {
+	const (
+		netboxWeb = model.ID("netbox:host:web01.example.com")
+		netboxLB  = model.ID("netbox:host:lb01.example.com")
+	)
+	for _, id := range []model.ID{netboxNode, netboxShop, netboxWeb, netboxLB} {
 		if _, ok := graph.Entity(id); !ok {
 			t.Fatalf("netbox host %s missing", id)
 		}
@@ -101,6 +115,11 @@ sinks:
 		{From: "kubernetes:workload:shop/deployment/api", To: netboxNode, Kind: model.RelRunsOn},
 		{From: netboxNode, To: "kubernetes:service:shop/edge", Kind: model.RelExposes},
 		{From: netboxShop, To: "kubernetes:ingress:shop/web", Kind: model.RelExposes},
+		// short node name, fully qualified NetBox name
+		{From: "kubernetes:host:web01", To: netboxWeb, Kind: model.RelSameAs},
+		{From: "kubernetes:workload:shop/deployment/report", To: netboxWeb, Kind: model.RelRunsOn},
+		// load balancer IP
+		{From: netboxLB, To: "kubernetes:service:shop/lb", Kind: model.RelExposes},
 	}
 	for _, rel := range want {
 		if !slices.Contains(relations, rel) {
@@ -120,6 +139,9 @@ sinks:
 		}
 	}
 	for _, rel := range relations {
+		if rel.From == "kubernetes:workload:shop/deployment/worker" && rel.Kind == model.RelRunsOn {
+			t.Errorf("an unpinned workload must not be placed on a host: %+v", rel)
+		}
 		if rel.Kind == model.RelRunsOn && rel.From == "kubernetes:workload:shop/deployment/batch" &&
 			strings.HasPrefix(string(rel.To), "netbox:") {
 			t.Errorf("workload pinned to the unmatched node-ghost must not run on a NetBox host: %+v", rel)

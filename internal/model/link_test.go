@@ -73,10 +73,46 @@ func TestLink(t *testing.T) {
 			want: []Relation{},
 		},
 		{
-			name: "short name does not link to the fully qualified name",
+			name: "short name links to the single matching fully qualified name",
 			entities: []Entity{
 				host("netbox", "1", "web01.example.com"),
 				host("k8s", "n1", "web01"),
+			},
+			want:      []Relation{{From: "k8s:host:n1", To: "netbox:host:1", Kind: RelSameAs}},
+			wantAdded: 1,
+		},
+		{
+			name: "short name matching two fully qualified names links to neither",
+			entities: []Entity{
+				host("netbox", "1", "web01.example.com"),
+				host("netbox", "2", "web01.example.org"),
+				host("k8s", "n1", "web01"),
+			},
+			want: []Relation{},
+		},
+		{
+			name: "two fully qualified names with the same first label are not linked",
+			entities: []Entity{
+				host("netbox", "1", "web01.example.com"),
+				host("k8s", "n1", "web01.example.org"),
+			},
+			want: []Relation{},
+		},
+		{
+			name: "two candidates in one source for the same address link to neither",
+			entities: []Entity{
+				host("netbox", "1", "a.example.com", "192.0.2.80"),
+				host("netbox", "2", "b.example.com", "192.0.2.80"),
+				host("k8s", "n1", "node", "192.0.2.80"),
+			},
+			want: []Relation{},
+		},
+		{
+			name: "a host that is ambiguous from the other side is not linked either",
+			entities: []Entity{
+				host("netbox", "1", "web01.example.com"),
+				host("k8s", "n1", "web01"),
+				host("k8s", "n2", "web01.example.com"),
 			},
 			want: []Relation{},
 		},

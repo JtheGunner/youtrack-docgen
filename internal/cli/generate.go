@@ -53,6 +53,9 @@ func generate(ctx context.Context, cfg *config.Config, at time.Time, stdout, std
 	if err != nil {
 		return err
 	}
+	if err := printWarnings(stderr, built.linkWarnings); err != nil {
+		return err
+	}
 	root := built.root
 
 	count := 0
@@ -80,6 +83,23 @@ type built struct {
 	// decideDenied answers from an ID alone whether the rules deny it; it
 	// covers articles of objects that were not collected.
 	decideDenied func(id string) (denied, decided bool)
+	// linkWarnings describe ambiguous host matches that were not linked. A
+	// warning that names a denied entity is dropped.
+	linkWarnings []string
+}
+
+// publishableLinkWarnings renders the link warnings from the entities that
+// survived the filter only: a warning is dropped when its subject was removed
+// or fewer than two candidates are left, and the message never names a removed
+// entity.
+func publishableLinkWarnings(warnings []model.LinkWarning, kept map[model.ID]bool) []string {
+	var out []string
+	for _, w := range warnings {
+		if msg, ok := w.Describe(func(id model.ID) bool { return kept[id] }); ok {
+			out = append(out, msg)
+		}
+	}
+	return out
 }
 
 // buildDocuments runs collector -> filter -> render and returns the document
@@ -105,7 +125,7 @@ func buildDocuments(ctx context.Context, cfg *config.Config, at time.Time) (buil
 			}
 		}
 	}
-	model.Link(graph)
+	_, linkWarnings := model.LinkWithWarnings(graph)
 	filtered, err := flt.Apply(graph)
 	if err != nil {
 		return built{}, err
@@ -132,6 +152,7 @@ func buildDocuments(ctx context.Context, cfg *config.Config, at time.Time) (buil
 	return built{
 		root:       render.Render(filtered, render.Options{GeneratedAt: at}),
 		incomplete: incomplete, denied: denied, decideDenied: decide,
+		linkWarnings: publishableLinkWarnings(linkWarnings, kept),
 	}, nil
 }
 
