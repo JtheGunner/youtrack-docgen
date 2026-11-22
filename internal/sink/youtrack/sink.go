@@ -43,6 +43,11 @@ type Config struct {
 	// stale: a collector that was switched off did not see its objects vanish.
 	// Empty means every source.
 	ActiveSources []string
+	// ForceStaleIDs are IDs of documents whose object was removed on purpose
+	// (denied by a rule). Their articles are cleaned and marked as stale even
+	// when their source is not in ActiveSources, so denied content does not
+	// stay in the Knowledge Base because a collection was incomplete.
+	ForceStaleIDs []string
 	// MaxStaleRatio is the largest share of the managed articles one run may
 	// mark as stale, between 0 and 1. A run above it fails before it writes.
 	// Zero means DefaultMaxStaleRatio.

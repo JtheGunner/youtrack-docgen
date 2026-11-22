@@ -66,7 +66,7 @@ func diffYouTrack(ctx context.Context, cfg *config.Config, opts runOptions, at t
 	if err := printIncompleteSources(stderr, b.incomplete); err != nil {
 		return false, err
 	}
-	planner, err := youtrack.NewPlanner(api, sinkConfig(target, cfg, opts, b.incomplete))
+	planner, err := youtrack.NewPlanner(api, sinkConfig(target, cfg, opts, b))
 	if err != nil {
 		return false, err
 	}

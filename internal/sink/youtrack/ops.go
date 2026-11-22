@@ -110,6 +110,10 @@ func buildOps(existing map[string]client.Article, lost *orphans, root render.Doc
 	for key, a := range existing {
 		b.keyOfID[a.ID] = key
 	}
+	b.force = make(map[string]bool, len(cfg.ForceStaleIDs))
+	for _, id := range cfg.ForceStaleIDs {
+		b.force[resolveKey(existing, id)] = true
+	}
 	if err := b.documents(root); err != nil {
 		return nil, err
 	}
@@ -138,6 +142,7 @@ type opBuilder struct {
 	after     map[string]articleState
 	active    map[string]bool // nil: every source
 	ops       []op
+	force     map[string]bool
 	warnings  []string
 }
 
@@ -273,7 +278,7 @@ func (b *opBuilder) reconcileStale() {
 		a := b.existing[key]
 		if b.published[key] {
 			b.clearStale(key, a)
-		} else if b.inScope(key) {
+		} else if b.inScope(key) || b.force[key] {
 			b.markStale(key, a)
 		}
 	}
@@ -364,14 +369,17 @@ func (b *opBuilder) hasChildOutOfScope(groupKey string) bool {
 }
 
 // guard returns ErrMassStale when the run would mark more than the allowed
-// share of the managed articles as stale.
+// share of the live articles as stale. Live articles are the in-scope ones
+// that do not already carry both the stale tag and the banner, so the limit
+// does not loosen as stale articles accumulate. With no live article left, any
+// newly stale one aborts the run.
 func (b *opBuilder) guard(cfg Config) error {
 	if cfg.AllowMassStale {
 		return nil
 	}
 	total := 0
-	for key := range b.existing {
-		if b.inScope(key) {
+	for key, a := range b.existing {
+		if b.inScope(key) && (!hasStaleTag(a) || !hasBlock(a.Content, staleBlockID)) {
 			total++
 		}
 	}
@@ -382,10 +390,18 @@ func (b *opBuilder) guard(cfg Config) error {
 		}
 	}
 	limit := cfg.maxStaleRatio()
-	if newly == 0 || float64(newly) <= limit*float64(total) {
+	if newly == 0 {
 		return nil
 	}
-	return fmt.Errorf("%w: this run would mark %d of %d articles as stale (%.0f%%, the limit is %.0f%%) and wrote nothing; "+
+	if total == 0 {
+		return fmt.Errorf("%w: this run would mark %d articles as stale and no live article would be left; "+
+			"check that every collector ran and returned data, or run again with --allow-mass-stale if the objects really are gone",
+			ErrMassStale, newly)
+	}
+	if float64(newly) <= limit*float64(total) {
+		return nil
+	}
+	return fmt.Errorf("%w: this run would mark %d of %d articles as stale (%.0f%% of the live articles, the limit is %.0f%%) and wrote nothing; "+
 		"check that every collector ran and returned data, or run again with --allow-mass-stale if the objects really are gone",
 		ErrMassStale, newly, total, 100*float64(newly)/float64(total), 100*limit)
 }

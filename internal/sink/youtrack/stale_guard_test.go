@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/JtheGunner/youtrack-docgen/internal/render"
+	"github.com/JtheGunner/youtrack-docgen/internal/sink/youtrack/client"
 )
 
 // hostTree is a document tree with one host document per entry of hosts (name
@@ -333,5 +334,54 @@ func TestStaleArticleDoesNotKeepNamesAndAddressesOfADeniedHost(t *testing.T) {
 		if strings.Contains(a.Content, leaked) {
 			t.Errorf("%q is still in the stale article:\n%s", leaked, a.Content)
 		}
+	}
+}
+
+// TestGuardCountsOnlyLiveArticles checks that articles already carrying tag
+// and banner do not dilute the stale limit.
+func TestGuardCountsOnlyLiveArticles(t *testing.T) {
+	tests := []struct {
+		name      string
+		firstRun  map[string]string // hosts kept by the preparatory run, which may stale the rest
+		secondRun map[string]string // hosts of the run under test
+		ratio     float64
+		wantErr   bool
+	}{
+		{"many already stale, few live", map[string]string{"web-1": "a"}, nil, 0.3, true},
+		{"all live, below the limit", fourHosts(), map[string]string{"web-1": "a", "web-2": "a", "web-3": "a"}, 0.3, false},
+		{"all live, above the limit", fourHosts(), nil, 0.3, true},
+		{"empty live set, nothing new goes stale", nil, nil, 0.3, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			api := publishedAPI(t, hostTree(fourHosts()))
+			prepare := newSinkWith(t, api, func(c *Config) { c.AllowMassStale = true })
+			if _, err := prepare.Publish(context.Background(), hostTree(tt.firstRun)); err != nil {
+				t.Fatal(err)
+			}
+			s := newSinkWith(t, api, func(c *Config) { c.MaxStaleRatio = tt.ratio })
+			_, err := s.Publish(context.Background(), hostTree(tt.secondRun))
+			if got := errors.Is(err, ErrMassStale); got != tt.wantErr {
+				t.Fatalf("err = %v, want ErrMassStale = %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestGuardAbortsWhenNoLiveArticleIsLeft(t *testing.T) {
+	stale := client.Article{
+		Tags:    []client.TagRef{{ID: "5-1", Name: StaleTag}},
+		Content: staleContent("<!-- docgen:doc netbox:host:web-1 -->"),
+	}
+	b := &opBuilder{
+		existing: map[string]client.Article{"netbox:host:web-1": stale, "netbox:host:web-2": stale},
+		ops:      []op{{kind: opMarkStale, newlyStale: true}},
+	}
+	err := b.guard(Config{})
+	if !errors.Is(err, ErrMassStale) {
+		t.Fatalf("err = %v, want ErrMassStale for an empty live set", err)
+	}
+	if err := b.guard(Config{AllowMassStale: true}); err != nil {
+		t.Fatalf("err = %v, want nil with AllowMassStale", err)
 	}
 }

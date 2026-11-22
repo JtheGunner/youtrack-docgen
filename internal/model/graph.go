@@ -119,6 +119,16 @@ func (g *Graph) RelationsTo(id ID) []Relation {
 	return g.relationsWhere(func(r Relation) bool { return r.To == id })
 }
 
+// IDs returns the IDs of all entities, sorted.
+func (g *Graph) IDs() []ID {
+	out := make([]ID, 0, len(g.entities))
+	for id := range g.entities {
+		out = append(out, id)
+	}
+	slices.Sort(out)
+	return out
+}
+
 func (g *Graph) filter(keep func(Entity) bool) []Entity {
 	out := []Entity{}
 	for _, e := range g.entities {

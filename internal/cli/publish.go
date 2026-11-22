@@ -70,7 +70,7 @@ func publish(ctx context.Context, cfg *config.Config, opts runOptions, at time.T
 	if err := printIncompleteSources(stderr, b.incomplete); err != nil {
 		return err
 	}
-	s, err := youtrack.New(api, sinkConfig(target, cfg, opts, b.incomplete))
+	s, err := youtrack.New(api, sinkConfig(target, cfg, opts, b))
 	if err != nil {
 		return err
 	}
@@ -122,8 +122,10 @@ func resolveProject(ctx context.Context, api *client.Client, cfg *config.Config)
 // sinkConfig adds what the run decides to the resolved project: only the
 // collectors that ran completely can see an object vanish, and a person may
 // allow a run that marks most articles as stale. A source in incomplete is
-// left out, so its missing objects are not marked as stale.
-func sinkConfig(target youtrack.Config, cfg *config.Config, opts runOptions, incomplete map[string][]string) youtrack.Config {
+// left out, so its missing objects are not marked as stale. Objects the
+// filter removed on purpose are the exception: they are always cleaned.
+func sinkConfig(target youtrack.Config, cfg *config.Config, opts runOptions, b built) youtrack.Config {
+	incomplete := b.incomplete
 	target.ActiveSources = slices.DeleteFunc(slices.Clone(cfg.EnabledCollectors()), func(name string) bool {
 		_, skip := incomplete[name]
 		return skip
@@ -132,6 +134,7 @@ func sinkConfig(target youtrack.Config, cfg *config.Config, opts runOptions, inc
 		// An empty list means every source to the sink; here it must mean none.
 		target.ActiveSources = []string{noActiveSource}
 	}
+	target.ForceStaleIDs = b.denied
 	target.MaxStaleRatio = cfg.YouTrack.MaxStaleRatio
 	target.AllowMassStale = opts.allowMassStale
 	return target

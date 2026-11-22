@@ -73,6 +73,9 @@ type built struct {
 	// incomplete maps a source name to the reasons its collection may lack
 	// objects. Such a source must not make articles stale.
 	incomplete map[string][]string
+	// denied are the IDs of entities the filter removed. Their articles are
+	// cleaned even when their source was read incompletely.
+	denied []string
 }
 
 // buildDocuments runs collector -> filter -> render and returns the document
@@ -103,7 +106,17 @@ func buildDocuments(ctx context.Context, cfg *config.Config, at time.Time) (buil
 	if err != nil {
 		return built{}, err
 	}
-	return built{root: render.Render(filtered, render.Options{GeneratedAt: at}), incomplete: incomplete}, nil
+	var denied []string
+	kept := map[model.ID]bool{}
+	for _, id := range filtered.IDs() {
+		kept[id] = true
+	}
+	for _, id := range graph.IDs() {
+		if !kept[id] {
+			denied = append(denied, string(id))
+		}
+	}
+	return built{root: render.Render(filtered, render.Options{GeneratedAt: at}), incomplete: incomplete, denied: denied}, nil
 }
 
 func buildCollectors(cfg *config.Config) ([]collector.Collector, error) {

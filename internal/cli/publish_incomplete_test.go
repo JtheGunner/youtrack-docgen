@@ -82,3 +82,23 @@ func TestCompleteKubernetesReadStillMarksVanishedArticlesStale(t *testing.T) {
 		t.Errorf("the vanished article was not tagged: %v", yt.writes())
 	}
 }
+
+// An object a deny rule removes must be cleaned from the Knowledge Base even
+// when the source was read incompletely: denied content must not stay
+// published because another file of the source was broken.
+func TestIncompleteReadStillCleansDeniedObjects(t *testing.T) {
+	gone := strings.Replace(incompleteTestDeployment, "name: web", "name: gone", 1)
+	cfg, yt := kubernetesOnlyRun(t, map[string]string{"gone.yaml": gone, "bad.yaml": "a: [unclosed\n"})
+	cfg = strings.Replace(cfg, "\nsinks:", "\n    deny:\n      - namespaces: [shop]\nsinks:", 1)
+
+	_, stderr, err := runCLI(t, cfg, "publish", "--allow-mass-stale")
+	if err != nil {
+		t.Fatalf("error = %v\nstderr: %s", err, stderr)
+	}
+	if !strings.Contains(stderr, "kubernetes: collection is incomplete") {
+		t.Errorf("stderr = %q, want a note about the incomplete collection", stderr)
+	}
+	if !slices.Contains(yt.writes(), "POST /api/articles/1-900/tags") {
+		t.Errorf("the denied object's article was not cleaned and tagged: %v", yt.writes())
+	}
+}
