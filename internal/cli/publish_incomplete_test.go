@@ -102,3 +102,74 @@ func TestIncompleteReadStillCleansDeniedObjects(t *testing.T) {
 		t.Errorf("the denied object's article was not cleaned and tagged: %v", yt.writes())
 	}
 }
+
+// The article of an object that only lives in a skipped file is not in the
+// graph. Whether it is denied is decided from its document ID, and an
+// undecidable case stops publish before the first write.
+func TestIncompleteReadChecksDenyRulesForUncollectedArticles(t *testing.T) {
+	tests := []struct {
+		name      string
+		deny      string
+		wantClean bool
+		wantFail  bool
+	}{
+		{name: "denied by namespace is cleaned", deny: "      - namespaces: [shop]\n", wantClean: true},
+		{name: "other namespace is left alone", deny: "      - namespaces: [other]\n"},
+		{name: "label rule is undecidable", deny: "      - labels: {label.team: payments}\n", wantFail: true},
+	}
+	broken := map[string]string{"ok.yaml": incompleteTestDeployment, "bad.yaml": "a: [unclosed\n"}
+	for _, tt := range tests {
+		t.Run("publish/"+tt.name, func(t *testing.T) {
+			cfg, yt := kubernetesOnlyRun(t, broken)
+			cfg = strings.Replace(cfg, "\nsinks:", "\n    deny:\n"+tt.deny+"sinks:", 1)
+
+			_, stderr, err := runCLI(t, cfg, "publish", "--allow-mass-stale")
+			if (err != nil) != tt.wantFail {
+				t.Fatalf("error = %v, want failure %v\nstderr: %s", err, tt.wantFail, stderr)
+			}
+			if tt.wantFail && !strings.Contains(err.Error(), "cannot clean denied articles") {
+				t.Errorf("error = %q, want the deny cleanup error", err)
+			}
+			if tagged := slices.Contains(yt.writes(), "POST /api/articles/1-900/tags"); tagged != tt.wantClean {
+				t.Errorf("tagged = %v, want %v: %v", tagged, tt.wantClean, yt.writes())
+			}
+			if tt.wantFail && len(yt.writes()) != 0 {
+				t.Errorf("writes before the abort: %v", yt.writes())
+			}
+		})
+	}
+	t.Run("diff warns only", func(t *testing.T) {
+		cfg, yt := kubernetesOnlyRun(t, broken)
+		cfg = strings.Replace(cfg, "\nsinks:", "\n    deny:\n      - labels: {label.team: payments}\nsinks:", 1)
+
+		_, stderr, err := runCLI(t, cfg, "diff")
+		if err != nil {
+			t.Fatalf("error = %v, want diff to stay tolerant\nstderr: %s", err, stderr)
+		}
+		if !strings.Contains(stderr, "publish would fail") {
+			t.Errorf("stderr = %q, want a warning", stderr)
+		}
+		if len(yt.writes()) != 0 {
+			t.Errorf("diff wrote: %v", yt.writes())
+		}
+	})
+}
+
+// A collector that is switched off is not an incomplete one: its articles stay
+// as they are, even when a rule could not be decided from their IDs.
+func TestSwitchedOffSourceIsNotCheckedAgainstDenyRules(t *testing.T) {
+	cfg, yt := kubernetesOnlyRun(t, map[string]string{"ok.yaml": incompleteTestDeployment})
+	yt.articles[0]["content"] = "<!-- docgen:doc netbox:host:old -->\n"
+	cfg = strings.Replace(cfg, "\nsinks:",
+		"\n  netbox:\n    enabled: false\n    deny:\n      - tags: [lab]\n      - labels: {label.team: payments}\nsinks:", 1)
+
+	_, stderr, err := runCLI(t, cfg, "publish")
+	if err != nil {
+		t.Fatalf("error = %v, want the switched-off source left alone\nstderr: %s", err, stderr)
+	}
+	for _, w := range yt.writes() {
+		if strings.Contains(w, "/api/articles/1-900") {
+			t.Errorf("the switched-off source's article was written: %v", yt.writes())
+		}
+	}
+}
