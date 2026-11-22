@@ -94,12 +94,19 @@ func writeFileAtomic(dir, name string, data []byte) (err error) {
 	return os.Rename(tmp.Name(), filepath.Join(dir, name))
 }
 
+// minHashLen is the number of hex characters of the ID hash first tried as a
+// disambiguating suffix.
+const minHashLen = 8
+
 // fileNames assigns every document of the tree a unique file name. The root is
-// always index.md; the others derive from their ID. When several IDs would
-// produce the same name, every one of them gets a short hash of its ID, so the
-// names do not depend on the order of the tree.
+// always index.md. An ID whose slug is unique keeps "<slug>.md". IDs sharing a
+// slug (or slugged like the root file) get "<slug>-<hash>.md"; if that name is
+// already taken by any other ID, the hash is extended until the name is free.
+// Plain names are claimed first and the rest are resolved in sorted ID order,
+// so the result does not depend on the order of the tree.
 func fileNames(root render.Document) map[string]string {
 	names := map[string]string{root.ID: rootFile}
+	used := map[string]bool{rootFile: true}
 	bySlug := map[string][]string{}
 	root.Walk(func(d render.Document) {
 		if _, ok := names[d.ID]; ok || slices.Contains(bySlug[slug(d.ID)], d.ID) {
@@ -107,19 +114,40 @@ func fileNames(root render.Document) map[string]string {
 		}
 		bySlug[slug(d.ID)] = append(bySlug[slug(d.ID)], d.ID)
 	})
+	var colliding []string
 	for sl, ids := range bySlug {
-		// The root occupies index.md, so a document slugged "index" must differ too.
-		collides := len(ids) > 1 || sl+".md" == rootFile
-		for _, id := range ids {
-			if !collides {
-				names[id] = sl + ".md"
-				continue
-			}
-			sum := sha256.Sum256([]byte(id))
-			names[id] = sl + "-" + hex.EncodeToString(sum[:4]) + ".md"
+		if len(ids) > 1 || used[sl+".md"] {
+			colliding = append(colliding, ids...)
+			continue
 		}
+		names[ids[0]] = sl + ".md"
+		used[sl+".md"] = true
+	}
+	slices.Sort(colliding)
+	for _, id := range colliding {
+		name := uniqueHashedName(slug(id), id, used)
+		names[id] = name
+		used[name] = true
 	}
 	return names
+}
+
+// uniqueHashedName returns "<sl>-<hash>.md" with the shortest hash prefix of id
+// that is not in used. The full hash is extended by a counter in the unlikely
+// case that even it is taken.
+func uniqueHashedName(sl, id string, used map[string]bool) string {
+	sum := sha256.Sum256([]byte(id))
+	full := hex.EncodeToString(sum[:])
+	for n := minHashLen; n <= len(full); n++ {
+		if name := sl + "-" + full[:n] + ".md"; !used[name] {
+			return name
+		}
+	}
+	for i := 2; ; i++ {
+		if name := fmt.Sprintf("%s-%s-%d.md", sl, full, i); !used[name] {
+			return name
+		}
+	}
 }
 
 // slug reduces id to lowercase ASCII letters, digits and single hyphens, so an

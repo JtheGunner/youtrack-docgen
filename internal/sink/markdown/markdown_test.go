@@ -2,6 +2,8 @@ package markdown_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"slices"
@@ -264,5 +266,59 @@ func TestFileNamesAreIndependentOfOrder(t *testing.T) {
 	}
 	if _, ok := a["plain.md"]; !ok {
 		t.Errorf("a non-colliding ID should keep its plain name: %v", a)
+	}
+}
+
+// hashedName mirrors the sink's "<slug>-<8 hex of sha256(id)>.md" pattern so a
+// test can build an ID whose slug equals another ID's generated name.
+func hashedSlug(slug, id string) string {
+	sum := sha256.Sum256([]byte(id))
+	return slug + "-" + hex.EncodeToString(sum[:4])
+}
+
+func publishedNames(t *testing.T, ids ...string) []string {
+	t.Helper()
+	root := render.Document{ID: "overview:root", Title: "Root"}
+	for _, id := range ids {
+		root.Children = append(root.Children, render.Document{ID: id, Title: id})
+	}
+	return listFiles(t, publish(t, root))
+}
+
+func TestFileNamesAreUniqueAcrossAllIDs(t *testing.T) {
+	tests := []struct {
+		name string
+		ids  []string
+	}{
+		{"several IDs share a slug", []string{"a:b", "a-b", "a b"}},
+		{"slug equals root file", []string{"index", "Index", "plain"}},
+		{"slug equals generated name of colliding pair", []string{"a:b", "a-b", hashedSlug("a-b", "a:b")}},
+		{"slug equals generated name of root collision", []string{"index", hashedSlug("index", "index")}},
+		{"slug equals generated name of both of a pair", []string{"a:b", "a-b", hashedSlug("a-b", "a:b"), hashedSlug("a-b", "a-b")}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := publishedNames(t, tt.ids...)
+			if want := len(tt.ids) + 1; len(got) != want {
+				t.Fatalf("files = %v (%d), want %d distinct files", got, len(got), want)
+			}
+			reversed := slices.Clone(tt.ids)
+			slices.Reverse(reversed)
+			if again := publishedNames(t, reversed...); !slices.Equal(got, again) {
+				t.Errorf("names depend on order: %v vs %v", got, again)
+			}
+		})
+	}
+}
+
+func TestFileNamesKeepNonCollidingNames(t *testing.T) {
+	// The ID slugged like another ID's generated name keeps its plain name.
+	taken := hashedSlug("a-b", "a:b")
+	got := publishedNames(t, "a:b", "a-b", taken)
+	if !slices.Contains(got, taken+".md") {
+		t.Errorf("files = %v, want %q kept for the ID with that slug", got, taken+".md")
+	}
+	if !slices.Contains(got, "index.md") {
+		t.Errorf("files = %v, want index.md", got)
 	}
 }
