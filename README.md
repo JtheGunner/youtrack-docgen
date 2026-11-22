@@ -117,6 +117,16 @@ youtrack-docgen validate-config --config docgen.yaml
 
 ---
 
+## 🔒 Redaction
+
+Every entity passes the redactor before it is rendered, whatever the sink.
+
+- **Free text** (descriptions, labels, attributes, aliases): private key blocks, bearer tokens and `Authorization: Basic` headers, JWTs, AWS keys, GitHub, GitLab and Slack tokens, YouTrack permanent tokens, credentials in URLs (`scheme://user:password@host` becomes `[REDACTED]host`), and assignments such as `password=...`, `pwd: ...`, `passphrase: ...`, `token=...` or `api_key=...` are replaced with `[REDACTED]`. Your own `redact.deny_patterns` come on top.
+- **Keys:** attribute, label and annotation values are dropped when the key looks secret (password, secret, token, auth, `pwd`, `passphrase`, ...) or matches `redact.secret_keys`. Environment values, Secret data and last-applied manifests are always dropped.
+- **Names and ID keys:** the name and the ID key of an entity are its article title, table cells and diagram labels, and every reference uses the key. If the redactor would change either one, the whole entity is removed, like a denied host, and so are its relations. Its article is never published; one that already exists is handled as for any removed object. Removing is safer than masking, because a masked name would still leak through the key and the references.
+
+---
+
 ## ▶️ Generate
 
 `generate` runs the whole pipeline and writes the documentation as Markdown files, so you can review the result before anything touches YouTrack:

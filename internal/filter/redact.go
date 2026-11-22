@@ -24,7 +24,7 @@ var alwaysRedactedKeyParts = []string{"last-applied-configuration"}
 // Built-in patterns. The text patterns apply to every free-text value; the key
 // pattern decides which attributes, labels and annotations are secret by name.
 var (
-	defaultKeyPattern = regexp.MustCompile(`(?i)(password|passwd|secret|token|api[_-]?key|private[_-]?key|credential)`)
+	defaultKeyPattern = regexp.MustCompile(`(?i)(password|passwd|secret|token|api[_-]?key|private[_-]?key|credential|passphrase|pwd)`)
 
 	// benignAuthWords are the only words starting with "auth" that are not
 	// credentials. Longer words come first so that "authority" is not
@@ -33,12 +33,16 @@ var (
 
 	defaultTextPatterns = []*regexp.Regexp{
 		regexp.MustCompile(`(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(-----END [A-Z ]*PRIVATE KEY-----|$)`),
+		regexp.MustCompile(`(?i)\bauthorization["']?\s*[=:]\s*["']?basic\s+[A-Za-z0-9+/._~-]+=*`),
+		// Credentials in a URL: everything from the scheme up to and including the
+		// "@" that ends the user:password part. The host stays readable.
+		regexp.MustCompile(`\b[A-Za-z][A-Za-z0-9+.-]*://[^\s/:@]*:[^\s/]+@`),
 		regexp.MustCompile(`(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{8,}`),
 		regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}`),
 		regexp.MustCompile(`\b(AKIA|ASIA)[A-Z0-9]{16}\b`),
-		regexp.MustCompile(`\b(glpat|ghp|gho|ghs|xox[abp])[-_][A-Za-z0-9_-]{10,}`),
+		regexp.MustCompile(`\b(glpat|ghp|gho|ghs|ghu|ghr|github_pat|xox[abp])[-_][A-Za-z0-9_-]{10,}`),
 		regexp.MustCompile(`\bperm:[A-Za-z0-9._=-]{10,}`),
-		regexp.MustCompile(`(?i)["']?\b[\w.-]*(password|passwd|secret|token|api[_-]?key|private[_-]?key)[\w.-]*["']?\s*[=:]\s*("[^"]*"|'[^']*'|\S+)`),
+		regexp.MustCompile(`(?i)["']?\b[\w.-]*(password|passwd|passphrase|pwd|secret|token|api[_-]?key|private[_-]?key)[\w.-]*["']?\s*[=:]\s*("[^"]*"|'[^']*'|\S+)`),
 	}
 )
 
@@ -114,8 +118,22 @@ func (r *Redactor) secretKey(key string) bool {
 	return false
 }
 
+// IdentityChanged reports whether the redactor would change the name or the ID
+// key of e. Both are rendered as article title, table cell and diagram label,
+// and the key is part of every reference, so such an entity cannot be masked:
+// the filter removes it.
+func (r *Redactor) IdentityChanged(e model.Entity) bool {
+	if r.Text(e.Name) != e.Name {
+		return true
+	}
+	_, _, key, err := model.ParseID(e.ID)
+	return err != nil || r.Text(key) != key
+}
+
 // Entity returns a redacted copy of e. The ID and name stay untouched so
-// references remain stable; labels, attributes and aliases are scrubbed.
+// references remain stable (an entity whose identity the redactor would change
+// is removed by the filter, see IdentityChanged); labels, attributes and
+// aliases are scrubbed.
 func (r *Redactor) Entity(e model.Entity) model.Entity {
 	e.Labels = r.scrub(e.Labels)
 	e.Attrs = r.scrub(e.Attrs)
