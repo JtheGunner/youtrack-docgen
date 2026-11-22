@@ -486,3 +486,30 @@ func TestManifestLabelsCannotSpoofFilterDimensions(t *testing.T) {
 		}
 	}
 }
+
+func TestCollectSkipsNamespaceWithoutName(t *testing.T) {
+	tests := []struct {
+		name     string
+		manifest string
+	}{
+		{"empty name", "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: \"\"\n"},
+		{"missing name", "apiVersion: v1\nkind: Namespace\nmetadata:\n  labels:\n    team: a\n"},
+		{"missing metadata", "apiVersion: v1\nkind: Namespace\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := writeTree(t, map[string]string{
+				"a-bad.yaml":    tt.manifest,
+				"b-deploy.yaml": webDeployment,
+			})
+			g, warnings := collectWithWarnings(t, dir)
+			if !strings.Contains(warnings, "a-bad.yaml") || !strings.Contains(warnings, "Namespace without metadata.name") {
+				t.Errorf("warnings = %q, want one naming a-bad.yaml", warnings)
+			}
+			want, _ := collectWithWarnings(t, writeTree(t, map[string]string{"deploy.yaml": webDeployment}))
+			if got, wantN := len(allEntities(g)), len(allEntities(want)); got != wantN || got == 0 {
+				t.Errorf("entities = %d, want %d (only the sibling deployment)", got, wantN)
+			}
+		})
+	}
+}

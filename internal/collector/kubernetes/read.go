@@ -176,6 +176,10 @@ func readObjects(ctx context.Context, paths []string, warn func(string)) ([]pars
 			}
 			found += len(objs)
 			for _, o := range objs {
+				if o.Kind == "Namespace" && o.Metadata.Name == "" {
+					warn(fmt.Sprintf("%s: skipping Namespace without metadata.name", o.origin))
+					continue
+				}
 				key := identity(o)
 				if first, dup := seen[key]; dup {
 					warn(fmt.Sprintf("%s: duplicate %s ignored, first defined in %s", o.origin, key, first))
