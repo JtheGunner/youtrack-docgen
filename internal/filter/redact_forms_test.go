@@ -122,3 +122,70 @@ func TestApplyRemovesEntitiesWhoseIdentityIsRedacted(t *testing.T) {
 		t.Errorf("relations to removed entities survived: %v", rels)
 	}
 }
+
+func TestRedactorURLCredentialsWithSeparatorsInThePassword(t *testing.T) {
+	r, err := NewRedactor(RedactConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	positive := []struct {
+		name    string
+		in      string
+		leaks   []string // must not survive
+		keep    string   // must survive; empty for none
+		wantAll bool     // everything after the scheme is removed
+	}{
+		{"at and slash in password", "https://user:p@ss/word@host/x", []string{"user", "p@ss", "ss/", "word"}, "host/x", false},
+		{"at and slash with dotted host", "https://user:p@ss/word@db.example.com/x", []string{"user", "ss/", "word"}, "db.example.com/x", false},
+		{"slash then at in password", "https://user:pa/ss@word", []string{"user", "pa/", "ss"}, "word", false},
+		{"at then slash, no later at", "https://user:p@ss/word", []string{"user", "ss", "word"}, "", true},
+		{"two ats and a slash", "https://user:a@b/c@d/e@db.example.com/x", []string{"user", "a@b", "c@d", "/e"}, "db.example.com/x", false},
+		{"at in the segment after the first at", "https://user:sec/ret@abc@db.example.com/x", []string{"user", "sec", "ret", "abc"}, "db.example.com/x", false},
+		{"two ats in the host segment", "https://user:sec/ret@abc@def@db.example.com/x", []string{"user", "sec", "ret", "abc", "def"}, "db.example.com/x", false},
+		{"digits then slash", "https://user:12/abc@db.example.com/x", []string{"user", "12/", "abc"}, "db.example.com/x", false},
+		{"long digits then slash", "https://user:123/fakesecret@db.example.com/x", []string{"user", "123/", "fakesecret"}, "db.example.com/x", false},
+		{"empty start then slash", "https://user:/fakesecret@db.example.com/x", []string{"user", "fakesecret"}, "db.example.com/x", false},
+		{"single label host without port", "https://user:pw@host/path", []string{"user", "pw", "host", "path"}, "", true},
+		{"single label host with port", "postgres://app:fakesecret@db:5432/main", []string{"app", "fakesecret"}, "db:5432/main", false},
+		{"surrounding text", "see (https://user:pa/ss@word) and more", []string{"user", "pa/"}, "and more", false},
+		{"two urls", "a https://u1:pw1@h1.example.com/ b https://u2:p/w2@h2.example.com/", []string{"u1", "pw1", "u2", "p/w2"}, "h2.example.com/", false},
+	}
+	for _, tt := range positive {
+		t.Run("redacted/"+tt.name, func(t *testing.T) {
+			got := r.Text(tt.in)
+			if !strings.Contains(got, Placeholder) {
+				t.Fatalf("no placeholder in %q", got)
+			}
+			for _, leaked := range tt.leaks {
+				if strings.Contains(strings.TrimPrefix(got, Placeholder), leaked) && !strings.Contains(tt.keep, leaked) {
+					t.Errorf("%q survived in %q", leaked, got)
+				}
+			}
+			if tt.keep != "" && !strings.Contains(got, tt.keep) {
+				t.Errorf("%q was over-redacted: %q", tt.keep, got)
+			}
+			if tt.wantAll && got != Placeholder {
+				t.Errorf("got %q, want only %q", got, Placeholder)
+			}
+		})
+	}
+
+	for _, in := range []string{
+		"https://host.example.com:8443/path/a@b",
+		"http://localhost:8080/path/a@b",
+		"https://example.com:8443/path/a@b",
+		"ssh://git@host",
+		"https://db.example.com/x/y@abc@z",
+		"ssh://git@host.example.com:22/repo/a@b",
+		"https://ops@example.com:8443/path/a@b",
+		"https://example.com/a@b/c:d",
+		"https://[2001:db8::1]:8443/path/a@b",
+		"mail ops@example.com and https://example.com/",
+	} {
+		t.Run("untouched/"+in, func(t *testing.T) {
+			if got := r.Text(in); got != in {
+				t.Fatalf("over-redacted %q to %q", in, got)
+			}
+		})
+	}
+}

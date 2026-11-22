@@ -34,14 +34,6 @@ var (
 	defaultTextPatterns = []*regexp.Regexp{
 		regexp.MustCompile(`(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(-----END [A-Z ]*PRIVATE KEY-----|$)`),
 		regexp.MustCompile(`(?i)\bauthorization["']?\s*[=:]\s*["']?basic\s+[A-Za-z0-9+/._~-]+=*`),
-		// Credentials in a URL: everything from the scheme up to and including the
-		// "@" that ends the user:password part. The host stays readable.
-		// First form: no "/" before the "@"; the last "@" of the authority wins, so
-		// a user such as an e-mail address is covered. Second form: a "/" inside the
-		// password. It needs a ":" followed by something that is not a plain port
-		// (digits up to a "/"), and ends at the first "@" after that, so that
-		// "host:8443/path/a@b" is left alone and the host stays readable.
-		regexp.MustCompile(`\b[A-Za-z][A-Za-z0-9+.-]*://(?:[^\s/]*:[^\s/]*@|[^\s/]*:(?:[^\s/@0-9][^\s]*?|[0-9]+[^\s/0-9@][^\s]*?)@)`),
 		regexp.MustCompile(`(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{8,}`),
 		regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}`),
 		regexp.MustCompile(`\b(AKIA|ASIA)[A-Z0-9]{16}\b`),
@@ -92,6 +84,7 @@ func NewRedactor(cfg RedactConfig) (*Redactor, error) {
 
 // Text replaces every secret-looking fragment of s with Placeholder.
 func (r *Redactor) Text(s string) string {
+	s = redactURLCredentials(s)
 	for _, re := range r.text {
 		s = re.ReplaceAllString(s, Placeholder)
 	}
