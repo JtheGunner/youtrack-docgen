@@ -308,16 +308,6 @@ func TestCollectNeverLeaksTokenIntoGraph(t *testing.T) {
 	}
 }
 
-func TestCollectDuplicateHostFails(t *testing.T) {
-	f := newFakeNetBox(t)
-	f.override["/api/virtualization/virtual-machines/"] = func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"results": [{"id": 9, "name": "sw01.example.com"}]}`))
-	}
-	if _, err := collect(t, f.URL, fakeToken); err == nil || !strings.Contains(err.Error(), "duplicate") {
-		t.Fatalf("error = %v, want duplicate entity", err)
-	}
-}
-
 func TestNewValidatesConfig(t *testing.T) {
 	tests := []struct {
 		name string

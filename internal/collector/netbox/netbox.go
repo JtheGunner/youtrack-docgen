@@ -6,8 +6,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"slices"
 	"time"
 
 	"github.com/JtheGunner/youtrack-docgen/internal/config"
@@ -21,7 +24,10 @@ const defaultTimeout = 30 * time.Second
 
 // Collector implements collector.Collector for NetBox.
 type Collector struct {
-	client *client
+	client   *client
+	warnings io.Writer
+	// incomplete holds the reasons the last Collect left objects out.
+	incomplete []string
 }
 
 // Option customizes a Collector.
@@ -30,6 +36,12 @@ type Option func(*Collector)
 // WithHTTPClient replaces the default HTTP client.
 func WithHTTPClient(h *http.Client) Option {
 	return func(c *Collector) { c.client.http = h }
+}
+
+// WithWarnings sends warnings about skipped objects to w instead of standard
+// error.
+func WithWarnings(w io.Writer) Option {
+	return func(c *Collector) { c.warnings = w }
 }
 
 // New builds a collector from the "netbox" collector module config. The URL
@@ -49,7 +61,7 @@ func New(m config.Module, opts ...Option) (*Collector, error) {
 		base:  base,
 		token: m.Token.Reveal(),
 		http:  &http.Client{Timeout: defaultTimeout},
-	}}
+	}, warnings: os.Stderr}
 	for _, opt := range opts {
 		opt(c)
 	}
@@ -79,15 +91,26 @@ func (*Collector) Name() string { return Source }
 // Collect reads NetBox and adds its entities and relations to g. Nothing is
 // added when reading fails, so a partial NetBox view never reaches the graph.
 func (c *Collector) Collect(ctx context.Context, g *model.Graph) error {
+	c.incomplete = nil
 	data, err := c.fetch(ctx)
 	if err != nil {
 		return err
 	}
-	b := newBuilder(c.client.base)
-	if err := b.build(data); err != nil {
+	b := newBuilder(c.client.base, c.warn)
+	err = b.build(data)
+	c.incomplete = b.skipped
+	if err != nil {
 		return fmt.Errorf("netbox: %w", err)
 	}
 	return b.Commit(g)
+}
+
+// Incomplete returns the reasons the last Collect left NetBox objects out
+// (objects that could not be mapped). It is empty for a complete read.
+func (c *Collector) Incomplete() []string { return slices.Clone(c.incomplete) }
+
+func (c *Collector) warn(msg string) {
+	fmt.Fprintf(c.warnings, "warning: %s\n", msg) //nolint:errcheck // a failing warning stream must not stop the run
 }
 
 type snapshot struct {

@@ -68,9 +68,14 @@ func (c *client) sameHost(raw string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("invalid next link: %w", err)
 	}
-	if u.Scheme != c.base.Scheme || u.Host != c.base.Host {
+	if !strings.EqualFold(u.Host, c.base.Host) {
 		return "", errors.New("next link points to a different host")
 	}
+	// Behind a TLS-terminating proxy NetBox often reports its own scheme
+	// (http) instead of the public one. The link is therefore requested with
+	// the configured scheme, so the token is never sent over a different one.
+	u.Scheme = c.base.Scheme
+	u.User = nil
 	return u.String(), nil
 }
 
