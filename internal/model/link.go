@@ -8,11 +8,35 @@ import (
 )
 
 // LinkWarning reports a match that Link refused to turn into a relation
-// because it was ambiguous. IDs lists the entities the message names, so a
-// caller can drop warnings about entities it does not publish.
+// because it was ambiguous: Subject matched every one of Candidates. It holds
+// no free text built from entity data; Describe renders it from the entities
+// the caller still publishes.
 type LinkWarning struct {
-	Message string
-	IDs     []ID
+	Subject    ID
+	Candidates []ID
+	// What names the kind of match, for example "host" or "service external IP".
+	What string
+}
+
+// Describe renders the warning using only entities for which keep is true. It
+// reports false when the subject is not kept or fewer than two candidates
+// are, because then nothing ambiguous is left to show and the message would
+// only hint at an entity that is not published.
+func (w LinkWarning) Describe(keep func(ID) bool) (string, bool) {
+	if !keep(w.Subject) {
+		return "", false
+	}
+	var kept []string
+	for _, id := range w.Candidates {
+		if keep(id) {
+			kept = append(kept, string(id))
+		}
+	}
+	if len(kept) < 2 {
+		return "", false
+	}
+	return fmt.Sprintf("ambiguous match, no relation set: %s %s matches %d candidates: %s",
+		w.What, w.Subject, len(kept), strings.Join(kept, ", ")), true
 }
 
 // Link connects hosts that different sources report for the same machine, for
@@ -55,8 +79,7 @@ func LinkWithWarnings(g *Graph) (int, []LinkWarning) {
 	for i, bySource := range candidates {
 		for _, source := range sortedKeys(bySource) {
 			if matches := bySource[source]; len(matches) > 1 {
-				warnings = append(warnings, ambiguous(fmt.Sprintf("host %s matches %d hosts of source %s", hosts[i].ID, len(matches), source),
-					hosts[i].ID, idsOf(hosts, matches)))
+				warnings = append(warnings, LinkWarning{Subject: hosts[i].ID, What: "host", Candidates: idsOf(hosts, matches)})
 			}
 		}
 	}
@@ -64,7 +87,16 @@ func LinkWithWarnings(g *Graph) (int, []LinkWarning) {
 	added := 0
 	for i := range hosts {
 		for _, matches := range candidates[i] {
-			if len(matches) != 1 || matches[0] < i || len(candidates[matches[0]][hosts[i].Source]) != 1 {
+			unique := len(matches) == 1 && len(candidates[matches[0]][hosts[i].Source]) == 1
+			if !unique {
+				// Not published, but remembered so the filter can withhold a
+				// host whose possible twin is denied.
+				for _, j := range matches {
+					g.addAmbiguousTwin(hosts[i].ID, hosts[j].ID)
+				}
+				continue
+			}
+			if matches[0] < i {
 				continue
 			}
 			rel := Relation{From: hosts[i].ID, To: hosts[matches[0]].ID, Kind: RelSameAs}
@@ -77,13 +109,6 @@ func LinkWithWarnings(g *Graph) (int, []LinkWarning) {
 	}
 	placed, placementWarnings := linkPlacement(g)
 	return added + placed, append(warnings, placementWarnings...)
-}
-
-func ambiguous(what string, id ID, others []ID) LinkWarning {
-	return LinkWarning{
-		Message: "ambiguous match, no relation set: " + what,
-		IDs:     append([]ID{id}, others...),
-	}
 }
 
 func idsOf(hosts []Entity, indexes []int) []ID {

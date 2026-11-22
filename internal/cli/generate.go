@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"slices"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -89,15 +88,16 @@ type built struct {
 	linkWarnings []string
 }
 
-// publishableLinkWarnings returns the messages of the warnings whose entities
-// all survived the filter, so a denied host never shows up in the output.
+// publishableLinkWarnings renders the link warnings from the entities that
+// survived the filter only: a warning is dropped when its subject was removed
+// or fewer than two candidates are left, and the message never names a removed
+// entity.
 func publishableLinkWarnings(warnings []model.LinkWarning, kept map[model.ID]bool) []string {
 	var out []string
 	for _, w := range warnings {
-		if slices.ContainsFunc(w.IDs, func(id model.ID) bool { return !kept[id] }) {
-			continue
+		if msg, ok := w.Describe(func(id model.ID) bool { return kept[id] }); ok {
+			out = append(out, msg)
 		}
-		out = append(out, w.Message)
 	}
 	return out
 }

@@ -1,7 +1,6 @@
 package model
 
 import (
-	"fmt"
 	"net/netip"
 	"slices"
 	"strings"
@@ -43,7 +42,7 @@ func linkPlacement(g *Graph) (int, []LinkWarning) {
 			case 1:
 				add(Relation{From: w.ID, To: twins[0], Kind: RelRunsOn})
 			default:
-				warnings = append(warnings, ambiguous(fmt.Sprintf("node %s of workload %s is the same machine as %d hosts", node.ID, w.ID, len(twins)), w.ID, twins))
+				warnings = append(warnings, LinkWarning{Subject: w.ID, What: "workload node twin", Candidates: twins})
 			}
 		}
 	}
@@ -61,7 +60,7 @@ func linkPlacement(g *Graph) (int, []LinkWarning) {
 			case 1:
 				add(Relation{From: found[0], To: s.ID, Kind: RelExposes})
 			default:
-				warnings = append(warnings, ambiguous(fmt.Sprintf("external IP %s of service %s belongs to %d hosts", addr, s.ID, len(found)), s.ID, found))
+				warnings = append(warnings, LinkWarning{Subject: s.ID, What: "service external IP", Candidates: found})
 			}
 		}
 	}
@@ -75,7 +74,7 @@ func linkPlacement(g *Graph) (int, []LinkWarning) {
 			case 1:
 				add(Relation{From: found[0], To: in.ID, Kind: RelExposes})
 			default:
-				warnings = append(warnings, ambiguous(fmt.Sprintf("hostname %s of ingress %s matches %d hosts", name, in.ID, len(found)), in.ID, found))
+				warnings = append(warnings, LinkWarning{Subject: in.ID, What: "ingress hostname", Candidates: found})
 			}
 		}
 	}

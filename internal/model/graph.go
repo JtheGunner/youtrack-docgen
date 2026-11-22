@@ -20,6 +20,8 @@ var (
 type Graph struct {
 	entities  map[ID]Entity
 	relations map[Relation]struct{}
+	// ambiguous holds host pairs that match but are not linked; see AmbiguousTwins.
+	ambiguous map[AmbiguousTwin]struct{}
 }
 
 // NewGraph returns an empty graph.

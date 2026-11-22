@@ -21,23 +21,37 @@ func (f *Filter) deniedHosts(g *model.Graph) map[model.ID]model.Entity {
 	}
 	// A same_as twin from another source is the same machine: deny it too,
 	// transitively and in either direction.
+	type edge struct {
+		from, to  model.ID
+		ambiguous bool
+	}
+	var edges []edge
+	for _, rel := range g.Relations() {
+		if rel.Kind == model.RelSameAs {
+			edges = append(edges, edge{from: rel.From, to: rel.To}, edge{from: rel.To, to: rel.From})
+		}
+	}
+	// An ambiguous match is no published relation, but one of the candidates
+	// may be the same machine as a denied host: fail closed and withhold the
+	// other end. Such a host is only a possible twin, so its other candidates,
+	// which cannot be the same machine as the denied one, are not denied as twins.
+	for _, pair := range g.AmbiguousTwins() {
+		edges = append(edges, edge{from: pair.A, to: pair.B, ambiguous: true}, edge{from: pair.B, to: pair.A, ambiguous: true})
+	}
+	possibleTwin := map[model.ID]bool{}
 	for changed := len(denied) > 0; changed; {
 		changed = false
-		for _, rel := range g.Relations() {
-			if rel.Kind != model.RelSameAs {
+		for _, e := range edges {
+			if _, isDenied := denied[e.from]; !isDenied || (e.ambiguous && possibleTwin[e.from]) {
 				continue
 			}
-			for _, pair := range [][2]model.ID{{rel.From, rel.To}, {rel.To, rel.From}} {
-				if _, isDenied := denied[pair[0]]; !isDenied {
-					continue
-				}
-				if _, already := denied[pair[1]]; already {
-					continue
-				}
-				if twin, ok := g.Entity(pair[1]); ok && twin.Kind == model.KindHost {
-					denied[twin.ID] = twin
-					changed = true
-				}
+			if _, already := denied[e.to]; already {
+				continue
+			}
+			if twin, ok := g.Entity(e.to); ok && twin.Kind == model.KindHost {
+				denied[twin.ID] = twin
+				possibleTwin[twin.ID] = e.ambiguous
+				changed = true
 			}
 		}
 	}
