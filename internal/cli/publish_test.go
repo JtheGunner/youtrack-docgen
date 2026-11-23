@@ -220,17 +220,19 @@ func TestArticlesOfOtherProjectsAreNeverTouched(t *testing.T) {
 	}
 }
 
-func TestProjectQueryUsesTheResolvedKeyInBraces(t *testing.T) {
+// The listing is bound to the project by its ID, so a project name with
+// spaces needs no quoting and cannot break the request.
+func TestListingUsesTheResolvedProjectID(t *testing.T) {
 	publishEnv(t)
 	nb := fakeNetBox(t)
 	yt := newFakeYouTrack(t)
-	yt.projects = []map[string]any{{"id": fakeProjectID, "shortName": "Infra"}}
+	yt.projects = []map[string]any{{"id": fakeProjectID, "shortName": "Infra", "name": "Infra Docs & More"}}
 
 	if _, _, err := runCLI(t, diffConfig(nb.URL, yt.srv.URL, t.TempDir()), "publish"); err != nil {
 		t.Fatal(err)
 	}
-	if len(yt.queries) != 1 || yt.queries[0] != "project: {Infra}" {
-		t.Errorf("queries = %q, want one listing with the project's own key in braces", yt.queries)
+	if len(yt.listings) != 1 || yt.listings[0] != fakeProjectID {
+		t.Errorf("listings = %q, want one listing of project %s", yt.listings, fakeProjectID)
 	}
 }
 

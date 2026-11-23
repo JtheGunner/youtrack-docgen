@@ -44,7 +44,7 @@ func fourHosts() map[string]string {
 
 func newSinkWith(t *testing.T, api API, mod func(*Config)) *Sink {
 	t.Helper()
-	cfg := Config{ProjectID: testProjectID, ProjectQuery: "project: KB"}
+	cfg := Config{ProjectID: testProjectID}
 	if mod != nil {
 		mod(&cfg)
 	}
@@ -57,7 +57,7 @@ func newSinkWith(t *testing.T, api API, mod func(*Config)) *Sink {
 
 func newPlannerWith(t *testing.T, api Reader, mod func(*Config)) *Planner {
 	t.Helper()
-	cfg := Config{ProjectID: testProjectID, ProjectQuery: "project: KB"}
+	cfg := Config{ProjectID: testProjectID}
 	if mod != nil {
 		mod(&cfg)
 	}

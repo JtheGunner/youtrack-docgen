@@ -114,8 +114,8 @@ func newYouTrackClient(cfg *config.Config) (*client.Client, error) {
 }
 
 // resolveProject looks up the project named in the config and returns the
-// sink config for it. The query uses the key the server reported, in braces,
-// so the listing and the lookup refer to the same project.
+// sink config for it. The sink lists the project's articles by the ID the
+// server reported, so no search syntax or quoting is involved.
 func resolveProject(ctx context.Context, api *client.Client, cfg *config.Config) (youtrack.Config, error) {
 	project, err := api.FindProject(ctx, cfg.YouTrack.Project)
 	if err != nil {
@@ -124,7 +124,7 @@ func resolveProject(ctx context.Context, api *client.Client, cfg *config.Config)
 	if project == nil {
 		return youtrack.Config{}, fmt.Errorf("youtrack project %q not found: check youtrack.project and the permissions of the token", cfg.YouTrack.Project)
 	}
-	return youtrack.Config{ProjectID: project.ID, ProjectQuery: "project: {" + project.ShortName + "}"}, nil
+	return youtrack.Config{ProjectID: project.ID}, nil
 }
 
 // sinkConfig adds what the run decides to the resolved project: only the

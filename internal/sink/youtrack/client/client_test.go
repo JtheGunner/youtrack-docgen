@@ -53,15 +53,21 @@ func TestNewValidation(t *testing.T) {
 	}
 }
 
-func TestSearchArticlesSendsAuthAndPaginates(t *testing.T) {
+func TestListProjectArticlesUsesProjectEndpointAndPaginates(t *testing.T) {
 	var calls int
 	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		calls++
 		if got := r.Header.Get("Authorization"); got != "Bearer "+fakeToken {
 			t.Errorf("auth header = %q", got)
 		}
-		if r.URL.Path != "/api/articles" || r.URL.Query().Get("query") != "project: KB host" {
-			t.Errorf("unexpected request %s", r.URL)
+		if r.Method != http.MethodGet || r.URL.EscapedPath() != "/api/admin/projects/0-1/articles" {
+			t.Errorf("unexpected request %s %s", r.Method, r.URL)
+		}
+		if _, ok := r.URL.Query()["query"]; ok {
+			t.Errorf("undocumented query parameter sent: %s", r.URL)
+		}
+		if r.URL.Query().Get("fields") != articleFields || r.URL.Query().Get("$top") != "100" {
+			t.Errorf("unexpected parameters %s", r.URL.RawQuery)
 		}
 		n := 100
 		if r.URL.Query().Get("$skip") == "100" {
@@ -73,12 +79,31 @@ func TestSearchArticlesSendsAuthAndPaginates(t *testing.T) {
 		}
 		_ = json.NewEncoder(w).Encode(list)
 	})
-	got, err := c.SearchArticles(context.Background(), "project: KB host")
+	got, err := c.ListProjectArticles(context.Background(), "0-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 101 || calls != 2 {
 		t.Fatalf("got %d articles in %d calls", len(got), calls)
+	}
+}
+
+func TestListProjectArticlesEscapesProjectID(t *testing.T) {
+	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.EscapedPath(); got != "/api/admin/projects/My%20KB%2Fx/articles" {
+			t.Errorf("escaped path = %q", got)
+		}
+		_, _ = io.WriteString(w, `[]`)
+	})
+	if _, err := c.ListProjectArticles(context.Background(), "My KB/x"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestListProjectArticlesRequiresProjectID(t *testing.T) {
+	c, _ := newTestClient(t, func(http.ResponseWriter, *http.Request) { t.Error("no request expected") })
+	if _, err := c.ListProjectArticles(context.Background(), ""); err == nil {
+		t.Fatal("expected error for missing project ID")
 	}
 }
 
@@ -323,11 +348,11 @@ func TestTransportErrorLeaksNoToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = c.SearchArticles(context.Background(), "secret query")
+	_, err = c.ListProjectArticles(context.Background(), "0-1")
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if strings.Contains(err.Error(), fakeToken) || strings.Contains(err.Error(), "secret query") {
+	if strings.Contains(err.Error(), fakeToken) {
 		t.Errorf("error leaks data: %v", err)
 	}
 }

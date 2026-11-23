@@ -192,17 +192,23 @@ func sleepContext(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// SearchArticles returns all articles matching a YouTrack search query.
-func (c *Client) SearchArticles(ctx context.Context, query string) ([]Article, error) {
+// ListProjectArticles returns every article of one project. It uses the
+// documented project resource (GET /api/admin/projects/{id}/articles), so the
+// listing is bound to the project by the path and does not depend on the
+// search index.
+func (c *Client) ListProjectArticles(ctx context.Context, projectID string) ([]Article, error) {
+	if projectID == "" {
+		return nil, errors.New("youtrack: project ID is required")
+	}
 	var out []Article
 	for skip := 0; ; skip += searchPage {
 		q := url.Values{}
-		q.Set("query", query)
 		q.Set("fields", articleFields)
 		q.Set("$top", strconv.Itoa(searchPage))
 		q.Set("$skip", strconv.Itoa(skip))
 		var batch []Article
-		if err := c.do(ctx, http.MethodGet, "/api/articles?"+q.Encode(), nil, &batch); err != nil {
+		path := "/api/admin/projects/" + url.PathEscape(projectID) + "/articles?" + q.Encode()
+		if err := c.do(ctx, http.MethodGet, path, nil, &batch); err != nil {
 			return nil, err
 		}
 		out = append(out, batch...)

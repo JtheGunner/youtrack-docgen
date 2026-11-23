@@ -24,8 +24,8 @@ type fakeYouTrack struct {
 	mu  sync.Mutex
 	// requests holds "METHOD path" of every call.
 	requests []string
-	// queries holds the search query of every article listing.
-	queries []string
+	// listings holds the project ID of every article listing.
+	listings []string
 	// bodies holds the raw body of every write call.
 	bodies []string
 	// articles is the content of the fake Knowledge Base.
@@ -58,8 +58,13 @@ func newFakeYouTrack(t *testing.T) *fakeYouTrack {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/admin/projects":
 			_ = json.NewEncoder(w).Encode(f.projects)
-		case r.Method == http.MethodGet && r.URL.Path == "/api/articles":
-			f.queries = append(f.queries, r.URL.Query().Get("query"))
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/admin/projects/") && strings.HasSuffix(r.URL.Path, "/articles"):
+			if _, ok := r.URL.Query()["query"]; ok {
+				http.Error(w, "the project listing takes no query", http.StatusBadRequest)
+				return
+			}
+			id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/admin/projects/"), "/articles")
+			f.listings = append(f.listings, id)
 			_ = json.NewEncoder(w).Encode(f.articles)
 		case r.Method == http.MethodPost && r.URL.Path == "/api/articles":
 			f.nextID++

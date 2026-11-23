@@ -21,6 +21,8 @@ type fakeAPI struct {
 	creates   int
 	updates   int
 	searchErr error
+	// listedProjects holds the project ID of every listing call.
+	listedProjects []string
 	// log lists the article write calls in order, as "<call>:<document key>".
 	// Creating the stale tag is not logged: a dry run cannot know whether the
 	// tag exists.
@@ -42,7 +44,8 @@ func (f *fakeAPI) keyOfArticle(id string) string {
 	return "?" + id
 }
 
-func (f *fakeAPI) SearchArticles(context.Context, string) ([]client.Article, error) {
+func (f *fakeAPI) ListProjectArticles(_ context.Context, projectID string) ([]client.Article, error) {
+	f.listedProjects = append(f.listedProjects, projectID)
 	if f.searchErr != nil {
 		return nil, f.searchErr
 	}
@@ -124,7 +127,7 @@ func tree(hostTitle, summary string) render.Document {
 
 func newSink(t *testing.T, api API) *Sink {
 	t.Helper()
-	s, err := New(api, Config{ProjectID: "0-1", ProjectQuery: "project: KB"})
+	s, err := New(api, Config{ProjectID: "0-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -334,7 +337,7 @@ func TestInvalidSectionIDsAreRejected(t *testing.T) {
 }
 
 func TestNewValidatesConfig(t *testing.T) {
-	if _, err := New(nil, Config{ProjectID: "1", ProjectQuery: "q"}); err == nil {
+	if _, err := New(nil, Config{ProjectID: "1"}); err == nil {
 		t.Error("nil API accepted")
 	}
 	if _, err := New(&fakeAPI{}, Config{}); err == nil {
@@ -376,7 +379,7 @@ func TestPublishIgnoresArticlesOfOtherProjects(t *testing.T) {
 		Project: &client.Ref{ID: "0-999"},
 	}
 	api := &fakeAPI{articles: []client.Article{foreign, vanished}}
-	s, err := New(api, Config{ProjectID: testProjectID, ProjectQuery: "project: KB"})
+	s, err := New(api, Config{ProjectID: testProjectID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -770,5 +773,24 @@ func TestManualArticleIsNotReported(t *testing.T) {
 	}
 	if len(res.Warnings) != 0 || api.articles[0].Content != "manual\n" {
 		t.Errorf("warnings = %q, content %q", res.Warnings, api.articles[0].Content)
+	}
+}
+
+func TestPublishListsArticlesOfTheConfiguredProject(t *testing.T) {
+	api := &fakeAPI{}
+	s, err := New(api, Config{ProjectID: "0-7"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Publish(context.Background(), hostTree(fourHosts())); err != nil {
+		t.Fatal(err)
+	}
+	if len(api.listedProjects) == 0 {
+		t.Fatal("no article listing")
+	}
+	for _, id := range api.listedProjects {
+		if id != "0-7" {
+			t.Errorf("listed project %q, want 0-7", id)
+		}
 	}
 }

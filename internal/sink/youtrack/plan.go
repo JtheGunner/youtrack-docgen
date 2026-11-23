@@ -15,7 +15,7 @@ const diffContext = 3
 // Reader is the read-only part of the YouTrack client. A Planner only gets
 // this interface, so a dry run cannot write by construction.
 type Reader interface {
-	SearchArticles(ctx context.Context, query string) ([]client.Article, error)
+	ListProjectArticles(ctx context.Context, projectID string) ([]client.Article, error)
 }
 
 // ChangeKind is what a change does to its article.
