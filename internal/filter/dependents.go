@@ -154,11 +154,15 @@ func (d *dependents) buildNameRE() {
 }
 
 // newDependents collects what depends on the denied entities. denied are the
-// hosts, deniedIPs the IP address entities and deniedNamespaces the namespaces
-// that the rules exclude.
-func newDependents(g *model.Graph, denied map[model.ID]model.Entity, deniedIPs, deniedNamespaces []model.Entity) dependents {
+// hosts, deniedIPs the IP address entities, deniedNamespaces the namespaces
+// and deniedClusters the Kubernetes clusters that are removed whatever their
+// namespaces do.
+func newDependents(g *model.Graph, denied map[model.ID]model.Entity, deniedIPs, deniedNamespaces, deniedClusters []model.Entity) dependents {
 	d := dependents{removed: map[model.ID]bool{}, addrs: map[netip.Addr]bool{}}
 	var members []model.Entity
+	for _, c := range deniedClusters {
+		members = append(members, d.removeClusterContents(g, c)...)
+	}
 	for _, ns := range deniedNamespaces {
 		members = append(members, d.removeNamespaceMembers(g, ns)...)
 	}
@@ -215,8 +219,10 @@ func newDependents(g *model.Graph, denied map[model.ID]model.Entity, deniedIPs, 
 
 // removeNamespaceMembers marks the workloads, services and ingresses of a
 // denied namespace as removed: through their member_of relation and, for
-// objects of the same source, through the namespace in their key. It returns
-// the members it marked.
+// objects of the same source, through the cluster and namespace in their key.
+// A rule on a namespace name denies the namespace of that name in every
+// cluster, so its members go in every cluster too. It returns the members it
+// marked.
 func (d dependents) removeNamespaceMembers(g *model.Graph, ns model.Entity) []model.Entity {
 	var members []model.Entity
 	mark := func(e model.Entity) {
@@ -240,9 +246,57 @@ func (d dependents) removeNamespaceMembers(g *model.Graph, ns model.Entity) []mo
 				continue
 			}
 			if _, _, key, err := model.ParseID(e.ID); err == nil {
-				if keyNS, found := namespaceFromKey(kind, key); found && keyNS == nsKey {
+				if keyNS, found := namespaceKeyFromKey(kind, key); found && keyNS == nsKey {
 					mark(e)
 				}
+			}
+		}
+	}
+	return members
+}
+
+// removeClusterContents marks the namespaces of a denied cluster and their
+// workloads, services and ingresses as removed, so nothing outlives its parent:
+// through member_of relations and, for objects of the same source, through
+// the cluster in their key. It returns the workloads, services and ingresses
+// it marked; a namespace name is no value to scrub from free text.
+func (d dependents) removeClusterContents(g *model.Graph, cluster model.Entity) []model.Entity {
+	_, _, clusterKey, err := model.ParseID(cluster.ID)
+	if err != nil {
+		return nil
+	}
+	inCluster := func(e model.Entity) bool {
+		if e.Source != cluster.Source {
+			return false
+		}
+		_, _, key, err := model.ParseID(e.ID)
+		if err != nil {
+			return false
+		}
+		parts, ok := splitKubernetesKey(e.Kind, key)
+		return ok && parts[0] == clusterKey
+	}
+	var namespaces []model.Entity
+	for _, ns := range g.ByKind(model.KindNamespace) {
+		if inCluster(ns) {
+			namespaces = append(namespaces, ns)
+		}
+	}
+	for _, ns := range memberSources(g, cluster.ID, model.KindNamespace) {
+		if !inCluster(ns) {
+			namespaces = append(namespaces, ns)
+		}
+	}
+	var members []model.Entity
+	for _, ns := range namespaces {
+		d.removed[ns.ID] = true
+		members = append(members, d.removeNamespaceMembers(g, ns)...)
+	}
+	for _, kind := range []model.Kind{model.KindWorkload, model.KindService, model.KindIngress} {
+		for _, e := range g.ByKind(kind) {
+			if !d.removed[e.ID] && inCluster(e) {
+				d.removed[e.ID] = true
+				members = append(members, e)
 			}
 		}
 	}
@@ -266,7 +320,10 @@ func (d *dependents) addMemberValues(g *model.Graph, members []model.Entity, den
 	for _, m := range members {
 		var names []string
 		if _, _, key, err := model.ParseID(m.ID); err == nil {
-			ns, _ := namespaceFromKey(m.Kind, key)
+			ns, found := namespaceFromKey(m.Kind, key)
+			if !found {
+				ns = m.Labels[LabelNamespace]
+			}
 			name := key[strings.LastIndex(key, "/")+1:]
 			names = append(names, m.Name)
 			if len(name) >= minShortNameLen {

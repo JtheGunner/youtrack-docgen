@@ -4,26 +4,33 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"regexp"
 	"slices"
 )
 
 // PathSource is one entry of the kubernetes collector's "paths" setting: a
-// file or directory of manifests and, optionally, the repository they come
-// from.
+// file or directory of manifests, the cluster they describe and, optionally,
+// the repository they come from.
 type PathSource struct {
 	Path string
+	// Cluster names the cluster the objects read from Path belong to. It is
+	// non-empty and consists of lowercase letters, digits, '.', '_' and '-',
+	// starting and ending with a letter or digit.
+	Cluster string
 	// RepoURL is the http(s) URL of the repository. Empty means no repository
 	// link is shown for the objects read from Path.
 	RepoURL string
 }
 
 var (
-	errPathSources = errors.New("must be a non-empty list of paths or maps with \"path\" and an optional \"repo_url\"")
-	errPathEntry   = errors.New("must be a non-empty path or a map with \"path\" and an optional \"repo_url\"")
+	errPathSources = errors.New("must be a non-empty list of maps with \"path\", \"cluster\" and an optional \"repo_url\"")
+	errPathEntry   = errors.New("must be a map with \"path\", \"cluster\" and an optional \"repo_url\"")
+	errCluster     = errors.New("cluster must be a name of lowercase letters, digits, '.', '_' or '-' that starts and ends with a letter or digit")
+	clusterName    = regexp.MustCompile(`^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$`)
 )
 
-// ParsePathSources reads the value of a "paths" setting. An entry is either a
-// plain path or a map with the keys path (required) and repo_url (optional).
+// ParsePathSources reads the value of a "paths" setting. Every entry is a map
+// with the keys path and cluster (both required) and repo_url (optional).
 // Errors never contain the offending values: they may come from the
 // environment.
 func ParsePathSources(raw any) ([]PathSource, error) {
@@ -43,26 +50,28 @@ func ParsePathSources(raw any) ([]PathSource, error) {
 }
 
 func parsePathSource(item any) (PathSource, error) {
-	if p, ok := item.(string); ok {
-		if p == "" {
-			return PathSource{}, errors.New("path must not be empty")
-		}
-		return PathSource{Path: p}, nil
-	}
 	m, ok := item.(map[string]any)
 	if !ok {
 		return PathSource{}, errPathEntry
 	}
 	for _, key := range slices.Sorted(maps.Keys(m)) {
-		if key != "path" && key != "repo_url" {
-			return PathSource{}, fmt.Errorf("unknown key %q; only \"path\" and \"repo_url\" are allowed", key)
+		if key != "path" && key != "cluster" && key != "repo_url" {
+			return PathSource{}, fmt.Errorf("unknown key %q; only \"path\", \"cluster\" and \"repo_url\" are allowed", key)
 		}
 	}
 	path, ok := m["path"].(string)
 	if !ok || path == "" {
 		return PathSource{}, errors.New("path must be a non-empty string")
 	}
-	src := PathSource{Path: path}
+	rawCluster, present := m["cluster"]
+	if !present {
+		return PathSource{}, errors.New("cluster is required")
+	}
+	cluster, ok := rawCluster.(string)
+	if !ok || !clusterName.MatchString(cluster) {
+		return PathSource{}, errCluster
+	}
+	src := PathSource{Path: path, Cluster: cluster}
 	if raw, present := m["repo_url"]; present {
 		u, ok := raw.(string)
 		if !ok || !validURL(u) {

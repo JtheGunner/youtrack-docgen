@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -152,6 +153,8 @@ type parsed struct {
 	origin          string
 	// repoURL is the repository of the configured path the object was read from.
 	repoURL string
+	// cluster is the cluster of the configured path the object was read from.
+	cluster string
 }
 
 // supportedKind reports whether the spec of kind is decoded. Every other kind
@@ -181,25 +184,28 @@ func (r *reporter) skipped(msg string) {
 // readObjects reads every path. Files and documents that cannot be decoded and
 // duplicate objects are skipped with a warning; only I/O failures abort. Every
 // skip that may hide an object is also recorded in r.incomplete. When
-// the same object (kind, namespace, name) appears more than once, the first
-// one in path order and lexical file order wins.
-func readObjects(ctx context.Context, paths []config.PathSource, r *reporter) ([]parsed, error) {
+// the same object (cluster, kind, namespace, name; nodes by name alone)
+// appears more than once, the first one in path order and lexical file order
+// wins. It also returns, in path order, the clusters at least one of whose
+// paths held an object.
+func readObjects(ctx context.Context, paths []config.PathSource, r *reporter) ([]parsed, []string, error) {
 	var out []parsed
+	var clusters []string
 	seen := map[string]string{}
 	for _, src := range paths {
 		root := src.Path
 		files, err := manifestFiles(root)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		found := 0
 		for _, f := range files {
 			if err := ctx.Err(); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			objs, err := readFile(f, r)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			found += len(objs)
 			for _, o := range objs {
@@ -208,24 +214,33 @@ func readObjects(ctx context.Context, paths []config.PathSource, r *reporter) ([
 					continue
 				}
 				key := identity(o)
-				if first, dup := seen[key]; dup {
-					r.warn(fmt.Sprintf("%s: duplicate %s ignored, first defined in %s", o.origin, key, first))
+				scoped, label := key, key
+				if o.Kind != "Node" {
+					scoped = src.Cluster + " " + key
+					label = key + " in cluster " + src.Cluster
+				}
+				if first, dup := seen[scoped]; dup {
+					r.warn(fmt.Sprintf("%s: duplicate %s ignored, first defined in %s", o.origin, label, first))
 					continue
 				}
 				o.repoURL = src.RepoURL
-				seen[key] = o.origin
+				o.cluster = src.Cluster
+				seen[scoped] = o.origin
 				out = append(out, o)
 			}
 		}
 		if found == 0 {
 			r.skipped(fmt.Sprintf("%s: no Kubernetes objects found", root))
+		} else if !slices.Contains(clusters, src.Cluster) {
+			clusters = append(clusters, src.Cluster)
 		}
 	}
-	return out, nil
+	return out, clusters, nil
 }
 
-// identity is the duplicate key of an object. Namespaces and nodes are
-// cluster-scoped, everything else lives in a namespace.
+// identity is the duplicate key of an object within one cluster. Namespaces
+// and nodes are cluster-scoped, everything else lives in a namespace. Nodes are
+// machines and keep one identity across clusters.
 func identity(o parsed) string {
 	if o.Kind == "Namespace" || o.Kind == "Node" {
 		return o.Kind + " " + o.Metadata.Name

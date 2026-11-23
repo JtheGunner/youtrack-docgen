@@ -65,6 +65,9 @@ func (f *Filter) ApplyWithReport(g *model.Graph) (*model.Graph, Report, error) {
 	out := model.NewGraph()
 	report := Report{}
 	references, deps := f.settleReferences(g)
+	for id := range f.parentClusters(g, references, deps) {
+		references[id] = true
+	}
 	for _, kind := range allKinds {
 		for _, e := range g.ByKind(kind) {
 			rules := f.rules[e.Source]
@@ -117,6 +120,45 @@ func (f *Filter) deniedByRules(g *model.Graph, kind model.Kind, references map[m
 	return denied
 }
 
+// deniedClusters returns the clusters that are removed whatever their
+// namespaces do: a deny rule matches them or the redactor would change their
+// identity. Their namespaces and members go with them. Like DecideID, only the
+// clusters of the kubernetes source get this cascade.
+func (f *Filter) deniedClusters(g *model.Graph) []model.Entity {
+	var denied []model.Entity
+	for _, c := range g.ByKind(model.KindCluster) {
+		if c.Source != kubernetesSource {
+			continue
+		}
+		if f.rules[c.Source].denies(c) || f.redactor.IdentityChanged(c) {
+			denied = append(denied, c)
+		}
+	}
+	return denied
+}
+
+// parentClusters returns the clusters that a surviving namespace is a
+// member_of. They stay although no allow rule matches them, so a namespace
+// never loses its parent; a deny rule still wins over them. Only clusters of
+// the kubernetes source are kept this way.
+func (f *Filter) parentClusters(g *model.Graph, references map[model.ID]bool, deps dependents) map[model.ID]bool {
+	parents := map[model.ID]bool{}
+	survives := func(ns model.Entity) bool {
+		rules := f.rules[ns.Source]
+		return !rules.denies(ns) && (rules.allows(ns) || references[ns.ID]) &&
+			!deps.removed[ns.ID] && !deps.namesDeniedValue(ns) && !f.redactor.IdentityChanged(ns)
+	}
+	for _, c := range g.ByKind(model.KindCluster) {
+		if c.Source != kubernetesSource || f.rules[c.Source].denies(c) {
+			continue
+		}
+		if slices.ContainsFunc(memberSources(g, c.ID, model.KindNamespace), survives) {
+			parents[c.ID] = true
+		}
+	}
+	return parents
+}
+
 // settleReferences computes the allowed-host references together with the
 // dependents of the denied entities. Whether a host, interface or IP survives depends on those
 // dependents, and the dependents depend on which IPs are references, so it
@@ -124,9 +166,10 @@ func (f *Filter) deniedByRules(g *model.Graph, kind model.Kind, references map[m
 // removes (and what hangs below removed interfaces and IPs) until nothing changes. The set only shrinks, so this terminates.
 func (f *Filter) settleReferences(g *model.Graph) (map[model.ID]bool, dependents) {
 	deniedHosts := f.deniedHosts(g)
+	deniedClusters := f.deniedClusters(g)
 	references := f.allowedReferences(g, func(model.Entity) bool { return true })
 	for {
-		deps := newDependents(g, deniedHosts, f.deniedByRules(g, model.KindIPAddress, references), f.deniedByRules(g, model.KindNamespace, references))
+		deps := newDependents(g, deniedHosts, f.deniedByRules(g, model.KindIPAddress, references), f.deniedByRules(g, model.KindNamespace, references), deniedClusters)
 		next := f.allowedReferences(g, func(e model.Entity) bool {
 			return !deps.removed[e.ID] && !deps.namesDeniedValue(e) && !f.redactor.IdentityChanged(e)
 		})

@@ -8,11 +8,11 @@ import (
 
 // withKubernetes replaces the kubernetes collector block of validYAML.
 func withKubernetes(block string) string {
-	return strings.Replace(validYAML, "  kubernetes:\n    paths: [./kubernetes-config, ./gitops]", "  kubernetes:\n"+block, 1)
+	return strings.Replace(validYAML, "  kubernetes:\n    paths: [{path: ./kubernetes-config, cluster: prod}, {path: ./gitops, cluster: prod}]", "  kubernetes:\n"+block, 1)
 }
 
 func TestParseRejectsIneffectiveConfig(t *testing.T) {
-	const paths = "    paths: [./k8s]\n"
+	const paths = "    paths: [{path: ./k8s, cluster: prod}]\n"
 	tests := []struct {
 		name string
 		yaml string
@@ -21,7 +21,7 @@ func TestParseRejectsIneffectiveConfig(t *testing.T) {
 		{
 			name: "unknown kind names the valid ones",
 			yaml: withKubernetes(paths + "    deny:\n      - kinds: [Deployment]\n"),
-			want: []string{`collectors.kubernetes.deny[0]: kinds: "Deployment" matches no kind`, "host, ingress, namespace, service, workload"},
+			want: []string{`collectors.kubernetes.deny[0]: kinds: "Deployment" matches no kind`, "cluster, host, ingress, namespace, service, workload"},
 		},
 		{
 			name: "kind of another collector",
@@ -100,7 +100,10 @@ collectors:
   kubernetes:
     paths:
       - path: ./gitops
+        cluster: prod
         repo_url: https://git.example.com/ops/gitops
+    allow:
+      - kinds: [cluster]
     deny:
       - kinds: [workload]
         namespaces: [kube-*]

@@ -27,7 +27,7 @@ collectors:
       - kinds: [host]
         tenants: [lab]
   kubernetes:
-    paths: [./kubernetes-config, ./gitops]
+    paths: [{path: ./kubernetes-config, cluster: prod}, {path: ./gitops, cluster: prod}]
 sinks:
   youtrack:
     root_article: Infrastructure
@@ -139,7 +139,7 @@ collectors:
   netbox:
     enabled: false
   kubernetes:
-    paths: [./k8s]
+    paths: [{path: ./k8s, cluster: prod}]
 sinks:
   markdown:
     dir: ./out
@@ -208,7 +208,7 @@ func TestParseExpandsBooleansAndIgnoresComments(t *testing.T) {
 collectors:
   kubernetes:
     enabled: ${K8S_ENABLED:-true}
-    paths: [./k8s]
+    paths: [{path: ./k8s, cluster: prod}]
 sinks:
   markdown:
     dir: ./out # ${NOT_SET_BUT_COMMENTED}
@@ -311,12 +311,12 @@ func TestParseInvalid(t *testing.T) {
 		},
 		{
 			name: "no enabled sink",
-			yaml: "collectors:\n  kubernetes:\n    paths: [./k8s]\n",
+			yaml: "collectors:\n  kubernetes:\n    paths: [{path: ./k8s, cluster: prod}]\n",
 			want: []string{"at least one sink must be enabled"},
 		},
 		{
 			name: "invalid module name",
-			yaml: "collectors:\n  Net Box:\n    paths: [./k8s]\nsinks:\n  markdown:\n    dir: ./out\n",
+			yaml: "collectors:\n  Net Box:\n    paths: [{path: ./k8s, cluster: prod}]\nsinks:\n  markdown:\n    dir: ./out\n",
 			want: []string{`collectors."Net Box": invalid module name`},
 		},
 		{
@@ -350,13 +350,18 @@ func TestParseInvalid(t *testing.T) {
 			want: []string{"collectors.kubernetes.paths: required"},
 		},
 		{
-			name: "kubernetes paths must be strings",
+			name: "kubernetes paths must be maps",
 			yaml: "collectors:\n  kubernetes:\n    paths: [1, {a: b}]\nsinks:\n  markdown:\n    dir: ./out\n",
-			want: []string{"collectors.kubernetes.paths: entry 1: must be a non-empty path or a map"},
+			want: []string{"collectors.kubernetes.paths: entry 1: must be a map"},
+		},
+		{
+			name: "kubernetes paths need a cluster",
+			yaml: "collectors:\n  kubernetes:\n    paths: [{path: ./k8s}]\nsinks:\n  markdown:\n    dir: ./out\n",
+			want: []string{"collectors.kubernetes.paths: entry 1: cluster is required"},
 		},
 		{
 			name: "markdown sink needs dir",
-			yaml: "collectors:\n  kubernetes:\n    paths: [./k8s]\nsinks:\n  markdown: {}\n",
+			yaml: "collectors:\n  kubernetes:\n    paths: [{path: ./k8s, cluster: prod}]\nsinks:\n  markdown: {}\n",
 			want: []string{"sinks.markdown.dir: required"},
 		},
 		{

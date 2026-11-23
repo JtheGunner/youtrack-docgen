@@ -79,7 +79,7 @@ collectors:
     url: %s
     token: ${NETBOX_TOKEN}
   kubernetes:
-    paths: [%s, %s, %s]
+    paths: [{path: %s, cluster: test}, {path: %s, cluster: test}, {path: %s, cluster: test}]
 sinks:
   markdown:
     dir: %s
@@ -115,14 +115,14 @@ sinks:
 	}
 	relations := graph.Relations()
 	want := []model.Relation{
-		{From: "kubernetes:workload:shop/deployment/api", To: netboxNode, Kind: model.RelRunsOn},
-		{From: netboxNode, To: "kubernetes:service:shop/edge", Kind: model.RelExposes},
-		{From: netboxShop, To: "kubernetes:ingress:shop/web", Kind: model.RelExposes},
+		{From: "kubernetes:workload:test/shop/deployment/api", To: netboxNode, Kind: model.RelRunsOn},
+		{From: netboxNode, To: "kubernetes:service:test/shop/edge", Kind: model.RelExposes},
+		{From: netboxShop, To: "kubernetes:ingress:test/shop/web", Kind: model.RelExposes},
 		// short node name, fully qualified NetBox name
 		{From: "kubernetes:host:web01", To: netboxWeb, Kind: model.RelSameAs},
-		{From: "kubernetes:workload:shop/deployment/report", To: netboxWeb, Kind: model.RelRunsOn},
+		{From: "kubernetes:workload:test/shop/deployment/report", To: netboxWeb, Kind: model.RelRunsOn},
 		// load balancer IP
-		{From: netboxLB, To: "kubernetes:service:shop/lb", Kind: model.RelExposes},
+		{From: netboxLB, To: "kubernetes:service:test/shop/lb", Kind: model.RelExposes},
 	}
 	for _, rel := range want {
 		if !slices.Contains(relations, rel) {
@@ -142,10 +142,10 @@ sinks:
 		}
 	}
 	for _, rel := range relations {
-		if rel.From == "kubernetes:workload:shop/deployment/worker" && rel.Kind == model.RelRunsOn {
+		if rel.From == "kubernetes:workload:test/shop/deployment/worker" && rel.Kind == model.RelRunsOn {
 			t.Errorf("an unpinned workload must not be placed on a host: %+v", rel)
 		}
-		if rel.Kind == model.RelRunsOn && rel.From == "kubernetes:workload:shop/deployment/batch" &&
+		if rel.Kind == model.RelRunsOn && rel.From == "kubernetes:workload:test/shop/deployment/batch" &&
 			strings.HasPrefix(string(rel.To), "netbox:") {
 			t.Errorf("workload pinned to the unmatched node-ghost must not run on a NetBox host: %+v", rel)
 		}
@@ -166,7 +166,7 @@ collectors:
     url: %s
     token: ${NETBOX_TOKEN}
   kubernetes:
-    paths: [%s, %s]
+    paths: [{path: %s, cluster: test}, {path: %s, cluster: test}]
 sinks:
   markdown:
     dir: %s

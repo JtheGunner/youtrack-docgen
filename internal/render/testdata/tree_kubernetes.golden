@@ -1,0 +1,249 @@
+<!-- document overview:root -->
+# Infrastructure documentation
+
+## Contents
+
+- VLANs
+- IP allocation
+- Services
+- Network diagram
+- node1
+- alpha
+- beta
+
+## Generated
+
+Generated at 2025-01-02T03:04:05Z from kubernetes.
+
+<!-- document overview:vlans -->
+# VLANs
+
+## VLANs
+
+No networks are known.
+
+## Generated
+
+Generated at 2025-01-02T03:04:05Z from no sources.
+
+<!-- document overview:ip-allocation -->
+# IP allocation
+
+## IP allocation
+
+| IP address | Host | Interface | Kind | Network | Source |
+| --- | --- | --- | --- | --- | --- |
+| 10.96.0.20 | web-svc | - | service | - | kubernetes |
+| 192.0.2.11 | node1 | - | host | - | kubernetes |
+
+## Generated
+
+Generated at 2025-01-02T03:04:05Z from kubernetes.
+
+<!-- document overview:services -->
+# Services
+
+## Services
+
+| Service | Runs on | Addresses | Source |
+| --- | --- | --- | --- |
+| web-svc | - | 10.96.0.20 | kubernetes |
+
+## Service diagrams
+
+web-svc \(kubernetes\)
+
+- web-ing routes\_to web-svc
+- web-svc member\_of shop
+- web-svc routes\_to web
+
+## Generated
+
+Generated at 2025-01-02T03:04:05Z from kubernetes.
+
+<!-- document overview:network-diagram -->
+# Network diagram
+
+## Network diagram
+
+No network prefixes are known, so the diagram shows the IP addresses of each host.
+
+- node1 - 192.0.2.11
+
+## Generated
+
+Generated at 2025-01-02T03:04:05Z from kubernetes.
+
+<!-- document kubernetes:host:node1 -->
+# node1
+
+## Summary
+
+- Hostname: node1
+- IP addresses: 192.0.2.11
+- Source: kubernetes
+
+## Network
+
+| IP address | Network | VLAN |
+| --- | --- | --- |
+| 192.0.2.11 | - | - |
+
+## Diagram
+
+- web runs\_on node1
+
+## Runs here
+
+| Name | Kind | Addresses | Source |
+| --- | --- | --- | --- |
+| web | workload | - | kubernetes |
+
+## Depends on
+
+Not known: no source reports what this host depends on.
+
+## Needed by
+
+Not known: no source reports anything that depends on this host.
+
+## Links
+
+No links are known.
+
+## Generated
+
+Generated at 2025-01-02T03:04:05Z from kubernetes.
+
+<!-- document kubernetes:cluster:alpha -->
+# alpha
+
+## Summary
+
+- Cluster: alpha
+- Source: kubernetes
+
+## Namespaces
+
+| Namespace | Workloads | Services | Ingresses |
+| --- | --- | --- | --- |
+| empty | 0 | 0 | 0 |
+| shop | 1 | 1 | 1 |
+
+## Generated
+
+Generated at 2025-01-02T03:04:05Z from kubernetes.
+
+<!-- document kubernetes:namespace:alpha/empty -->
+# empty
+
+## Summary
+
+- Cluster: alpha
+- Namespace: empty
+- Source: kubernetes
+
+## Workloads
+
+No workloads are known.
+
+## Services
+
+No services are known.
+
+## Ingresses
+
+No ingresses are known.
+
+## Links
+
+No links are known.
+
+## Generated
+
+Generated at 2025-01-02T03:04:05Z from kubernetes.
+
+<!-- document kubernetes:namespace:alpha/shop -->
+# shop
+
+## Summary
+
+- Cluster: alpha
+- Namespace: shop
+- Source: kubernetes
+
+## Workloads
+
+| Name | Kind | Replicas | Images | Runs on |
+| --- | --- | --- | --- | --- |
+| web | Deployment | 3 | registry.example.com/shop/web:1.4.0 | node1 |
+
+## Services
+
+| Name | Type | Ports | Addresses | Routes to |
+| --- | --- | --- | --- | --- |
+| web-svc | ClusterIP | 80/TCP-&gt;8080 | 10.96.0.20 | web |
+
+## Ingresses
+
+| Name | Hosts | Routes to |
+| --- | --- | --- |
+| web-ing | shop.example.com, www.example.com | web-svc |
+
+## Links
+
+- Repository for kubernetes: https://git.example.com/shop/manifests
+
+## Generated
+
+Generated at 2025-01-02T03:04:05Z from kubernetes.
+
+<!-- document kubernetes:cluster:beta -->
+# beta
+
+## Summary
+
+- Cluster: beta
+- Source: kubernetes
+
+## Namespaces
+
+| Namespace | Workloads | Services | Ingresses |
+| --- | --- | --- | --- |
+| shop | 1 | 0 | 0 |
+
+## Generated
+
+Generated at 2025-01-02T03:04:05Z from kubernetes.
+
+<!-- document kubernetes:namespace:beta/shop -->
+# shop
+
+## Summary
+
+- Cluster: beta
+- Namespace: shop
+- Source: kubernetes
+
+## Workloads
+
+| Name | Kind | Replicas | Images | Runs on |
+| --- | --- | --- | --- | --- |
+| nightly | CronJob | - | - | - |
+
+## Services
+
+No services are known.
+
+## Ingresses
+
+No ingresses are known.
+
+## Links
+
+No links are known.
+
+## Generated
+
+Generated at 2025-01-02T03:04:05Z from kubernetes.
+

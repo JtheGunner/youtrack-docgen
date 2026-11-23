@@ -67,7 +67,7 @@ collectors:
     deny:
       - tags: [lab]
   kubernetes:
-    paths: [%s, %s, %s]
+    paths: [{path: %s, cluster: test}, {path: %s, cluster: test}, {path: %s, cluster: test}]
 sinks:
   markdown:
     dir: %s
@@ -137,7 +137,7 @@ collectors:
     deny:
       - tags: [lab]
   kubernetes:
-    paths: [%s, %s, %s, %s]
+    paths: [{path: %s, cluster: test}, {path: %s, cluster: test}, {path: %s, cluster: test}, {path: %s, cluster: test}]
 sinks:
   markdown:
     dir: %s

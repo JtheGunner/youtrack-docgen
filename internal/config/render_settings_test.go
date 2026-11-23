@@ -1,6 +1,7 @@
 package config
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -43,8 +44,8 @@ func TestParseDiagramsInvalid(t *testing.T) {
 	}
 }
 
-func TestParseKubernetesPathsWithRepoURL(t *testing.T) {
-	const kube = "collectors:\n  kubernetes:\n    paths:\n      - ./plain\n      - path: ./gitops\n        repo_url: https://git.example.com/ops/gitops\nsinks:\n  markdown:\n    dir: ./out\n"
+func TestParseKubernetesPathsWithCluster(t *testing.T) {
+	const kube = "collectors:\n  kubernetes:\n    paths:\n      - {path: ./plain, cluster: prod-1}\n      - path: ./gitops\n        cluster: prod-1\n        repo_url: https://git.example.com/ops/gitops\n      - {path: ./other, cluster: staging.eu_1}\nsinks:\n  markdown:\n    dir: ./out\n"
 	cfg, err := Parse([]byte(kube), envMap(nil))
 	if err != nil {
 		t.Fatalf("Parse() error = %v", err)
@@ -53,8 +54,12 @@ func TestParseKubernetesPathsWithRepoURL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []PathSource{{Path: "./plain"}, {Path: "./gitops", RepoURL: "https://git.example.com/ops/gitops"}}
-	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+	want := []PathSource{
+		{Path: "./plain", Cluster: "prod-1"},
+		{Path: "./gitops", Cluster: "prod-1", RepoURL: "https://git.example.com/ops/gitops"},
+		{Path: "./other", Cluster: "staging.eu_1"},
+	}
+	if !slices.Equal(got, want) {
 		t.Errorf("paths = %+v, want %+v", got, want)
 	}
 }
@@ -63,10 +68,12 @@ func TestParseKubernetesPathsInvalid(t *testing.T) {
 	tests := []struct {
 		name, paths, want string
 	}{
-		{"missing path", "[{repo_url: 'https://git.example.com/x'}]", "collectors.kubernetes.paths: entry 1: path must be a non-empty string"},
-		{"unknown key", "[{path: ./a, repo: 'https://git.example.com/x'}]", "unknown key \"repo\""},
-		{"repo url without scheme", "[{path: ./a, repo_url: git.example.com/x}]", "repo_url: must be an http(s) URL with a host"},
-		{"ssh url", "[{path: ./a, repo_url: 'git@git.example.com:ops/x.git'}]", "repo_url: must be an http(s) URL with a host"},
+		{"missing path", "[{cluster: prod, repo_url: 'https://git.example.com/x'}]", "collectors.kubernetes.paths: entry 1: path must be a non-empty string"},
+		{"missing cluster", "[{path: ./a}]", "collectors.kubernetes.paths: entry 1: cluster is required"},
+		{"plain string entry", "[./a]", "collectors.kubernetes.paths: entry 1: must be a map"},
+		{"unknown key", "[{path: ./a, cluster: prod, repo: 'https://git.example.com/x'}]", "unknown key \"repo\""},
+		{"repo url without scheme", "[{path: ./a, cluster: prod, repo_url: git.example.com/x}]", "repo_url: must be an http(s) URL with a host"},
+		{"ssh url", "[{path: ./a, cluster: prod, repo_url: 'git@git.example.com:ops/x.git'}]", "repo_url: must be an http(s) URL with a host"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -76,5 +83,30 @@ func TestParseKubernetesPathsInvalid(t *testing.T) {
 				t.Errorf("Parse() error = %v, want it to mention %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestParsePathSourcesRejectsInvalidClusterWithoutEchoingIt(t *testing.T) {
+	for _, cluster := range []string{"", "Prod", "a:b", "a/b", "a b", "-a", "a-", "C0RP-SECRET"} {
+		t.Run(cluster, func(t *testing.T) {
+			_, err := ParsePathSources([]any{map[string]any{"path": "./a", "cluster": cluster}})
+			if err == nil || !strings.Contains(err.Error(), "cluster") {
+				t.Fatalf("ParsePathSources() error = %v, want a cluster error", err)
+			}
+			if cluster != "" && strings.Contains(err.Error(), cluster) {
+				t.Errorf("error %q echoes the cluster value", err)
+			}
+		})
+	}
+	_, err := ParsePathSources([]any{map[string]any{"path": "./a", "cluster": 7}})
+	if err == nil || !strings.Contains(err.Error(), "cluster") {
+		t.Errorf("non-string cluster: error = %v", err)
+	}
+}
+
+func TestParsePathSourcesDoesNotEchoPlainStringEntry(t *testing.T) {
+	_, err := ParsePathSources([]any{"/secret/env/path"})
+	if err == nil || strings.Contains(err.Error(), "/secret/env/path") {
+		t.Errorf("error = %v, want a rejection that omits the value", err)
 	}
 }

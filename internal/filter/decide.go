@@ -1,6 +1,7 @@
 package filter
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/JtheGunner/youtrack-docgen/internal/model"
@@ -41,7 +42,13 @@ const kubernetesSource = "kubernetes"
 // them along as references. Hostnames or addresses that a denied host drags
 // along are not considered. An ID whose key the redactor would change is
 // denied. A Kubernetes member (workload, service, ingress) follows the verdict
-// of its namespace.
+// of its namespace, and a namespace or member follows a deny of its cluster.
+// Rules see the plain namespace, never the cluster prefix of the key, so a
+// namespace rule decides that namespace in every cluster. A Kubernetes cluster
+// lives in no namespace and follows kind rules only; Apply keeps it as the
+// parent of a surviving namespace, so a failed allow match leaves it undecided.
+// A deny rule that may hide one of its namespaces also leaves it undecided,
+// because the cluster article names them.
 func (f *Filter) DecideID(id model.ID) Verdict {
 	source, kind, key, err := model.ParseID(id)
 	if err != nil {
@@ -51,20 +58,88 @@ func (f *Filter) DecideID(id model.ID) Verdict {
 	if source != kubernetesSource || verdict == Denied {
 		return verdict
 	}
+	if kind == model.KindCluster {
+		// The cluster article lists the names of its namespaces and counts
+		// their members. If it was not regenerated, a rule that may hide one of
+		// them could leave a denied name in it, and so could an allow list
+		// that may leave out a namespace.
+		if rules := f.rules[source]; mayDenyClusterContent(rules) || mayExcludeNamespace(rules) {
+			return worse(verdict, Undecidable)
+		}
+		return verdict
+	}
+	parts, found := splitKubernetesKey(kind, key)
+	if !found {
+		// A key that does not split (such as one of the format before
+		// clusters) names no cluster. Whether a cluster deny removes it
+		// cannot be told, so such a rule leaves it undecided.
+		if _, clusterScoped := kubernetesKeySegments[kind]; clusterScoped && f.decideClusterDeny(source, "") != Permitted {
+			return worse(verdict, Undecidable)
+		}
+		return verdict
+	}
+	// Apply removes the namespaces and members of a denied cluster with it. A
+	// failed allow match of the cluster does not matter here: the cluster stays
+	// whenever this namespace does.
+	verdict = worse(verdict, f.decideClusterDeny(source, parts[0]))
+	if kind == model.KindNamespace {
+		return verdict
+	}
 	// Apply removes the members of a denied namespace with it, so an ID that
 	// names a member is denied when its namespace is, and undecided when the
 	// namespace is.
-	ns, found := namespaceFromKey(kind, key)
-	if !found || kind == model.KindNamespace {
-		return verdict
-	}
-	switch f.decideKey(source, model.KindNamespace, ns) {
-	case Denied:
+	return worse(verdict, f.decideKey(source, model.KindNamespace, parts[0]+"/"+parts[1]))
+}
+
+// decideClusterDeny reports whether Apply removes the cluster with this key
+// whatever its namespaces do: by a deny rule or because the redactor would
+// change its key. Allow rules are not checked.
+func (f *Filter) decideClusterDeny(source, cluster string) Verdict {
+	if f.redactor.Text(cluster) != cluster {
 		return Denied
-	case Undecidable:
+	}
+	switch anyMatch(f.rules[source].Deny, knownFields{kind: string(model.KindCluster), hasNamespace: true}) {
+	case triTrue:
+		return Denied
+	case triUnknown:
 		return Undecidable
 	}
-	return verdict
+	return Permitted
+}
+
+// mayDenyClusterContent reports whether a deny rule may remove a namespace or
+// change what a cluster article shows of its namespaces: a rule with
+// namespaces or labels, or one whose kinds match the namespace kind.
+func mayDenyClusterContent(rules Rules) bool {
+	return slices.ContainsFunc(rules.Deny, func(m Match) bool {
+		return len(m.Namespaces) > 0 || len(m.Labels) > 0 ||
+			(len(m.Kinds) > 0 && anyGlob(m.Kinds, string(model.KindNamespace)))
+	})
+}
+
+// mayExcludeNamespace reports whether the allow rules may leave out a
+// namespace: there are allow rules and none of them admits every namespace
+// unconditionally (a namespace kind and no other constraint).
+func mayExcludeNamespace(rules Rules) bool {
+	if len(rules.Allow) == 0 {
+		return false
+	}
+	return !slices.ContainsFunc(rules.Allow, func(m Match) bool {
+		return len(m.Kinds) > 0 && anyGlob(m.Kinds, string(model.KindNamespace)) &&
+			len(m.Namespaces)+len(m.Labels)+len(m.Tags)+len(m.Roles)+len(m.Tenants) == 0
+	})
+}
+
+// worse returns the stricter of two verdicts: Denied over Undecidable over
+// Permitted.
+func worse(a, b Verdict) Verdict {
+	switch {
+	case a == Denied || b == Denied:
+		return Denied
+	case a == Undecidable || b == Undecidable:
+		return Undecidable
+	}
+	return Permitted
 }
 
 // decideKey checks the rules against the fields the ID parts carry.
@@ -76,7 +151,12 @@ func (f *Filter) decideKey(source string, kind model.Kind, key string) Verdict {
 	}
 	rules := f.rules[source]
 	known := knownFields{kind: string(kind)}
-	if source == kubernetesSource {
+	switch {
+	case source == kubernetesSource && kind == model.KindCluster:
+		// A cluster lives in no namespace: like Apply, a namespace rule sees
+		// the empty namespace, so only kind rules decide it.
+		known.hasNamespace = true
+	case source == kubernetesSource:
 		known.namespace, known.hasNamespace = namespaceFromKey(kind, key)
 	}
 	deny := anyMatch(rules.Deny, known)
@@ -84,10 +164,12 @@ func (f *Filter) decideKey(source string, kind model.Kind, key string) Verdict {
 	if len(rules.Allow) > 0 {
 		allow = anyMatch(rules.Allow, known)
 	}
-	// Apply admits these kinds as references of an allowed host although no
+	// Apply admits these kinds as references of an allowed host, and a
+	// Kubernetes cluster as the parent of a surviving namespace, although no
 	// allow rule matches them. An ID cannot tell, so a failed allow match is
 	// undecided; only a deny rule denies them for certain.
-	if allow == triFalse && deny != triTrue && isReferenceKind(kind) {
+	isParentCluster := source == kubernetesSource && kind == model.KindCluster
+	if allow == triFalse && deny != triTrue && (isReferenceKind(kind) || isParentCluster) {
 		allow = triUnknown
 	}
 	switch {
@@ -116,16 +198,50 @@ type knownFields struct {
 	hasNamespace bool
 }
 
-// namespaceFromKey returns the namespace a Kubernetes key names.
-func namespaceFromKey(kind model.Kind, key string) (string, bool) {
-	switch kind {
-	case model.KindNamespace:
-		return key, true
-	case model.KindWorkload, model.KindService, model.KindIngress:
-		ns, _, found := strings.Cut(key, "/")
-		return ns, found
+// kubernetesKeySegments is the number of "/"-separated segments of each
+// cluster-scoped Kubernetes key: cluster/namespace, cluster/namespace/kind/name
+// and cluster/namespace/name.
+var kubernetesKeySegments = map[model.Kind]int{
+	model.KindNamespace: 2,
+	model.KindWorkload:  4,
+	model.KindService:   3,
+	model.KindIngress:   3,
+}
+
+// splitKubernetesKey returns the segments of a cluster-scoped Kubernetes key.
+// A key with the wrong number of segments or an empty one is not split, so a
+// key that may be ambiguous never names a namespace.
+func splitKubernetesKey(kind model.Kind, key string) ([]string, bool) {
+	want, ok := kubernetesKeySegments[kind]
+	if !ok {
+		return nil, false
 	}
-	return "", false
+	parts := strings.Split(key, "/")
+	if len(parts) != want || slices.Contains(parts, "") {
+		return nil, false
+	}
+	return parts, true
+}
+
+// namespaceFromKey returns the plain namespace a Kubernetes key names, without
+// its cluster. Rules match the plain namespace, so a namespace rule decides the
+// namespace of that name in every cluster.
+func namespaceFromKey(kind model.Kind, key string) (string, bool) {
+	parts, ok := splitKubernetesKey(kind, key)
+	if !ok {
+		return "", false
+	}
+	return parts[1], true
+}
+
+// namespaceKeyFromKey returns the key of the namespace entity a Kubernetes
+// key lives in ("cluster/namespace"), or the key itself for a namespace.
+func namespaceKeyFromKey(kind model.Kind, key string) (string, bool) {
+	parts, ok := splitKubernetesKey(kind, key)
+	if !ok {
+		return "", false
+	}
+	return parts[0] + "/" + parts[1], true
 }
 
 // anyMatch is the OR over the matches; with no match it is false.
