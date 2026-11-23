@@ -144,6 +144,9 @@ func TestRedactorURLCredentialsFailClosed(t *testing.T) {
 		{"surrounding text", "see (https://user:pa/ss@word) and more", "see ([REDACTED] and more"},
 		{"surrounding text without closing", "a https://u1:pw1@h1.example.com/ b", "a [REDACTED] b"},
 		{"two urls", "a https://u1:pw1@h1/ b https://u2:p/w2@h2/ c", "a [REDACTED] b [REDACTED] c"},
+		{"scheme glued to an underscore", "x_https://user:pw@host.example.com/", "x_" + Placeholder},
+		{"scheme glued to a digit", "1https://user:pw@host.example.com/", "1" + Placeholder},
+		{"json escaped slashes", `{"u":"https:\/\/user:pw@host.example.com\/x"}`, `{"u":"` + Placeholder},
 		{"url inside a query string", "https://example.com/?next=ftp://u:pw@h.example.com", "https://example.com/?next=[REDACTED]"},
 	}
 	for _, tt := range redacted {

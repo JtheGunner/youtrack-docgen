@@ -6,7 +6,9 @@ import (
 	"unicode"
 )
 
-var urlSchemeRE = regexp.MustCompile(`\b[A-Za-z][A-Za-z0-9+.-]*://`)
+// The scheme needs no word boundary before it: "x_https://" and "1https://"
+// must not hide credentials. A JSON-escaped "https:\/\/" counts as well.
+var urlSchemeRE = regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.-]*:(?:\\?/){2}`)
 
 // redactURLCredentials replaces every URL that may carry credentials with the
 // placeholder, from its scheme to the end of the whitespace-delimited token.
@@ -23,6 +25,8 @@ var urlSchemeRE = regexp.MustCompile(`\b[A-Za-z][A-Za-z0-9+.-]*://`)
 //     (a port followed by a path containing "@") loses the whole URL.
 //   - A URL without a ":" in its authority ("scheme://user@host/path") has no
 //     password and stays readable.
+//   - A scheme-relative URL ("//user:password@host") has no scheme to find and
+//     is not redacted.
 //   - Unencoded whitespace inside a password ends the token, so only the part
 //     before the whitespace is covered. RFC 3986 requires such characters to be
 //     percent-encoded.
