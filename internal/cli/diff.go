@@ -9,11 +9,12 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/JtheGunner/youtrack-docgen/collector"
 	"github.com/JtheGunner/youtrack-docgen/internal/config"
 	"github.com/JtheGunner/youtrack-docgen/internal/sink/youtrack"
 )
 
-func newDiffCmd(now func() time.Time) *cobra.Command {
+func newDiffCmd(now func() time.Time, factories map[string]collector.Factory) *cobra.Command {
 	var path string
 	var allowMassStale, exitCode bool
 	cmd := &cobra.Command{
@@ -30,7 +31,7 @@ func newDiffCmd(now func() time.Time) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			changed, err := diffYouTrack(cmd.Context(), cfg, runOptions{allowMassStale: allowMassStale}, now(), cmd.OutOrStdout(), cmd.ErrOrStderr())
+			changed, err := diffYouTrack(cmd.Context(), cfg, factories, runOptions{allowMassStale: allowMassStale}, now(), cmd.OutOrStdout(), cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
@@ -49,12 +50,12 @@ func newDiffCmd(now func() time.Time) *cobra.Command {
 
 // diffYouTrack prints the unified diff of every article that would change and
 // a summary line, and reports whether anything would change. It only reads from YouTrack.
-func diffYouTrack(ctx context.Context, cfg *config.Config, opts runOptions, at time.Time, stdout, stderr io.Writer) (changed bool, err error) {
+func diffYouTrack(ctx context.Context, cfg *config.Config, factories map[string]collector.Factory, opts runOptions, at time.Time, stdout, stderr io.Writer) (changed bool, err error) {
 	api, err := newYouTrackClient(cfg)
 	if err != nil {
 		return false, err
 	}
-	b, err := buildDocuments(ctx, cfg, at)
+	b, err := buildDocuments(ctx, cfg, factories, at)
 	if err != nil {
 		return false, err
 	}

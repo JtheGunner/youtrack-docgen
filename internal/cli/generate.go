@@ -10,8 +10,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/JtheGunner/youtrack-docgen/collector"
-	"github.com/JtheGunner/youtrack-docgen/internal/collector/kubernetes"
-	"github.com/JtheGunner/youtrack-docgen/internal/collector/netbox"
 	"github.com/JtheGunner/youtrack-docgen/internal/config"
 	"github.com/JtheGunner/youtrack-docgen/internal/filter"
 	"github.com/JtheGunner/youtrack-docgen/internal/render"
@@ -20,7 +18,7 @@ import (
 	"github.com/JtheGunner/youtrack-docgen/model"
 )
 
-func newGenerateCmd(now func() time.Time) *cobra.Command {
+func newGenerateCmd(now func() time.Time, factories map[string]collector.Factory) *cobra.Command {
 	var path string
 	cmd := &cobra.Command{
 		Use:   "generate",
@@ -34,14 +32,14 @@ func newGenerateCmd(now func() time.Time) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return generate(cmd.Context(), cfg, now(), cmd.OutOrStdout(), cmd.ErrOrStderr())
+			return generate(cmd.Context(), cfg, factories, now(), cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
 	cmd.Flags().StringVarP(&path, "config", "c", defaultConfigPath, "path to the config file")
 	return cmd
 }
 
-func generate(ctx context.Context, cfg *config.Config, at time.Time, stdout, stderr io.Writer) error {
+func generate(ctx context.Context, cfg *config.Config, factories map[string]collector.Factory, at time.Time, stdout, stderr io.Writer) error {
 	sinks, err := buildSinks(cfg, stderr)
 	if err != nil {
 		return err
@@ -49,7 +47,7 @@ func generate(ctx context.Context, cfg *config.Config, at time.Time, stdout, std
 	if len(sinks) == 0 {
 		return errors.New("no sink to write to: enable the markdown sink")
 	}
-	built, err := buildDocuments(ctx, cfg, at)
+	built, err := buildDocuments(ctx, cfg, factories, at)
 	if err != nil {
 		return err
 	}
@@ -107,10 +105,10 @@ func publishableLinkWarnings(warnings []model.LinkWarning, kept map[model.ID]boo
 	return out
 }
 
-// buildDocuments runs collector -> filter -> render and returns the document
-// tree. It writes nothing.
-func buildDocuments(ctx context.Context, cfg *config.Config, at time.Time) (built, error) {
-	collectors, err := buildCollectors(cfg)
+// buildDocuments runs collector -> filter -> render with the collectors built
+// from factories and returns the document tree. It writes nothing.
+func buildDocuments(ctx context.Context, cfg *config.Config, factories map[string]collector.Factory, at time.Time) (built, error) {
+	collectors, err := buildCollectors(cfg, factories)
 	if err != nil {
 		return built{}, err
 	}
@@ -163,29 +161,6 @@ func buildDocuments(ctx context.Context, cfg *config.Config, at time.Time) (buil
 		linkWarnings: publishableLinkWarnings(linkWarnings, kept),
 		filterReport: report,
 	}, nil
-}
-
-func buildCollectors(cfg *config.Config) ([]collector.Collector, error) {
-	var out []collector.Collector
-	for _, name := range cfg.EnabledCollectors() {
-		switch name {
-		case netbox.Source:
-			c, err := netbox.New(cfg.Collectors[name])
-			if err != nil {
-				return nil, err
-			}
-			out = append(out, c)
-		case kubernetes.Source:
-			c, err := kubernetes.New(cfg.Collectors[name])
-			if err != nil {
-				return nil, err
-			}
-			out = append(out, c)
-		default:
-			return nil, fmt.Errorf("collector %q is not supported by generate yet; disable it with enabled: false", name)
-		}
-	}
-	return out, nil
 }
 
 // buildSinks returns the sinks generate can write to. The youtrack sink is

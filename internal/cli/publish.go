@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/JtheGunner/youtrack-docgen/collector"
 	"github.com/JtheGunner/youtrack-docgen/internal/config"
 	"github.com/JtheGunner/youtrack-docgen/internal/diff"
 	"github.com/JtheGunner/youtrack-docgen/internal/filter"
@@ -20,7 +21,7 @@ import (
 
 const youtrackSink = "youtrack"
 
-func newPublishCmd(now func() time.Time) *cobra.Command {
+func newPublishCmd(now func() time.Time, factories map[string]collector.Factory) *cobra.Command {
 	var path string
 	var dryRun, allowMassStale bool
 	cmd := &cobra.Command{
@@ -39,10 +40,10 @@ func newPublishCmd(now func() time.Time) *cobra.Command {
 				return err
 			}
 			if dryRun {
-				_, err = diffYouTrack(cmd.Context(), cfg, runOptions{allowMassStale: allowMassStale}, now(), cmd.OutOrStdout(), cmd.ErrOrStderr())
+				_, err = diffYouTrack(cmd.Context(), cfg, factories, runOptions{allowMassStale: allowMassStale}, now(), cmd.OutOrStdout(), cmd.ErrOrStderr())
 				return err
 			}
-			return publish(cmd.Context(), cfg, runOptions{allowMassStale: allowMassStale}, now(), cmd.OutOrStdout(), cmd.ErrOrStderr())
+			return publish(cmd.Context(), cfg, factories, runOptions{allowMassStale: allowMassStale}, now(), cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
 	cmd.Flags().StringVarP(&path, "config", "c", defaultConfigPath, "path to the config file")
@@ -54,12 +55,12 @@ func newPublishCmd(now func() time.Time) *cobra.Command {
 // publish writes the rendered documents to YouTrack and prints a summary.
 // The documents are built first: a failed collection must not reach YouTrack,
 // because publishing a partial tree would mark the missing articles as stale.
-func publish(ctx context.Context, cfg *config.Config, opts runOptions, at time.Time, stdout, stderr io.Writer) error {
+func publish(ctx context.Context, cfg *config.Config, factories map[string]collector.Factory, opts runOptions, at time.Time, stdout, stderr io.Writer) error {
 	api, err := newYouTrackClient(cfg)
 	if err != nil {
 		return err
 	}
-	b, err := buildDocuments(ctx, cfg, at)
+	b, err := buildDocuments(ctx, cfg, factories, at)
 	if err != nil {
 		return err
 	}

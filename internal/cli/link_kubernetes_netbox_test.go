@@ -88,7 +88,7 @@ sinks:
 	if err != nil {
 		t.Fatal(err)
 	}
-	collectors, err := buildCollectors(cfg)
+	collectors, err := buildCollectors(cfg, BuiltinCollectors())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ sinks:
 		t.Fatal(err)
 	}
 	var stdout, stderr strings.Builder
-	if err := generate(context.Background(), cfg, time.Unix(0, 0), &stdout, &stderr); err != nil {
+	if err := generate(context.Background(), cfg, BuiltinCollectors(), time.Unix(0, 0), &stdout, &stderr); err != nil {
 		t.Fatal(err)
 	}
 	article := func(name string) string {
