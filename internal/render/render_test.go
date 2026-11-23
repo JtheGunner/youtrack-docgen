@@ -69,6 +69,8 @@ func fixture(t *testing.T) *model.Graph {
 			Addresses: addrs("10.96.0.10"),
 			Attrs:     map[string]string{"token": fakeToken},
 		},
+		{ID: "k8s:ingress:shop", Kind: model.KindIngress, Source: "k8s", Name: "shop"},
+		{ID: "k8s:workload:shop-app", Kind: model.KindWorkload, Source: "k8s", Name: "shop-app"},
 		{ID: "k8s:service:cache", Kind: model.KindService, Source: "k8s", Name: "cache"},
 		{
 			ID: "netbox:ipaddress:vip", Kind: model.KindIPAddress, Source: "netbox", Name: "shop-vip",
@@ -93,6 +95,9 @@ func fixture(t *testing.T) *model.Graph {
 		{From: "k8s:service:shop", To: "netbox:host:db01", Kind: model.RelDependsOn},
 		{From: "netbox:host:web01", To: "netbox:host:db01", Kind: model.RelDependsOn},
 		{From: "netbox:host:db01", To: "k8s:service:cache", Kind: model.RelExposes},
+		{From: "k8s:ingress:shop", To: "k8s:service:shop", Kind: model.RelRoutesTo},
+		{From: "k8s:service:shop", To: "k8s:workload:shop-app", Kind: model.RelRoutesTo},
+		{From: "k8s:workload:shop-app", To: "k8s:host:web01", Kind: model.RelRunsOn},
 		{From: "netbox:interface:web01/eth0", To: "netbox:host:web01", Kind: model.RelMemberOf},
 		{From: "netbox:ipaddress:web01-eth0", To: "netbox:interface:web01/eth0", Kind: model.RelMemberOf},
 	}
@@ -102,6 +107,7 @@ func fixture(t *testing.T) *model.Graph {
 		}
 	}
 	model.Link(g)
+	model.DeriveDependencies(g)
 	return g
 }
 

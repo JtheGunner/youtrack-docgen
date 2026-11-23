@@ -23,10 +23,16 @@ shop \(k8s\)
 ```mermaid
 flowchart LR
     n0("shop")
-    n1["db01"]
-    n0 -->|depends_on| n1
-    n2["web01"]
-    n0 -->|runs_on| n2
+    n1("shop")
+    n1 -->|depends_on| n0
+    n1 -->|routes_to| n0
+    n2("shop-app")
+    n0 -->|depends_on| n2
+    n0 -->|routes_to| n2
+    n3["db01"]
+    n0 -->|depends_on| n3
+    n4["web01"]
+    n0 -->|runs_on| n4
 ```
 
 ## Generated

@@ -3,12 +3,15 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/JtheGunner/youtrack-docgen/internal/config"
 	"github.com/JtheGunner/youtrack-docgen/internal/model"
@@ -146,5 +149,57 @@ sinks:
 			strings.HasPrefix(string(rel.To), "netbox:") {
 			t.Errorf("workload pinned to the unmatched node-ghost must not run on a NetBox host: %+v", rel)
 		}
+	}
+}
+
+// TestGenerateDerivesDependencies runs the whole pipeline and checks that the
+// host article of a NetBox host lists the workload pinned to it under
+// "Needed by", while a host without any derived edge says it is not known.
+func TestGenerateDerivesDependencies(t *testing.T) {
+	t.Setenv("NETBOX_TOKEN", fakeNetBoxToken)
+	srv := fakeLinkNetBox(t)
+	k8s := filepath.Join("..", "collector", "kubernetes", "testdata")
+	out := t.TempDir()
+	cfg, err := config.Load(writeConfig(t, fmt.Sprintf(`
+collectors:
+  netbox:
+    url: %s
+    token: ${NETBOX_TOKEN}
+  kubernetes:
+    paths: [%s, %s]
+sinks:
+  markdown:
+    dir: %s
+`, srv.URL, filepath.Join(k8s, "nodes"), filepath.Join(k8s, "linking"), out)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr strings.Builder
+	if err := generate(context.Background(), cfg, time.Unix(0, 0), &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	article := func(name string) string {
+		t.Helper()
+		var found string
+		walkErr := filepath.WalkDir(out, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !strings.Contains(filepath.Base(path), name) {
+				return err
+			}
+			b, readErr := os.ReadFile(path)
+			found = string(b)
+			return readErr
+		})
+		if walkErr != nil || found == "" {
+			t.Fatalf("article for %s not found: %v", name, walkErr)
+		}
+		return found
+	}
+	node := article("node-a-example-com")
+	idx := strings.Index(node, "## Needed by")
+	if idx < 0 || !strings.Contains(node[idx:], "| api | workload |") {
+		t.Errorf("Needed by of node-a does not list the workload:\n%s", node)
+	}
+	if lb := article("lb01-example-com"); !strings.Contains(lb, "Not known: no source reports anything that depends on this host.") {
+		t.Errorf("host without dependents must say it is not known:\n%s", lb)
 	}
 }

@@ -18,8 +18,8 @@ func (r *renderer) host(h model.Entity) Document {
 		{ID: "network", Heading: "Network", Blocks: []Block{r.hostNetwork(h)}},
 		r.diagramSection(h),
 		{ID: "runs-here", Heading: "Runs here", Blocks: []Block{entityTable(runsHere, "Nothing is known to run here.")}},
-		{ID: "depends-on", Heading: "Depends on", Blocks: []Block{entityTable(dependsOn, "No dependencies are known.")}},
-		{ID: "needed-by", Heading: "Needed by", Blocks: []Block{entityTable(neededBy, "Nothing is known to depend on this host.")}},
+		{ID: "depends-on", Heading: "Depends on", Blocks: []Block{entityTable(dependsOn, "Not known: no source reports what this host depends on.")}},
+		{ID: "needed-by", Heading: "Needed by", Blocks: []Block{entityTable(neededBy, "Not known: no source reports anything that depends on this host.")}},
 		{ID: "links", Heading: "Links", Blocks: []Block{hostLinks(h, sameAs)}},
 		r.generated(sources([]model.Entity{h}, sameAs)),
 	}
