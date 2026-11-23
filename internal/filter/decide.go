@@ -58,6 +58,12 @@ func (f *Filter) DecideID(id model.ID) Verdict {
 	}
 	parts, found := splitKubernetesKey(kind, key)
 	if !found {
+		// A key that does not split (such as one of the format before
+		// clusters) names no cluster. Whether a cluster deny removes it
+		// cannot be told, so such a rule leaves it undecided.
+		if _, clusterScoped := kubernetesKeySegments[kind]; clusterScoped && f.decideClusterDeny(source, "") != Permitted {
+			return worse(verdict, Undecidable)
+		}
 		return verdict
 	}
 	// Apply removes the namespaces and members of a denied cluster with it. A

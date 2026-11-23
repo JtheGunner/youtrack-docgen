@@ -143,6 +143,15 @@ func TestDecideIDFollowsTheCluster(t *testing.T) {
 		{"cluster of an allowed namespace is undecided", allowX, "kubernetes:cluster:b", Undecidable},
 		{"denied cluster", denyCluster, "kubernetes:cluster:b", Denied},
 		{"redacted cluster key denies its members", Rules{}, "kubernetes:service:token=FAKE-KEY-SECRET-10/x/web", Denied},
+		// A key without a cluster cannot tell whether a cluster deny removes it.
+		{"old-format workload under a cluster deny", denyCluster, "kubernetes:workload:shop/deployment/web", Undecidable},
+		{"old-format service under a cluster deny", denyCluster, "kubernetes:service:shop/web", Undecidable},
+		{"old-format namespace under a cluster deny", denyCluster, "kubernetes:namespace:shop", Undecidable},
+		{"old-format ingress under a possible cluster deny", labelDenyCluster, "kubernetes:ingress:shop/web", Undecidable},
+		{"old-format workload without cluster rule", Rules{Deny: []Match{{Kinds: []string{"service"}}}}, "kubernetes:workload:shop/deployment/web", Permitted},
+		{"old-format service without cluster rule", Rules{Deny: []Match{{Kinds: []string{"service"}}}}, "kubernetes:service:shop/web", Denied},
+		{"old-format namespace without rules", Rules{}, "kubernetes:namespace:shop", Permitted},
+		{"host is not cluster-scoped", denyCluster, "kubernetes:host:node01", Permitted},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

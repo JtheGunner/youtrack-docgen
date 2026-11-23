@@ -214,12 +214,13 @@ func readObjects(ctx context.Context, paths []config.PathSource, r *reporter) ([
 					continue
 				}
 				key := identity(o)
-				scoped := key
+				scoped, label := key, key
 				if o.Kind != "Node" {
 					scoped = src.Cluster + " " + key
+					label = key + " in cluster " + src.Cluster
 				}
 				if first, dup := seen[scoped]; dup {
-					r.warn(fmt.Sprintf("%s: duplicate %s ignored, first defined in %s", o.origin, key, first))
+					r.warn(fmt.Sprintf("%s: duplicate %s ignored, first defined in %s", o.origin, label, first))
 					continue
 				}
 				o.repoURL = src.RepoURL

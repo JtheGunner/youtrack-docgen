@@ -116,7 +116,10 @@ func TestSameObjectTwiceInOneClusterIsSkipped(t *testing.T) {
 	dirA := writeTree(t, map[string]string{"shop.yaml": shopManifests})
 	dirB := writeTree(t, map[string]string{"shop.yaml": shopManifests})
 	g, c, warnings := collectClusters(t, [2]string{dirA, "alpha"}, [2]string{dirB, "alpha"})
-	for _, want := range []string{"duplicate Namespace shop", "duplicate Deployment shop/web", "duplicate Service shop/web", "duplicate Ingress shop/web"} {
+	for _, want := range []string{
+		"duplicate Namespace shop in cluster alpha", "duplicate Deployment shop/web in cluster alpha",
+		"duplicate Service shop/web in cluster alpha", "duplicate Ingress shop/web in cluster alpha",
+	} {
 		if !strings.Contains(warnings, want) {
 			t.Errorf("warnings miss %q:\n%s", want, warnings)
 		}

@@ -1,7 +1,8 @@
 // Package kubernetes reads workloads, services, ingresses and namespaces from
 // Kubernetes manifests on disk (Git checkouts or rendered Kustomize/Helm
-// output) into the neutral model, one cluster entity per configured cluster. It never talks to a cluster and never maps
-// Secret manifests, environment values or annotations.
+// output) into the neutral model, one cluster entity per configured cluster.
+// It never talks to a cluster and never maps Secret manifests, environment
+// values or annotations.
 package kubernetes
 
 import (
