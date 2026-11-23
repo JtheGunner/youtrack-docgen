@@ -38,7 +38,7 @@ Rules every collector follows:
 
 - `Graph.AddEntity` rejects an ID whose source or kind does not match the entity, an empty name, and duplicates.
 - `Graph.AddRelation` rejects unknown kinds, self-relations, and relations whose ends are not in the graph yet. Add entities first, then relations.
-- **Labels** are what allow/deny rules match on: `role`, `tenant`, `namespace`, one `tag.<slug>` = `true` per tag, and any custom key. Use the constants in `internal/model/labels.go`.
+- **Labels** are what allow/deny rules match on: `role`, `tenant`, `namespace`, one `tag.<slug>` = `true` per tag, and any custom key. Use the constants `model.LabelTagPrefix` and `model.LabelTenant` from `internal/model/labels.go`, and `filter.LabelRole` and `filter.LabelNamespace` from `internal/filter/rules.go`.
 - **Attrs** are free-form strings shown in the article. Keys that look like secrets (`password`, `token`, `api-key`, ...) and the prefixes `env.`, `secret.` and `secretdata.` are redacted by the filter. Put sensitive data under those names so redaction applies.
 - **Rendered attributes** have fixed keys. Use the constants in `internal/model/attrs.go`; an attribute under another key is carried along but never shown in a table, a diagram or a link.
 
