@@ -61,8 +61,9 @@ func (f *Filter) DecideID(id model.ID) Verdict {
 	if kind == model.KindCluster {
 		// The cluster article lists the names of its namespaces and counts
 		// their members. If it was not regenerated, a rule that may hide one of
-		// them could leave a denied name in it.
-		if mayDenyClusterContent(f.rules[source]) {
+		// them could leave a denied name in it, and so could an allow list
+		// that may leave out a namespace.
+		if rules := f.rules[source]; mayDenyClusterContent(rules) || mayExcludeNamespace(rules) {
 			return worse(verdict, Undecidable)
 		}
 		return verdict
@@ -113,6 +114,19 @@ func mayDenyClusterContent(rules Rules) bool {
 	return slices.ContainsFunc(rules.Deny, func(m Match) bool {
 		return len(m.Namespaces) > 0 || len(m.Labels) > 0 ||
 			(len(m.Kinds) > 0 && anyGlob(m.Kinds, string(model.KindNamespace)))
+	})
+}
+
+// mayExcludeNamespace reports whether the allow rules may leave out a
+// namespace: there are allow rules and none of them admits every namespace
+// unconditionally (a namespace kind and no other constraint).
+func mayExcludeNamespace(rules Rules) bool {
+	if len(rules.Allow) == 0 {
+		return false
+	}
+	return !slices.ContainsFunc(rules.Allow, func(m Match) bool {
+		return len(m.Kinds) > 0 && anyGlob(m.Kinds, string(model.KindNamespace)) &&
+			len(m.Namespaces)+len(m.Labels)+len(m.Tags)+len(m.Roles)+len(m.Tenants) == 0
 	})
 }
 

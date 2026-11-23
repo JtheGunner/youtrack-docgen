@@ -40,6 +40,36 @@ func TestDecideIDOfAClusterUnderNamespaceCapableDenies(t *testing.T) {
 	}
 }
 
+// An allow list that may leave out a namespace could leave a name in a cluster
+// article that the run did not regenerate, so the cluster ID is undecided;
+// an allow list that admits every namespace keeps the verdict.
+func TestDecideIDOfAClusterUnderNamespaceExcludingAllows(t *testing.T) {
+	tests := []struct {
+		name  string
+		rules Rules
+		want  Verdict
+	}{
+		{"allow names one namespace", Rules{Allow: []Match{{Kinds: []string{"cluster"}}, {Namespaces: []string{"public"}}}}, Undecidable},
+		{"allow admits namespaces by label", Rules{Allow: []Match{{Kinds: []string{"cluster"}}, {Kinds: []string{"namespace"}, Labels: map[string]string{"label.team": "a"}}}}, Undecidable},
+		{"allow admits no namespace", Rules{Allow: []Match{{Kinds: []string{"cluster"}}}}, Undecidable},
+		{"control: no allow rules", Rules{}, Permitted},
+		{"control: allow admits every namespace", Rules{Allow: []Match{{Kinds: []string{"namespace"}}, {Kinds: []string{"cluster"}}}}, Permitted},
+		{"control: allow admits every kind", Rules{Allow: []Match{{Kinds: []string{"*"}}}}, Permitted},
+		{"deny still wins", Rules{Allow: []Match{{Namespaces: []string{"public"}}}, Deny: []Match{{Kinds: []string{"cluster"}}}}, Denied},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f, err := New(Config{Collectors: map[string]Rules{kubernetesSource: tt.rules}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := f.DecideID("kubernetes:cluster:stage"); got != tt.want {
+				t.Errorf("DecideID = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 // Only the built-in kubernetes source gets the cluster semantics: a cluster of
 // another source is neither kept as the parent of a surviving namespace nor
 // does its deny take its namespaces along.

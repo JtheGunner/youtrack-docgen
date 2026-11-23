@@ -89,7 +89,10 @@ func TestDecideIDAcrossClusters(t *testing.T) {
 		{"namespace deny leaves the cluster undecided", denyX, "kubernetes:cluster:a", Undecidable},
 		{"namespace-kind deny leaves the cluster undecided", denyNamespaceX, "kubernetes:cluster:a", Undecidable},
 		{"cluster denied by a kind rule", Rules{Deny: []Match{{Kinds: []string{"cluster"}}}}, "kubernetes:cluster:a", Denied},
-		{"cluster admitted by a kind allow rule", Rules{Allow: []Match{{Kinds: []string{"cluster"}}}}, "kubernetes:cluster:a", Permitted},
+		// The allow list admits the cluster but no namespace, so a namespace it
+		// still lists may be left out: undecided.
+		{"cluster admitted by a kind allow rule", Rules{Allow: []Match{{Kinds: []string{"cluster"}}}}, "kubernetes:cluster:a", Undecidable},
+		{"cluster and every namespace admitted", Rules{Allow: []Match{{Kinds: []string{"cluster", "namespace"}}}}, "kubernetes:cluster:a", Permitted},
 		// A cluster is kept when one of its namespaces survives, which an ID
 		// cannot tell: a failed allow match leaves it undecided.
 		{"namespace allow rule leaves the cluster undecided", allowX, "kubernetes:cluster:x", Undecidable},

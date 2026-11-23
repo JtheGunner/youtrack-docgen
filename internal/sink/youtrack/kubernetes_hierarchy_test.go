@@ -203,6 +203,15 @@ func kubernetesFilter(t *testing.T, deny ...filter.Match) *filter.Filter {
 	return f
 }
 
+func kubernetesAllowFilter(t *testing.T, allow ...filter.Match) *filter.Filter {
+	t.Helper()
+	f, err := filter.New(filter.Config{Collectors: map[string]filter.Rules{"kubernetes": {Allow: allow}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return f
+}
+
 // decideWith is the DenyCheck the CLI builds from a filter.
 func decideWith(f *filter.Filter) func(string) (bool, bool) {
 	return func(id string) (bool, bool) {
@@ -297,6 +306,9 @@ func TestDenyCheckOfKubernetesIDsOfAnIncompleteSource(t *testing.T) {
 		{"unregenerated cluster under a label deny", kubernetesFilter(t, filter.Match{Labels: map[string]string{"label.team": "a"}}), false, nil, ErrDenyCleanup,
 			map[string][]string{"prod": {"blog", "shop"}}},
 		{"unregenerated cluster under a member kind deny", kubernetesFilter(t, filter.Match{Kinds: []string{"service"}}), false, nil, nil,
+			map[string][]string{"prod": {"blog", "shop"}}},
+		{"unregenerated cluster under an allow list that may leave out a namespace",
+			kubernetesAllowFilter(t, filter.Match{Kinds: []string{"cluster"}}, filter.Match{Namespaces: []string{"public"}}), false, nil, ErrDenyCleanup,
 			map[string][]string{"prod": {"blog", "shop"}}},
 	}
 	for _, tt := range tests {
