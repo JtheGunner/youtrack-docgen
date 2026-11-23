@@ -3,6 +3,7 @@ package filter
 import (
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/JtheGunner/youtrack-docgen/internal/model"
 )
@@ -36,6 +37,9 @@ var allKinds = []model.Kind{
 	model.KindWorkload, model.KindService, model.KindIngress,
 }
 
+// AllKinds returns every entity kind, in a stable order.
+func AllKinds() []model.Kind { return slices.Clone(allKinds) }
+
 // Apply returns a new graph holding only the permitted entities, redacted, and
 // the relations whose both ends survived. The input graph is not modified.
 // Interfaces and IP addresses that only belong to a denied host are dropped;
@@ -45,17 +49,47 @@ var allKinds = []model.Kind{
 // namespace are dropped. An entity that is itself named after one is dropped. An entity whose name or ID key
 // contains a secret the redactor would remove is dropped too: masking it would
 // still leak through references.
+// An allow rule that admits a host also admits what belongs to it: its
+// interfaces and their IP addresses, plus the sites and networks they refer to.
+// Sites and networks are only references and are not expanded further; a deny
+// rule still wins over every one of these.
 // Sources without rules pass everything.
 func (f *Filter) Apply(g *model.Graph) (*model.Graph, error) {
+	out, _, err := f.ApplyWithReport(g)
+	return out, err
+}
+
+// ApplyWithReport is Apply plus the per-source counts of what was removed. The
+// report holds counts only, never an entity name, ID or address.
+func (f *Filter) ApplyWithReport(g *model.Graph) (*model.Graph, Report, error) {
 	out := model.NewGraph()
-	deps := newDependents(g, f.deniedHosts(g), f.deniedByRules(g, model.KindIPAddress), f.deniedByRules(g, model.KindNamespace))
+	report := Report{}
+	references := f.allowedReferences(g)
+	deps := newDependents(g, f.deniedHosts(g), f.deniedByRules(g, model.KindIPAddress, references), f.deniedByRules(g, model.KindNamespace, references))
 	for _, kind := range allKinds {
 		for _, e := range g.ByKind(kind) {
-			if !f.rules[e.Source].permits(e) || deps.removed[e.ID] || deps.namesDeniedValue(e) || f.redactor.IdentityChanged(e) {
+			rules := f.rules[e.Source]
+			src := report[e.Source]
+			src.Total++
+			src.HasAllow = len(rules.Allow) > 0
+			// A missing allow match is counted before a cascade: an entity that is
+			// not allowed leaves because of the allow rules, whatever else hits it.
+			notAllowed := !rules.allows(e) && !references[e.ID]
+			cascaded := deps.removed[e.ID] || deps.namesDeniedValue(e) || f.redactor.IdentityChanged(e)
+			switch {
+			case rules.denies(e):
+				src.RemovedByDeny++
+			case notAllowed:
+				src.RemovedByAllow++
+			case cascaded:
+				src.RemovedByDeny++
+			}
+			report[e.Source] = src
+			if rules.denies(e) || notAllowed || cascaded {
 				continue
 			}
 			if err := out.AddEntity(deps.mask(f.redactor.Entity(e))); err != nil {
-				return nil, fmt.Errorf("filter: %w", err)
+				return nil, nil, fmt.Errorf("filter: %w", err)
 			}
 		}
 	}
@@ -65,19 +99,82 @@ func (f *Filter) Apply(g *model.Graph) (*model.Graph, error) {
 			continue // one end was filtered out
 		}
 		if err != nil {
-			return nil, fmt.Errorf("filter: %w", err)
+			return nil, nil, fmt.Errorf("filter: %w", err)
 		}
 	}
-	return out, nil
+	return out, report, nil
 }
 
-// deniedByRules returns the entities of kind that the rules exclude.
-func (f *Filter) deniedByRules(g *model.Graph, kind model.Kind) []model.Entity {
+// deniedByRules returns the entities of kind that the rules exclude. An entity
+// that an allowed host references is not excluded by a missing allow match.
+func (f *Filter) deniedByRules(g *model.Graph, kind model.Kind, references map[model.ID]bool) []model.Entity {
 	var denied []model.Entity
 	for _, e := range g.ByKind(kind) {
-		if !f.rules[e.Source].permits(e) {
+		rules := f.rules[e.Source]
+		if rules.denies(e) || (!rules.allows(e) && !references[e.ID]) {
 			denied = append(denied, e)
 		}
 	}
 	return denied
+}
+
+// allowedReferences returns the entities that an allowed host drags in although
+// no allow rule matches them: its interfaces, their IP addresses, the networks
+// of those addresses and the host's sites. Only sources with allow rules
+// matter, and an entity a deny rule rejects is never included. Networks and
+// sites are the end of the expansion.
+func (f *Filter) allowedReferences(g *model.Graph) map[model.ID]bool {
+	refs := map[model.ID]bool{}
+	admit := func(e model.Entity) bool {
+		if f.rules[e.Source].denies(e) {
+			return false
+		}
+		refs[e.ID] = true
+		return true
+	}
+	for _, host := range g.ByKind(model.KindHost) {
+		rules := f.rules[host.Source]
+		if len(rules.Allow) == 0 || !rules.permits(host) {
+			continue
+		}
+		for _, to := range memberTargets(g, host.ID, model.KindSite) {
+			admit(to)
+		}
+		for _, nic := range memberSources(g, host.ID, model.KindInterface) {
+			if !admit(nic) {
+				continue
+			}
+			for _, ip := range memberSources(g, nic.ID, model.KindIPAddress) {
+				if !admit(ip) {
+					continue
+				}
+				for _, network := range memberTargets(g, ip.ID, model.KindNetwork) {
+					admit(network)
+				}
+			}
+		}
+	}
+	return refs
+}
+
+// memberTargets returns the entities of kind that id is a member_of.
+func memberTargets(g *model.Graph, id model.ID, kind model.Kind) []model.Entity {
+	var out []model.Entity
+	for _, rel := range g.RelationsFrom(id) {
+		if e, ok := g.Entity(rel.To); ok && rel.Kind == model.RelMemberOf && e.Kind == kind {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// memberSources returns the entities of kind that are a member_of id.
+func memberSources(g *model.Graph, id model.ID, kind model.Kind) []model.Entity {
+	var out []model.Entity
+	for _, rel := range g.RelationsTo(id) {
+		if e, ok := g.Entity(rel.From); ok && rel.Kind == model.RelMemberOf && e.Kind == kind {
+			out = append(out, e)
+		}
+	}
+	return out
 }

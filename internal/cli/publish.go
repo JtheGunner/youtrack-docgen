@@ -13,6 +13,7 @@ import (
 
 	"github.com/JtheGunner/youtrack-docgen/internal/config"
 	"github.com/JtheGunner/youtrack-docgen/internal/diff"
+	"github.com/JtheGunner/youtrack-docgen/internal/filter"
 	"github.com/JtheGunner/youtrack-docgen/internal/sink/youtrack"
 	"github.com/JtheGunner/youtrack-docgen/internal/sink/youtrack/client"
 )
@@ -60,6 +61,9 @@ func publish(ctx context.Context, cfg *config.Config, opts runOptions, at time.T
 	}
 	b, err := buildDocuments(ctx, cfg, at)
 	if err != nil {
+		return err
+	}
+	if err := printFilterReport(stderr, cfg.EnabledCollectors(), b.filterReport); err != nil {
 		return err
 	}
 	if err := printWarnings(stderr, b.linkWarnings); err != nil {
@@ -160,6 +164,20 @@ func printIncompleteSources(stderr io.Writer, incomplete map[string][]string) er
 		}
 	}
 	return nil
+}
+
+// printFilterReport writes one line per collector with the number of entities
+// the filter removed, and a warning when its allow rules left nothing. It
+// prints counts only: a removed entity is never named.
+func printFilterReport(stderr io.Writer, collectors []string, report filter.Report) error {
+	for _, name := range collectors {
+		s := report[name]
+		if _, err := fmt.Fprintf(stderr, "filter %s: kept %d, removed %d by allow, %d by deny\n",
+			diff.EscapeControl(name), s.Kept(), s.RemovedByAllow, s.RemovedByDeny); err != nil {
+			return err
+		}
+	}
+	return printWarnings(stderr, report.Warnings())
 }
 
 // printWarnings writes one line per warning of the youtrack sink.
