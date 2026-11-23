@@ -64,8 +64,7 @@ func (f *Filter) Apply(g *model.Graph) (*model.Graph, error) {
 func (f *Filter) ApplyWithReport(g *model.Graph) (*model.Graph, Report, error) {
 	out := model.NewGraph()
 	report := Report{}
-	references := f.allowedReferences(g)
-	deps := newDependents(g, f.deniedHosts(g), f.deniedByRules(g, model.KindIPAddress, references), f.deniedByRules(g, model.KindNamespace, references))
+	references, deps := f.settleReferences(g)
 	for _, kind := range allKinds {
 		for _, e := range g.ByKind(kind) {
 			rules := f.rules[e.Source]
@@ -118,12 +117,32 @@ func (f *Filter) deniedByRules(g *model.Graph, kind model.Kind, references map[m
 	return denied
 }
 
+// settleReferences computes the allowed-host references together with the
+// dependents of the denied entities. Whether a host survives depends on those
+// dependents, and the dependents depend on which IPs are references, so it
+// starts with every allowed host and drops the references of hosts the cascade
+// removes until nothing changes. The set only shrinks, so this terminates.
+func (f *Filter) settleReferences(g *model.Graph) (map[model.ID]bool, dependents) {
+	deniedHosts := f.deniedHosts(g)
+	references := f.allowedReferences(g, func(model.Entity) bool { return true })
+	for {
+		deps := newDependents(g, deniedHosts, f.deniedByRules(g, model.KindIPAddress, references), f.deniedByRules(g, model.KindNamespace, references))
+		next := f.allowedReferences(g, func(host model.Entity) bool {
+			return !deps.removed[host.ID] && !deps.namesDeniedValue(host) && !f.redactor.IdentityChanged(host)
+		})
+		if len(next) == len(references) {
+			return next, deps
+		}
+		references = next
+	}
+}
+
 // allowedReferences returns the entities that an allowed host drags in although
 // no allow rule matches them: its interfaces, their IP addresses, the networks
 // of those addresses and the host's sites. Only sources with allow rules
 // matter, and an entity a deny rule rejects is never included. Networks and
 // sites are the end of the expansion.
-func (f *Filter) allowedReferences(g *model.Graph) map[model.ID]bool {
+func (f *Filter) allowedReferences(g *model.Graph, survives func(model.Entity) bool) map[model.ID]bool {
 	refs := map[model.ID]bool{}
 	admit := func(e model.Entity) bool {
 		if f.rules[e.Source].denies(e) {
@@ -134,7 +153,7 @@ func (f *Filter) allowedReferences(g *model.Graph) map[model.ID]bool {
 	}
 	for _, host := range g.ByKind(model.KindHost) {
 		rules := f.rules[host.Source]
-		if len(rules.Allow) == 0 || !rules.permits(host) {
+		if len(rules.Allow) == 0 || !rules.permits(host) || !survives(host) {
 			continue
 		}
 		for _, to := range memberTargets(g, host.ID, model.KindSite) {

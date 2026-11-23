@@ -223,3 +223,66 @@ func TestReportDoesNotWarnWithoutAllowRulesOrEntities(t *testing.T) {
 		})
 	}
 }
+
+// A host that passes the rules but is removed by the cascade must not keep its
+// sites and networks alive as orphans.
+func TestAllowReferencesOnlyComeFromSurvivingHosts(t *testing.T) {
+	tagged := map[string]string{LabelTagPrefix + "documented": "true"}
+	tests := []struct {
+		name     string
+		hostKey  string
+		twinDeny bool
+	}{
+		{name: "same_as twin of a denied host", hostKey: "web01", twinDeny: true},
+		{name: "identity carries a secret", hostKey: "api_key=FAKE-KEY-SECRET-1"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			g := model.NewGraph()
+			add := func(e model.Entity) model.Entity {
+				t.Helper()
+				if err := g.AddEntity(e); err != nil {
+					t.Fatal(err)
+				}
+				return e
+			}
+			site := add(entity(t, "netbox", model.KindSite, "dc1", nil, nil))
+			net := add(entity(t, "netbox", model.KindNetwork, "192.0.2.0/24", nil, nil))
+			host := add(entity(t, "netbox", model.KindHost, tc.hostKey, tagged, nil))
+			nic := add(entity(t, "netbox", model.KindInterface, tc.hostKey+"/eth0", nil, nil))
+			ip := add(entity(t, "netbox", model.KindIPAddress, "192.0.2.10/24", nil, nil))
+			twin := add(entity(t, "kubernetes", model.KindHost, "node1", nil, nil))
+			rels := []model.Relation{
+				{From: host.ID, To: site.ID, Kind: model.RelMemberOf},
+				{From: nic.ID, To: host.ID, Kind: model.RelMemberOf},
+				{From: ip.ID, To: nic.ID, Kind: model.RelMemberOf},
+				{From: ip.ID, To: net.ID, Kind: model.RelMemberOf},
+			}
+			if tc.twinDeny {
+				rels = append(rels, model.Relation{From: host.ID, To: twin.ID, Kind: model.RelSameAs})
+			}
+			for _, r := range rels {
+				if err := g.AddRelation(r); err != nil {
+					t.Fatal(err)
+				}
+			}
+			rules := map[string]Rules{"netbox": {Allow: []Match{{Tags: []string{"documented"}}}}}
+			if tc.twinDeny {
+				rules["kubernetes"] = Rules{Deny: []Match{{Kinds: []string{"host"}}}}
+			}
+			f, err := New(Config{Collectors: rules})
+			if err != nil {
+				t.Fatal(err)
+			}
+			out, err := f.Apply(g)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, id := range []model.ID{host.ID, site.ID, net.ID} {
+				if _, ok := out.Entity(id); ok {
+					t.Errorf("%s must not be emitted", id)
+				}
+			}
+		})
+	}
+}

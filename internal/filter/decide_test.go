@@ -44,3 +44,36 @@ func TestDecideID(t *testing.T) {
 		})
 	}
 }
+
+// Apply admits the interfaces, IPs, networks and sites of an allowed host as
+// references. An ID alone cannot tell whether such an entity is one, so a failed
+// allow match must not read as Denied: that would wipe the article of an
+// allowed host's interface. A deny rule that definitely matches still denies.
+func TestDecideIDKeepsAllowedHostReferencesUndecided(t *testing.T) {
+	allowHosts := []Match{{Kinds: []string{"host"}, Tags: []string{"documented"}}}
+	tests := []struct {
+		name  string
+		rules Rules
+		id    string
+		want  Verdict
+	}{
+		{"interface of a possibly allowed host", Rules{Allow: allowHosts}, "netbox:interface:web01/eth0", Undecidable},
+		{"ip address", Rules{Allow: allowHosts}, "netbox:ipaddress:192.0.2.10/24", Undecidable},
+		{"network", Rules{Allow: allowHosts}, "netbox:network:192.0.2.0/24", Undecidable},
+		{"site", Rules{Allow: allowHosts}, "netbox:site:dc1", Undecidable},
+		{"host is still denied by a missed allow", Rules{Allow: []Match{{Kinds: []string{"site"}}}}, "netbox:host:web01", Denied},
+		{"deny rule still wins for a reference kind", Rules{Allow: allowHosts, Deny: []Match{{Kinds: []string{"network"}}}}, "netbox:network:192.0.2.0/24", Denied},
+		{"workload is no reference kind", Rules{Allow: allowHosts}, "netbox:workload:ns/web", Denied},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f, err := New(Config{Collectors: map[string]Rules{"netbox": tt.rules}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := f.DecideID(model.ID(tt.id)); got != tt.want {
+				t.Errorf("DecideID(%q) = %v, want %v", tt.id, got, tt.want)
+			}
+		})
+	}
+}
