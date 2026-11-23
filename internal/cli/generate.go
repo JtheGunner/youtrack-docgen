@@ -130,6 +130,9 @@ func buildDocuments(ctx context.Context, cfg *config.Config, at time.Time) (buil
 	if err != nil {
 		return built{}, err
 	}
+	// Derived from the filtered graph only, so a rejected entity can never
+	// appear in a dependency.
+	model.DeriveDependencies(filtered)
 	var denied []string
 	kept := map[model.ID]bool{}
 	for _, id := range filtered.IDs() {

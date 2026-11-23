@@ -26,12 +26,15 @@ flowchart LR
     n1 -->|same_as| n0
     n2("shop")
     n2 -->|runs_on| n0
-    n3["db01"]
-    n0 -->|depends_on| n3
-    n4["eth0"]
-    n4 -->|member_of| n0
-    n5{{"servers"}}
-    n0 -->|in_network| n5
+    n3("shop-app")
+    n3 -->|depends_on| n0
+    n3 -->|runs_on| n0
+    n4["db01"]
+    n0 -->|depends_on| n4
+    n5["eth0"]
+    n5 -->|member_of| n0
+    n6{{"servers"}}
+    n0 -->|in_network| n6
 ```
 
 ## Runs here
@@ -39,6 +42,7 @@ flowchart LR
 | Name | Kind | Addresses | Source |
 | --- | --- | --- | --- |
 | shop | service | 10.96.0.10 | k8s |
+| shop-app | workload | - | k8s |
 
 ## Depends on
 
@@ -48,7 +52,9 @@ flowchart LR
 
 ## Needed by
 
-Nothing is known to depend on this host.
+| Name | Kind | Addresses | Source |
+| --- | --- | --- | --- |
+| shop-app | workload | - | k8s |
 
 ## Links
 

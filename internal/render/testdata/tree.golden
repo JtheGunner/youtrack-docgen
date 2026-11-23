@@ -74,10 +74,16 @@ shop \(k8s\)
 ```mermaid
 flowchart LR
     n0("shop")
-    n1["db01"]
-    n0 -->|depends_on| n1
-    n2["web01"]
-    n0 -->|runs_on| n2
+    n1("shop")
+    n1 -->|depends_on| n0
+    n1 -->|routes_to| n0
+    n2("shop-app")
+    n0 -->|depends_on| n2
+    n0 -->|routes_to| n2
+    n3["db01"]
+    n0 -->|depends_on| n3
+    n4["web01"]
+    n0 -->|runs_on| n4
 ```
 
 ## Generated
@@ -126,23 +132,30 @@ Generated at 2025-01-02T03:04:05Z from k8s, netbox.
 ```mermaid
 flowchart LR
     n0["web01"]
-    n1["web01"]
-    n0 -->|same_as| n1
-    n2{{"servers"}}
-    n0 -->|in_network| n2
+    n1("shop-app")
+    n1 -->|depends_on| n0
+    n1 -->|runs_on| n0
+    n2["web01"]
+    n0 -->|same_as| n2
+    n3{{"servers"}}
+    n0 -->|in_network| n3
 ```
 
 ## Runs here
 
-Nothing is known to run here.
+| Name | Kind | Addresses | Source |
+| --- | --- | --- | --- |
+| shop-app | workload | - | k8s |
 
 ## Depends on
 
-No dependencies are known.
+Not known: no source reports what this host depends on.
 
 ## Needed by
 
-Nothing is known to depend on this host.
+| Name | Kind | Addresses | Source |
+| --- | --- | --- | --- |
+| shop-app | workload | - | k8s |
 
 ## Links
 
@@ -191,7 +204,7 @@ flowchart LR
 
 ## Depends on
 
-No dependencies are known.
+Not known: no source reports what this host depends on.
 
 ## Needed by
 
@@ -237,12 +250,15 @@ flowchart LR
     n1 -->|same_as| n0
     n2("shop")
     n2 -->|runs_on| n0
-    n3["db01"]
-    n0 -->|depends_on| n3
-    n4["eth0"]
-    n4 -->|member_of| n0
-    n5{{"servers"}}
-    n0 -->|in_network| n5
+    n3("shop-app")
+    n3 -->|depends_on| n0
+    n3 -->|runs_on| n0
+    n4["db01"]
+    n0 -->|depends_on| n4
+    n5["eth0"]
+    n5 -->|member_of| n0
+    n6{{"servers"}}
+    n0 -->|in_network| n6
 ```
 
 ## Runs here
@@ -250,6 +266,7 @@ flowchart LR
 | Name | Kind | Addresses | Source |
 | --- | --- | --- | --- |
 | shop | service | 10.96.0.10 | k8s |
+| shop-app | workload | - | k8s |
 
 ## Depends on
 
@@ -259,7 +276,9 @@ flowchart LR
 
 ## Needed by
 
-Nothing is known to depend on this host.
+| Name | Kind | Addresses | Source |
+| --- | --- | --- | --- |
+| shop-app | workload | - | k8s |
 
 ## Links
 
