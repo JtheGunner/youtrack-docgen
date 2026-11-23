@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/JtheGunner/youtrack-docgen/internal/collector/mapbuild"
+	"github.com/JtheGunner/youtrack-docgen/internal/diff"
 	"github.com/JtheGunner/youtrack-docgen/internal/model"
 )
 
@@ -44,6 +45,7 @@ type builder struct {
 	keys         keyCounter
 	nets         prefixIndex
 	skippedHosts map[objRef]bool
+	skippedNICs  map[objRef]bool // interfaces left out; their addresses must not be published
 	warn         func(string)
 	skipped      []string // reasons objects were left out
 }
@@ -54,6 +56,7 @@ func newBuilder(base *url.URL, warn func(string)) *builder {
 		warn:         warn,
 		keys:         keyCounter{},
 		skippedHosts: map[objRef]bool{},
+		skippedNICs:  map[objRef]bool{},
 		Builder:      mapbuild.New(Source),
 		sites:        map[int]model.ID{},
 		vlans:        map[int]model.ID{},
@@ -65,6 +68,7 @@ func newBuilder(base *url.URL, warn func(string)) *builder {
 
 // skip drops an object that cannot be mapped: it warns and records the reason.
 func (b *builder) skip(msg string) {
+	msg = diff.EscapeControl(msg)
 	b.warn(msg)
 	b.skipped = append(b.skipped, msg)
 }
@@ -270,6 +274,14 @@ func (b *builder) addInterfaces(nics []iface, family string) error {
 	if family == famVMNIC {
 		hostFamily, owner = famVM, func(i iface) *ref { return i.VirtualMachine }
 	}
+	nicKeys := keyCounter{}
+	for _, n := range nics {
+		if o := owner(n); o != nil {
+			if hostID, ok := b.hosts[objRef{hostFamily, o.ID}]; ok {
+				nicKeys.count(model.KindInterface, nicKey(hostID, n.Name))
+			}
+		}
+	}
 	for _, n := range nics {
 		o := owner(n)
 		if o == nil {
@@ -277,6 +289,7 @@ func (b *builder) addInterfaces(nics []iface, family string) error {
 		}
 		hostID, ok := b.hosts[objRef{hostFamily, o.ID}]
 		if !ok && b.skippedHosts[objRef{hostFamily, o.ID}] {
+			b.skippedNICs[objRef{family, n.ID}] = true
 			b.skip(fmt.Sprintf("netbox: skipping interface %d (%s): its owner was skipped", n.ID, n.Name))
 			continue
 		}
@@ -287,8 +300,10 @@ func (b *builder) addInterfaces(nics []iface, family string) error {
 		if err != nil {
 			return err
 		}
-		e, err := b.Add(model.KindInterface, hostKey+"/"+n.Name, hostKeyName(hostKey, n.Name))
+		key := nicKeys.resolve(model.KindInterface, nicKey(hostID, n.Name), "nic", n.ID)
+		e, err := b.Add(model.KindInterface, key, hostKeyName(hostKey, n.Name))
 		if err != nil {
+			b.skippedNICs[objRef{family, n.ID}] = true
 			b.skip(fmt.Sprintf("netbox: skipping interface %d: %v", n.ID, err))
 			continue
 		}
@@ -318,6 +333,12 @@ func (b *builder) addIPs(ips []ipAddress) {
 			b.skip(fmt.Sprintf("netbox: skipping ip address %d: invalid address %q", ip.ID, ip.Address))
 			continue
 		}
+		if b.assignedToSkippedNIC(ip) {
+			// Publishing the address alone would detach it from its host, so no
+			// deny rule on that host could reach it.
+			b.skip(fmt.Sprintf("netbox: skipping ip address %d: its interface was skipped", ip.ID))
+			continue
+		}
 		e, ok := b.addKeyed(model.KindIPAddress, withVRF(ip.Address, ip.VRF), ip.Address, "ip", ip.ID)
 		if !ok {
 			continue
@@ -345,6 +366,18 @@ func (b *builder) addIPs(ips []ipAddress) {
 		}
 		b.assign(e, ip, addr.Addr())
 	}
+}
+
+// assignedToSkippedNIC reports whether ip belongs to an interface that was
+// left out. An object that appears twice under one NetBox ID keeps its first
+// entity, so it does not count as skipped.
+func (b *builder) assignedToSkippedNIC(ip ipAddress) bool {
+	if ip.AssignedObjectID == nil {
+		return false
+	}
+	nic := objRef{ip.AssignedObjectType, *ip.AssignedObjectID}
+	_, kept := b.ifaces[nic]
+	return b.skippedNICs[nic] && !kept
 }
 
 // assign links an IP to the interface it is assigned to and copies the address
@@ -414,6 +447,12 @@ func withVRF(key string, v *ref) string {
 		return key
 	}
 	return key + "@" + mapbuild.FirstNonEmpty(v.Slug, v.Name)
+}
+
+// nicKey is the key of an interface before collisions are resolved.
+func nicKey(hostID model.ID, nic string) string {
+	_, _, hostKey, _ := model.ParseID(hostID)
+	return hostKey + "/" + nic
 }
 
 func hostKeyName(hostKey, nic string) string { return hostKey + " " + nic }

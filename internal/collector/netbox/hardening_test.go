@@ -253,3 +253,76 @@ func TestCollectPrefixSiteFromSiteOrScope(t *testing.T) {
 		})
 	}
 }
+
+func TestCollectDoesNotPublishAddressesOfSkippedHostsOrInterfaces(t *testing.T) {
+	f := newFakeNetBox(t)
+	f.onlyServe(map[string]string{
+		// Device 10 is named like the suffixed key of device 8, so it is skipped.
+		// Interface 4 is named like the suffixed key of interface 2, so it is skipped.
+		"/api/dcim/devices/": `{"id": 8, "name": "x"}, {"id": 9, "name": "x"}, {"id": 10, "name": "x~device8"}, {"id": 11, "name": "kept"}`,
+		"/api/dcim/interfaces/": `{"id": 1, "name": "eth0", "device": {"id": 10}},
+			{"id": 2, "name": "eth0", "device": {"id": 11}}, {"id": 3, "name": "eth0", "device": {"id": 11}},
+			{"id": 4, "name": "eth0~nic2", "device": {"id": 11}}`,
+		"/api/ipam/ip-addresses/": `{"id": 5, "address": "198.51.100.5/24", "assigned_object_type": "dcim.interface", "assigned_object_id": 1},
+			{"id": 6, "address": "198.51.100.6/24"},
+			{"id": 7, "address": "198.51.100.7/24", "assigned_object_type": "dcim.interface", "assigned_object_id": 2},
+			{"id": 8, "address": "198.51.100.8/24", "assigned_object_type": "dcim.interface", "assigned_object_id": 4}`,
+	})
+	g, c, warnings := collectWith(t, f)
+	for _, id := range []model.ID{"netbox:ipaddress:198.51.100.5/24", "netbox:ipaddress:198.51.100.8/24"} {
+		if _, ok := g.Entity(id); ok {
+			t.Errorf("address %s of a skipped interface was published without its host", id)
+		}
+	}
+	for _, id := range []model.ID{"netbox:ipaddress:198.51.100.6/24", "netbox:ipaddress:198.51.100.7/24"} {
+		if _, ok := g.Entity(id); !ok {
+			t.Errorf("address %s missing", id)
+		}
+	}
+	for _, want := range []string{"ip address 5", "ip address 8"} {
+		if !strings.Contains(warnings, want) {
+			t.Errorf("warnings %q lack %q", warnings, want)
+		}
+	}
+	if len(c.Incomplete()) == 0 {
+		t.Error("Incomplete is empty after skipping an address")
+	}
+}
+
+func TestCollectKeepsInterfacesWithSameNameDistinct(t *testing.T) {
+	f := newFakeNetBox(t)
+	f.onlyServe(map[string]string{
+		"/api/dcim/devices/": `{"id": 9, "name": "kept"}`,
+		"/api/dcim/interfaces/": `{"id": 1, "name": "eth0", "device": {"id": 9}},
+			{"id": 2, "name": "eth0", "device": {"id": 9}}, {"id": 3, "name": "eth1", "device": {"id": 9}}`,
+		"/api/ipam/ip-addresses/": `{"id": 5, "address": "198.51.100.5/24", "assigned_object_type": "dcim.interface", "assigned_object_id": 2}`,
+	})
+	g, c, _ := collectWith(t, f)
+	for _, id := range []model.ID{"netbox:interface:kept/eth0~nic1", "netbox:interface:kept/eth0~nic2", "netbox:interface:kept/eth1"} {
+		if _, ok := g.Entity(id); !ok {
+			t.Errorf("interface %s missing", id)
+		}
+	}
+	if _, ok := g.Entity("netbox:ipaddress:198.51.100.5/24"); !ok {
+		t.Error("address of a kept interface missing")
+	}
+	if len(c.Incomplete()) != 0 {
+		t.Errorf("Incomplete = %v, want none", c.Incomplete())
+	}
+}
+
+func TestCollectWarningsEscapeControlCharacters(t *testing.T) {
+	f := newFakeNetBox(t)
+	f.onlyServe(map[string]string{
+		"/api/ipam/prefixes/": `{"id": 1, "prefix": "bad\u001b[31m\nforged: line"}`,
+	})
+	_, c, warnings := collectWith(t, f)
+	if strings.Contains(warnings, "\x1b") || strings.Count(warnings, "\n") != 1 {
+		t.Errorf("warnings carry raw control characters: %q", warnings)
+	}
+	for _, reason := range c.Incomplete() {
+		if strings.ContainsAny(reason, "\x1b\n") {
+			t.Errorf("incomplete reason carries control characters: %q", reason)
+		}
+	}
+}

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/JtheGunner/youtrack-docgen/internal/config"
+	"github.com/JtheGunner/youtrack-docgen/internal/diff"
 	"github.com/JtheGunner/youtrack-docgen/internal/model"
 )
 
@@ -110,7 +111,7 @@ func (c *Collector) Collect(ctx context.Context, g *model.Graph) error {
 func (c *Collector) Incomplete() []string { return slices.Clone(c.incomplete) }
 
 func (c *Collector) warn(msg string) {
-	fmt.Fprintf(c.warnings, "warning: %s\n", msg) //nolint:errcheck // a failing warning stream must not stop the run
+	fmt.Fprintf(c.warnings, "warning: %s\n", diff.EscapeControl(msg)) //nolint:errcheck // a failing warning stream must not stop the run
 }
 
 type snapshot struct {
