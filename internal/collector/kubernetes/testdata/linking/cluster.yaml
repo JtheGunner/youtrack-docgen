@@ -1,0 +1,45 @@
+# Typical data for linking: a node known by its short name only, a workload
+# pinned to it, a workload that is not pinned, and a LoadBalancer service.
+apiVersion: v1
+kind: Node
+metadata:
+  name: web01
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: report
+  namespace: shop
+spec:
+  template:
+    spec:
+      nodeName: web01
+      containers:
+        - image: registry.example.com/shop/report:1
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: shop
+spec:
+  template:
+    spec:
+      containers:
+        - image: registry.example.com/shop/worker:1
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lb
+  namespace: shop
+spec:
+  type: LoadBalancer
+  clusterIP: 10.96.0.30
+  externalIPs: [192.0.2.41]
+status:
+  loadBalancer:
+    ingress:
+      - ip: 192.0.2.40
+      - ip: 192.0.2.41
+      - hostname: lb.example.com

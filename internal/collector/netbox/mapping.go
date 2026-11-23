@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/JtheGunner/youtrack-docgen/internal/collector/mapbuild"
+	"github.com/JtheGunner/youtrack-docgen/internal/diff"
 	"github.com/JtheGunner/youtrack-docgen/internal/model"
 )
 
@@ -40,21 +41,91 @@ type builder struct {
 	hosts    map[objRef]model.ID
 	ifaces   map[objRef]model.ID
 	ifaceOwn map[model.ID]model.ID
+
+	keys         keyCounter
+	nets         prefixIndex
+	skippedHosts map[objRef]bool
+	skippedNICs  map[objRef]bool // interfaces left out; their addresses must not be published
+	warn         func(string)
+	skipped      []string // reasons objects were left out
 }
 
-func newBuilder(base *url.URL) *builder {
+func newBuilder(base *url.URL, warn func(string)) *builder {
 	return &builder{
-		base:     base,
-		Builder:  mapbuild.New(Source),
-		sites:    map[int]model.ID{},
-		vlans:    map[int]model.ID{},
-		hosts:    map[objRef]model.ID{},
-		ifaces:   map[objRef]model.ID{},
-		ifaceOwn: map[model.ID]model.ID{},
+		base:         base,
+		warn:         warn,
+		keys:         keyCounter{},
+		skippedHosts: map[objRef]bool{},
+		skippedNICs:  map[objRef]bool{},
+		Builder:      mapbuild.New(Source),
+		sites:        map[int]model.ID{},
+		vlans:        map[int]model.ID{},
+		hosts:        map[objRef]model.ID{},
+		ifaces:       map[objRef]model.ID{},
+		ifaceOwn:     map[model.ID]model.ID{},
+	}
+}
+
+// skip drops an object that cannot be mapped: it warns and records the reason.
+func (b *builder) skip(msg string) {
+	msg = diff.EscapeControl(msg)
+	b.warn(msg)
+	b.skipped = append(b.skipped, msg)
+}
+
+// addKeyed adds an entity under key, made unique when several NetBox objects
+// share it. It skips the object with a warning when the entity cannot be added.
+func (b *builder) addKeyed(kind model.Kind, key, name, label string, id int) (*model.Entity, bool) {
+	e, err := b.Add(kind, b.keys.resolve(kind, key, label, id), name)
+	if err != nil {
+		b.skip(fmt.Sprintf("netbox: skipping %s %d: %v", label, id, err))
+		return nil, false
+	}
+	return e, true
+}
+
+func siteKey(s site) string { return mapbuild.FirstNonEmpty(s.Slug, s.Name) }
+
+func vlanKey(v vlan) string {
+	if v.Site != nil {
+		return "vlan-" + mapbuild.FirstNonEmpty(v.Site.Slug, v.Site.Name) + "-" + strconv.Itoa(v.VID)
+	}
+	return "vlan-" + strconv.Itoa(v.VID)
+}
+
+func machineName(m machine, family string) string {
+	name := ""
+	if m.Name != nil {
+		name = *m.Name
+	}
+	return mapbuild.FirstNonEmpty(name, fmt.Sprintf("%s-%d", family, m.ID))
+}
+
+// countKeys registers every key before mapping so that colliding objects can
+// all be disambiguated, whatever order they arrive in.
+func (b *builder) countKeys(s snapshot) {
+	for _, x := range s.sites {
+		b.keys.count(model.KindSite, siteKey(x))
+	}
+	for _, x := range s.vlans {
+		b.keys.count(model.KindNetwork, vlanKey(x))
+	}
+	for _, x := range s.prefixes {
+		b.keys.count(model.KindNetwork, withVRF(x.Prefix, x.VRF))
+	}
+	for _, x := range s.devices {
+		b.keys.count(model.KindHost, machineName(x, famDevice))
+	}
+	for _, x := range s.vms {
+		b.keys.count(model.KindHost, machineName(x, famVM))
+	}
+	for _, x := range s.ips {
+		b.keys.count(model.KindIPAddress, withVRF(x.Address, x.VRF))
 	}
 }
 
 func (b *builder) build(s snapshot) error {
+	b.countKeys(s)
 	steps := []func() error{
 		func() error { return b.addSites(s.sites) },
 		func() error { return b.addVLANs(s.vlans) },
@@ -63,7 +134,7 @@ func (b *builder) build(s snapshot) error {
 		func() error { return b.addMachines(s.vms, famVM) },
 		func() error { return b.addInterfaces(s.deviceNICs, famDevNIC) },
 		func() error { return b.addInterfaces(s.vmNICs, famVMNIC) },
-		func() error { return b.addIPs(s.ips, s.prefixes) },
+		func() error { b.addIPs(s.ips); return nil },
 	}
 	for _, step := range steps {
 		if err := step(); err != nil {
@@ -75,10 +146,9 @@ func (b *builder) build(s snapshot) error {
 
 func (b *builder) addSites(sites []site) error {
 	for _, s := range sites {
-		key := mapbuild.FirstNonEmpty(s.Slug, s.Name)
-		e, err := b.Add(model.KindSite, key, mapbuild.FirstNonEmpty(s.Name, s.Slug))
-		if err != nil {
-			return fmt.Errorf("site %d: %w", s.ID, err)
+		e, ok := b.addKeyed(model.KindSite, siteKey(s), mapbuild.FirstNonEmpty(s.Name, s.Slug), "site", s.ID)
+		if !ok {
+			continue
 		}
 		mapbuild.SetAttr(e, "status", s.Status.Value)
 		mapbuild.SetAttr(e, model.AttrDescription, s.Description)
@@ -94,13 +164,10 @@ func (b *builder) addSites(sites []site) error {
 
 func (b *builder) addVLANs(vlans []vlan) error {
 	for _, v := range vlans {
-		key := "vlan-" + strconv.Itoa(v.VID)
-		if v.Site != nil {
-			key = "vlan-" + mapbuild.FirstNonEmpty(v.Site.Slug, v.Site.Name) + "-" + strconv.Itoa(v.VID)
-		}
-		e, err := b.Add(model.KindNetwork, key, mapbuild.FirstNonEmpty(v.Name, key))
-		if err != nil {
-			return fmt.Errorf("vlan %d: %w", v.ID, err)
+		key := vlanKey(v)
+		e, ok := b.addKeyed(model.KindNetwork, key, mapbuild.FirstNonEmpty(v.Name, key), "vlan", v.ID)
+		if !ok {
+			continue
 		}
 		mapbuild.SetAttr(e, "type", "vlan")
 		mapbuild.SetAttr(e, model.AttrVLAN, strconv.Itoa(v.VID))
@@ -118,10 +185,16 @@ func (b *builder) addVLANs(vlans []vlan) error {
 
 func (b *builder) addPrefixes(prefixes []prefix) error {
 	for _, p := range prefixes {
-		e, err := b.Add(model.KindNetwork, withVRF(p.Prefix, p.VRF), p.Prefix)
+		pfx, err := netip.ParsePrefix(p.Prefix)
 		if err != nil {
-			return fmt.Errorf("prefix %d: %w", p.ID, err)
+			b.skip(fmt.Sprintf("netbox: skipping prefix %d: invalid prefix %q", p.ID, p.Prefix))
+			continue
 		}
+		e, ok := b.addKeyed(model.KindNetwork, withVRF(p.Prefix, p.VRF), p.Prefix, "prefix", p.ID)
+		if !ok {
+			continue
+		}
+		b.nets = append(b.nets, indexedPrefix{pfx.Masked(), vrfID(p.VRF), e.ID})
 		mapbuild.SetAttr(e, "type", "prefix")
 		mapbuild.SetAttr(e, model.AttrPrefix, p.Prefix)
 		mapbuild.SetAttr(e, model.AttrGateway, customGateway(p.CustomFields))
@@ -136,8 +209,8 @@ func (b *builder) addPrefixes(prefixes []prefix) error {
 		}
 		setTags(e, p.Tags)
 		setTenant(e, p.Tenant)
-		if p.Site != nil {
-			b.relateIf(e.ID, b.sites, p.Site.ID, model.RelMemberOf)
+		if siteID, ok := p.siteID(); ok {
+			b.relateIf(e.ID, b.sites, siteID, model.RelMemberOf)
 		}
 		if p.VLAN != nil {
 			b.relateIf(e.ID, b.vlans, p.VLAN.ID, model.RelMemberOf)
@@ -151,14 +224,11 @@ func (b *builder) addPrefixes(prefixes []prefix) error {
 
 func (b *builder) addMachines(ms []machine, family string) error {
 	for _, m := range ms {
-		name := ""
-		if m.Name != nil {
-			name = *m.Name
-		}
-		name = mapbuild.FirstNonEmpty(name, fmt.Sprintf("%s-%d", family, m.ID))
-		e, err := b.Add(model.KindHost, name, name)
-		if err != nil {
-			return fmt.Errorf("%s %d: %w", family, m.ID, err)
+		name := machineName(m, family)
+		e, ok := b.addKeyed(model.KindHost, name, name, family, m.ID)
+		if !ok {
+			b.skippedHosts[objRef{family, m.ID}] = true
+			continue
 		}
 		mapbuild.SetAttr(e, "type", family)
 		mapbuild.SetAttr(e, "status", m.Status.Value)
@@ -204,12 +274,25 @@ func (b *builder) addInterfaces(nics []iface, family string) error {
 	if family == famVMNIC {
 		hostFamily, owner = famVM, func(i iface) *ref { return i.VirtualMachine }
 	}
+	nicKeys := keyCounter{}
+	for _, n := range nics {
+		if o := owner(n); o != nil {
+			if hostID, ok := b.hosts[objRef{hostFamily, o.ID}]; ok {
+				nicKeys.count(model.KindInterface, nicKey(hostID, n.Name))
+			}
+		}
+	}
 	for _, n := range nics {
 		o := owner(n)
 		if o == nil {
 			return fmt.Errorf("interface %d (%s) has no owner", n.ID, n.Name)
 		}
 		hostID, ok := b.hosts[objRef{hostFamily, o.ID}]
+		if !ok && b.skippedHosts[objRef{hostFamily, o.ID}] {
+			b.skippedNICs[objRef{family, n.ID}] = true
+			b.skip(fmt.Sprintf("netbox: skipping interface %d (%s): its owner was skipped", n.ID, n.Name))
+			continue
+		}
 		if !ok {
 			return fmt.Errorf("interface %d (%s): unknown owner %d", n.ID, n.Name, o.ID)
 		}
@@ -217,9 +300,12 @@ func (b *builder) addInterfaces(nics []iface, family string) error {
 		if err != nil {
 			return err
 		}
-		e, err := b.Add(model.KindInterface, hostKey+"/"+n.Name, hostKeyName(hostKey, n.Name))
+		key := nicKeys.resolve(model.KindInterface, nicKey(hostID, n.Name), "nic", n.ID)
+		e, err := b.Add(model.KindInterface, key, hostKeyName(hostKey, n.Name))
 		if err != nil {
-			return fmt.Errorf("interface %d: %w", n.ID, err)
+			b.skippedNICs[objRef{family, n.ID}] = true
+			b.skip(fmt.Sprintf("netbox: skipping interface %d: %v", n.ID, err))
+			continue
 		}
 		mapbuild.SetAttr(e, "enabled", strconv.FormatBool(n.Enabled))
 		mapbuild.SetAttr(e, model.AttrDescription, n.Description)
@@ -240,19 +326,22 @@ func (b *builder) addInterfaces(nics []iface, family string) error {
 	return nil
 }
 
-func (b *builder) addIPs(ips []ipAddress, prefixes []prefix) error {
-	nets, err := b.networks(prefixes)
-	if err != nil {
-		return err
-	}
+func (b *builder) addIPs(ips []ipAddress) {
 	for _, ip := range ips {
 		addr, err := netip.ParsePrefix(ip.Address)
 		if err != nil {
-			return fmt.Errorf("ip address %d: %w", ip.ID, err)
+			b.skip(fmt.Sprintf("netbox: skipping ip address %d: invalid address %q", ip.ID, ip.Address))
+			continue
 		}
-		e, err := b.Add(model.KindIPAddress, withVRF(ip.Address, ip.VRF), ip.Address)
-		if err != nil {
-			return fmt.Errorf("ip address %d: %w", ip.ID, err)
+		if b.assignedToSkippedNIC(ip) {
+			// Publishing the address alone would detach it from its host, so no
+			// deny rule on that host could reach it.
+			b.skip(fmt.Sprintf("netbox: skipping ip address %d: its interface was skipped", ip.ID))
+			continue
+		}
+		e, ok := b.addKeyed(model.KindIPAddress, withVRF(ip.Address, ip.VRF), ip.Address, "ip", ip.ID)
+		if !ok {
+			continue
 		}
 		mapbuild.SetAttr(e, "status", ip.Status.Value)
 		mapbuild.SetAttr(e, model.AttrDescription, ip.Description)
@@ -266,7 +355,7 @@ func (b *builder) addIPs(ips []ipAddress, prefixes []prefix) error {
 		if ip.DNSName != "" {
 			e.Aliases = []string{ip.DNSName}
 		}
-		if best, ok := nets.mostSpecific(addr.Addr(), vrfID(ip.VRF)); ok {
+		if best, ok := b.nets.mostSpecific(addr.Addr(), vrfID(ip.VRF)); ok {
 			b.Relate(e.ID, best, model.RelMemberOf)
 			if hasTag(ip.Tags, gatewayKey) {
 				// The custom field of the prefix wins; then the first tagged address.
@@ -277,7 +366,18 @@ func (b *builder) addIPs(ips []ipAddress, prefixes []prefix) error {
 		}
 		b.assign(e, ip, addr.Addr())
 	}
-	return nil
+}
+
+// assignedToSkippedNIC reports whether ip belongs to an interface that was
+// left out. An object that appears twice under one NetBox ID keeps its first
+// entity, so it does not count as skipped.
+func (b *builder) assignedToSkippedNIC(ip ipAddress) bool {
+	if ip.AssignedObjectID == nil {
+		return false
+	}
+	nic := objRef{ip.AssignedObjectType, *ip.AssignedObjectID}
+	_, kept := b.ifaces[nic]
+	return b.skippedNICs[nic] && !kept
 }
 
 // assign links an IP to the interface it is assigned to and copies the address
@@ -315,22 +415,6 @@ type indexedPrefix struct {
 	id     model.ID
 }
 
-func (b *builder) networks(prefixes []prefix) (prefixIndex, error) {
-	var idx prefixIndex
-	for _, p := range prefixes {
-		pfx, err := netip.ParsePrefix(p.Prefix)
-		if err != nil {
-			return nil, fmt.Errorf("prefix %d: %w", p.ID, err)
-		}
-		id, err := model.NewID(Source, model.KindNetwork, mapbuild.SanitizeKey(withVRF(p.Prefix, p.VRF)))
-		if err != nil {
-			return nil, err
-		}
-		idx = append(idx, indexedPrefix{pfx.Masked(), vrfID(p.VRF), id})
-	}
-	return idx, nil
-}
-
 func (idx prefixIndex) mostSpecific(addr netip.Addr, vrf int) (model.ID, bool) {
 	var best indexedPrefix
 	found := false
@@ -363,6 +447,12 @@ func withVRF(key string, v *ref) string {
 		return key
 	}
 	return key + "@" + mapbuild.FirstNonEmpty(v.Slug, v.Name)
+}
+
+// nicKey is the key of an interface before collisions are resolved.
+func nicKey(hostID model.ID, nic string) string {
+	_, _, hostKey, _ := model.ParseID(hostID)
+	return hostKey + "/" + nic
 }
 
 func hostKeyName(hostKey, nic string) string { return hostKey + " " + nic }

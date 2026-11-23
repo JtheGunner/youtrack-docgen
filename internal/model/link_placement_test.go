@@ -56,11 +56,7 @@ func TestLinkPlacement(t *testing.T) {
 				host("netbox", "vm2", "vm2.example.com", "192.0.2.21"),
 			},
 			rels: []Relation{pin},
-			want: []Relation{
-				sameAs("k8s:host:node-a", "netbox:host:vm1"),
-				sameAs("k8s:host:node-a", "netbox:host:vm2"),
-				pin,
-			},
+			want: []Relation{pin},
 		},
 		{
 			name: "host exposes a service on its external IP, not on its cluster IP",

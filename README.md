@@ -138,7 +138,8 @@ youtrack-docgen generate --config docgen.yaml
 
 - It uses every enabled collector, applies the allow/deny rules and redaction, renders the documents, and writes them with the `markdown` sink into `sinks.markdown.dir`.
 - `index.md` is the entry page. Every other document gets its own file named after its ID, for example `netbox-host-srv01-example-com.md`. Files the tool does not generate are left alone.
-- The `netbox` and `kubernetes` collectors are supported; set `enabled: false` on any other collector. Kubernetes workloads pinned to a node, services with `externalIPs` and ingress hostnames are linked to NetBox hosts (`runs_on`, `exposes`) when exactly one host matches by IP or hostname. An enabled `youtrack` sink is skipped with a note; use [`publish`](#-publish) to write to YouTrack.
+- The `netbox` and `kubernetes` collectors are supported; set `enabled: false` on any other collector. Kubernetes objects are linked to NetBox hosts as described under [Linking Kubernetes and NetBox](#linking-kubernetes-and-netbox). An enabled `youtrack` sink is skipped with a note; use [`publish`](#-publish) to write to YouTrack.
+- NetBox does not keep names unique. When several objects map to the same ID (a device name on two sites, a device and a VM with one name, anycast addresses, a VLAN ID in two groups, a prefix twice), each of them gets a suffix with its NetBox ID, such as `~device12`. Objects without a collision keep their plain ID. Interfaces of one host that share a name get the suffix `~nic<ID>`. Objects that cannot be mapped are skipped with a warning, and so are the IP addresses assigned to a skipped interface, so an address never appears without its host.
 - From NetBox, a host article shows the FQDN and a link to the NetBox record, and the VLAN overview shows VLAN ID, prefix, gateway and host count. NetBox has no gateway field: the collector reads the custom field `gateway` of a prefix, or else the first IP address in the prefix that carries the tag `gateway`.
 
 ### Kubernetes inputs
@@ -152,6 +153,20 @@ The `kubernetes` collector reads plain YAML manifests from the files and directo
 - **Duplicates:** if the same object (kind, namespace, name) appears more than once, for example a Kustomize base and an overlay patch, the first one in path order and lexical file order wins. Later ones are skipped with a warning.
 - **Warnings** go to standard error. A configured path that yields no objects at all produces a warning.
 - `spec.replicas` may be an integer or a quoted integer.
+
+### Linking Kubernetes and NetBox
+
+After collection, hosts of different sources are matched and Kubernetes objects are attached to NetBox hosts. A relation is only set when the match is unique; an ambiguous match sets nothing and prints a warning on standard error.
+
+- **Same machine (`same_as`):** two hosts of different sources are the same machine when they share an IP address or a hostname (name or alias, case-insensitive). A bare short name such as `web01` also matches the first label of `web01.example.com`; two fully qualified names with the same first label do not match. The relation is set only when each host has exactly one candidate in the other source.
+- **Ambiguity fails closed for deny rules:** an ambiguous match is never published as a relation, but the deny rules still count it. If one candidate is denied, the other host (for example the Kubernetes node) may be the same machine and is withheld too. Its other candidates are not denied by this. The warning only names hosts that are published; a warning that would mention a denied host is not printed.
+- **VRFs:** NetBox addresses keep their VRF. The same address in two different VRFs is two addresses. A Kubernetes node carries no VRF, so an address that exists in several VRFs on several NetBox hosts is ambiguous for it.
+- **Workloads (`runs_on`):** a workload pinned by `nodeName` or by a `kubernetes.io/hostname` node selector runs on the NetBox host its node is the same machine as. This needs the node's addresses or name to match, which usually means a `Node` manifest.
+- **Services (`exposes`):** a NetBox host that owns one of the service's `externalIPs` or load balancer IPs (`status.loadBalancer.ingress[].ip`) exposes the service. Cluster IPs and node ports are not used.
+- **Ingresses (`exposes`):** a NetBox host whose name or alias equals an ingress hostname (or its short name) exposes the ingress.
+
+> [!NOTE]
+> A workload that is not pinned to a node is not placed on any host. Without `Node` manifests the cluster says nothing about where it runs, and the tool does not guess. Host articles say "Nothing is known to run here" in that case; it does not mean that nothing runs there.
 
 ---
 
