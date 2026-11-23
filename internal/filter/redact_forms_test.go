@@ -3,6 +3,7 @@ package filter
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/JtheGunner/youtrack-docgen/internal/model"
 )
@@ -19,13 +20,13 @@ func TestRedactorTextCredentialForms(t *testing.T) {
 		in   string
 		keep string // text that must survive; empty for none
 	}{
-		{"https userinfo", "see https://admin:" + secret + "@db.example.com/app", "db.example.com/app"},
-		{"postgres userinfo", "dsn postgres://app:" + secret + "@192.0.2.5:5432/main?sslmode=disable", "192.0.2.5:5432/main"},
-		{"userinfo with at sign in password", "https://admin:" + secret + "@x@db.example.com/", "db.example.com/"},
-		{"e-mail address as user name", "https://ops@example.com:" + secret + "@db.example.com/x", "db.example.com/x"},
-		{"slash in password", "https://user:" + secret + "/ss@db.example.com/x", "db.example.com/x"},
-		{"slash in password after letters", "https://user:pa/" + secret + "@db.example.com/x", "db.example.com/x"},
-		{"digits then slash in password", "https://user:1a/" + secret + "@db.example.com/x", "db.example.com/x"},
+		{"https userinfo", "see https://admin:" + secret + "@db.example.com/app", ""},
+		{"postgres userinfo", "dsn postgres://app:" + secret + "@192.0.2.5:5432/main?sslmode=disable", ""},
+		{"userinfo with at sign in password", "https://admin:" + secret + "@x@db.example.com/", ""},
+		{"e-mail address as user name", "https://ops@example.com:" + secret + "@db.example.com/x", ""},
+		{"slash in password", "https://user:" + secret + "/ss@db.example.com/x", ""},
+		{"slash in password after letters", "https://user:pa/" + secret + "@db.example.com/x", ""},
+		{"digits then slash in password", "https://user:1a/" + secret + "@db.example.com/x", ""},
 		{"basic authorization header", "Authorization: Basic dXNlcjpmYWtlLXNlY3JldA== end", "end"},
 		{"basic authorization lower case", "authorization=basic " + secret, ""},
 		{"quoted basic authorization", `"Authorization": "Basic ` + secret + `"`, ""},
@@ -58,9 +59,7 @@ func TestRedactorTextCredentialForms(t *testing.T) {
 		"https://example.com:8443/path",
 		"ssh://git@example.com/repo.git",
 		"contact ops@example.com",
-		"https://example.com:8443/path/a@b",
 		"https://example.com/path:foo/a@b",
-		"https://ops@example.com:8443/path/a@b",
 		"https://ops@example.com/",
 		"Basic configuration is described on https://example.com/basic",
 		"Authorization header is set by the proxy",
@@ -123,63 +122,47 @@ func TestApplyRemovesEntitiesWhoseIdentityIsRedacted(t *testing.T) {
 	}
 }
 
-func TestRedactorURLCredentialsWithSeparatorsInThePassword(t *testing.T) {
+// A URL whose authority holds a ":" and whose token holds an "@" is redacted
+// as a whole, whatever the password contains. Redacting the host too is the
+// accepted failure.
+func TestRedactorURLCredentialsFailClosed(t *testing.T) {
 	r, err := NewRedactor(RedactConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	positive := []struct {
-		name    string
-		in      string
-		leaks   []string // must not survive
-		keep    string   // must survive; empty for none
-		wantAll bool     // everything after the scheme is removed
-	}{
-		{"at and slash in password", "https://user:p@ss/word@host/x", []string{"user", "p@ss", "ss/", "word"}, "host/x", false},
-		{"at and slash with dotted host", "https://user:p@ss/word@db.example.com/x", []string{"user", "ss/", "word"}, "db.example.com/x", false},
-		{"slash then at in password", "https://user:pa/ss@word", []string{"user", "pa/", "ss"}, "word", false},
-		{"at then slash, no later at", "https://user:p@ss/word", []string{"user", "ss", "word"}, "", true},
-		{"two ats and a slash", "https://user:a@b/c@d/e@db.example.com/x", []string{"user", "a@b", "c@d", "/e"}, "db.example.com/x", false},
-		{"at in the segment after the first at", "https://user:sec/ret@abc@db.example.com/x", []string{"user", "sec", "ret", "abc"}, "db.example.com/x", false},
-		{"two ats in the host segment", "https://user:sec/ret@abc@def@db.example.com/x", []string{"user", "sec", "ret", "abc", "def"}, "db.example.com/x", false},
-		{"digits then slash", "https://user:12/abc@db.example.com/x", []string{"user", "12/", "abc"}, "db.example.com/x", false},
-		{"long digits then slash", "https://user:123/fakesecret@db.example.com/x", []string{"user", "123/", "fakesecret"}, "db.example.com/x", false},
-		{"empty start then slash", "https://user:/fakesecret@db.example.com/x", []string{"user", "fakesecret"}, "db.example.com/x", false},
-		{"single label host without port", "https://user:pw@host/path", []string{"user", "pw", "host", "path"}, "", true},
-		{"single label host with port", "postgres://app:fakesecret@db:5432/main", []string{"app", "fakesecret"}, "db:5432/main", false},
-		{"surrounding text", "see (https://user:pa/ss@word) and more", []string{"user", "pa/"}, "and more", false},
-		{"two urls", "a https://u1:pw1@h1.example.com/ b https://u2:p/w2@h2.example.com/", []string{"u1", "pw1", "u2", "p/w2"}, "h2.example.com/", false},
+	redacted := []struct{ name, in, want string }{
+		{"at and slash in password", "https://user:p@ss/word@host/x", Placeholder},
+		{"password with at and slash, dotted host after", "https://u:abc@def.ghi/jkl@host.example.com/", Placeholder},
+		{"slash then at in password", "https://user:pa/ss@word", Placeholder},
+		{"at then slash, no later at", "https://user:p@ss/word", Placeholder},
+		{"two ats and a slash", "https://user:a@b/c@d/e@db.example.com/x", Placeholder},
+		{"digits then slash", "https://user:12/abc@db.example.com/x", Placeholder},
+		{"user name with dot and digits then slash", "https://user.name:12/x@host", Placeholder},
+		{"empty user name", "https://:fakesecret@db.example.com/", Placeholder},
+		{"single label host", "https://user:pw@host/path", Placeholder},
+		{"port followed by a path with at", "https://host.example.com:8443/path/a@b", Placeholder},
+		{"surrounding text", "see (https://user:pa/ss@word) and more", "see ([REDACTED] and more"},
+		{"surrounding text without closing", "a https://u1:pw1@h1.example.com/ b", "a [REDACTED] b"},
+		{"two urls", "a https://u1:pw1@h1/ b https://u2:p/w2@h2/ c", "a [REDACTED] b [REDACTED] c"},
+		{"url inside a query string", "https://example.com/?next=ftp://u:pw@h.example.com", "https://example.com/?next=[REDACTED]"},
 	}
-	for _, tt := range positive {
+	for _, tt := range redacted {
 		t.Run("redacted/"+tt.name, func(t *testing.T) {
-			got := r.Text(tt.in)
-			if !strings.Contains(got, Placeholder) {
-				t.Fatalf("no placeholder in %q", got)
-			}
-			for _, leaked := range tt.leaks {
-				if strings.Contains(strings.TrimPrefix(got, Placeholder), leaked) && !strings.Contains(tt.keep, leaked) {
-					t.Errorf("%q survived in %q", leaked, got)
-				}
-			}
-			if tt.keep != "" && !strings.Contains(got, tt.keep) {
-				t.Errorf("%q was over-redacted: %q", tt.keep, got)
-			}
-			if tt.wantAll && got != Placeholder {
-				t.Errorf("got %q, want only %q", got, Placeholder)
+			if got := r.Text(tt.in); got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
 			}
 		})
 	}
 
 	for _, in := range []string{
-		"https://host.example.com:8443/path/a@b",
-		"http://localhost:8080/path/a@b",
-		"https://example.com:8443/path/a@b",
+		"https://example.com:8443/path",
+		"http://localhost:8080/path",
 		"ssh://git@host",
+		"ssh://git@host.example.com/repo.git",
+		"https://ops@example.com/",
 		"https://db.example.com/x/y@abc@z",
-		"ssh://git@host.example.com:22/repo/a@b",
-		"https://ops@example.com:8443/path/a@b",
 		"https://example.com/a@b/c:d",
-		"https://[2001:db8::1]:8443/path/a@b",
+		"https://[2001:db8::1]:8443/path",
 		"mail ops@example.com and https://example.com/",
 	} {
 		t.Run("untouched/"+in, func(t *testing.T) {
@@ -187,5 +170,17 @@ func TestRedactorURLCredentialsWithSeparatorsInThePassword(t *testing.T) {
 				t.Fatalf("over-redacted %q to %q", in, got)
 			}
 		})
+	}
+}
+
+// Many "scheme://" occurrences in one long token must not make the scan
+// quadratic.
+func TestRedactURLCredentialsIsLinearOnHostileInput(t *testing.T) {
+	in := strings.Repeat("a://", 200000) + "x"
+	start := time.Now()
+	_ = redactURLCredentials(in)
+	_ = redactURLCredentials(strings.Repeat("a://b:c ", 100000))
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("scan took %v", d)
 	}
 }

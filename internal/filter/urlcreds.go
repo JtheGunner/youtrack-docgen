@@ -8,29 +8,24 @@ import (
 
 var urlSchemeRE = regexp.MustCompile(`\b[A-Za-z][A-Za-z0-9+.-]*://`)
 
-// redactURLCredentials replaces the scheme and the user:password part of every
-// URL that carries credentials, up to and including the "@" that ends the
-// userinfo; the host stays readable. "://" is followed by a run of
-// non-whitespace characters, and the credentials end at the last "@" that
-// still belongs to the userinfo.
+// redactURLCredentials replaces every URL that may carry credentials with the
+// placeholder, from its scheme to the end of the whitespace-delimited token.
 //
-// The userinfo may itself contain "@" and "/", so the end is found with a
-// host heuristic: a host is plausible when it has a dot, a port, or is
-// localhost or a bracketed IPv6 literal. While the text after a candidate "@"
-// is not a plausible host and another "@" follows, the credentials extend to
-// that "@" (fail closed).
+// A password may itself contain "@" and "/", so the end of the userinfo cannot
+// be told reliably from the host. The rule therefore fails closed: a URL is
+// redacted as a whole when the authority (the text after "://" up to the first
+// "/") contains a ":" and the token contains an "@" after the scheme. That
+// covers "user:password@host", passwords containing "@" or "/", and a missing
+// user name.
 //
-// Known limitations, both of which err on the side of redacting:
-//   - "scheme://user:pw@host/path" with a single-label host and no port is
-//     indistinguishable from the password "pw@host" followed by a path, so
-//     everything after the "@" is removed. Give the host a dot or a port.
-//   - "scheme://host:8443/path/a@b" with a single-label host such as "host"
-//     is indistinguishable from the user "host" and the password "8443/path/a",
-//     so it is redacted; with a dotted host or localhost it is left alone.
-//
-// A user name that contains a dot and a password that starts with digits
-// followed by "/" ("user.name:12/x@host") looks like host and port and is not
-// redacted (known limitation).
+// Known limitations:
+//   - Redacting too much is the accepted failure: "scheme://host:8443/a@b"
+//     (a port followed by a path containing "@") loses the whole URL.
+//   - A URL without a ":" in its authority ("scheme://user@host/path") has no
+//     password and stays readable.
+//   - Unencoded whitespace inside a password ends the token, so only the part
+//     before the whitespace is covered. RFC 3986 requires such characters to be
+//     percent-encoded.
 func redactURLCredentials(s string) string {
 	locs := urlSchemeRE.FindAllStringIndex(s, -1)
 	if len(locs) == 0 {
@@ -38,21 +33,20 @@ func redactURLCredentials(s string) string {
 	}
 	var b strings.Builder
 	copied := 0
+	tokenEnd, lastAt := -1, -1 // of the token holding the current scheme, as absolute offsets
 	for _, loc := range locs {
 		if loc[0] < copied {
 			continue // inside an already redacted URL
 		}
-		run := s[loc[1]:]
-		if i := strings.IndexFunc(run, unicode.IsSpace); i >= 0 {
-			run = run[:i]
+		if loc[1] >= tokenEnd {
+			tokenEnd, lastAt = tokenBounds(s, loc[1])
 		}
-		end := credentialsEnd(run)
-		if end < 0 {
+		if lastAt < loc[1] || !authorityHasColon(s[loc[1]:tokenEnd]) {
 			continue
 		}
 		b.WriteString(s[copied:loc[0]])
 		b.WriteString(Placeholder)
-		copied = loc[1] + end
+		copied = tokenEnd
 	}
 	if copied == 0 {
 		return s
@@ -61,83 +55,27 @@ func redactURLCredentials(s string) string {
 	return b.String()
 }
 
-// credentialsEnd returns the length of the credentials prefix of run (the text
-// after "://", up to whitespace), or -1 when run carries none.
-func credentialsEnd(run string) int {
-	authority := run
+// tokenBounds returns the end of the whitespace-delimited token that holds
+// offset from, and the offset of the last "@" at or after from (-1 when there
+// is none).
+// Scanning once per token keeps the redaction linear when a token holds many
+// "scheme://" occurrences.
+func tokenBounds(s string, from int) (end, lastAt int) {
+	end = len(s)
+	if i := strings.IndexFunc(s[from:], unicode.IsSpace); i >= 0 {
+		end = from + i
+	}
+	lastAt = -1
+	if i := strings.LastIndexByte(s[from:end], '@'); i >= 0 {
+		lastAt = from + i
+	}
+	return end, lastAt
+}
+
+// authorityHasColon reports whether the text up to the first "/" holds a ":".
+func authorityHasColon(run string) bool {
 	if slash := strings.IndexByte(run, '/'); slash >= 0 {
-		authority = run[:slash]
+		run = run[:slash]
 	}
-	var at int
-	if i := strings.LastIndexByte(authority, '@'); i >= 0 {
-		if !strings.Contains(authority[:i], ":") {
-			return -1 // a user name without password
-		}
-		at = i
-	} else {
-		colon := strings.IndexByte(authority, ':')
-		if colon < 0 || strings.HasPrefix(authority, "[") {
-			return -1
-		}
-		before, after := authority[:colon], authority[colon+1:]
-		if plausibleHostName(before) && (after == "" || isDigits(after)) {
-			return -1 // host and port
-		}
-		next := strings.IndexByte(run[len(authority):], '@')
-		if next < 0 {
-			return -1
-		}
-		at = len(authority) + next
-	}
-	extended := false
-	for {
-		rest := run[at+1:]
-		host, _, hasPath := strings.Cut(rest, "/")
-		// An "@" inside the host segment is more userinfo, never part of a host.
-		if next := strings.LastIndexByte(host, '@'); next >= 0 {
-			at += 1 + next
-			extended = true
-			continue
-		}
-		if plausibleHost(host) {
-			break
-		}
-		if next := strings.IndexByte(rest, '@'); next >= 0 {
-			at += 1 + next
-			extended = true
-			continue
-		}
-		if !extended && hasPath {
-			return len(run)
-		}
-		break
-	}
-	return at + 1
-}
-
-func plausibleHostName(s string) bool {
-	return strings.Contains(s, ".") || strings.EqualFold(s, "localhost")
-}
-
-// plausibleHost accepts a host with a dot, a port, or a bracketed IPv6 literal.
-func plausibleHost(s string) bool {
-	if strings.HasPrefix(s, "[") {
-		return true
-	}
-	if i := strings.LastIndexByte(s, ':'); i >= 0 && isDigits(s[i+1:]) {
-		return true
-	}
-	return plausibleHostName(s)
-}
-
-func isDigits(s string) bool {
-	if s == "" {
-		return false
-	}
-	for i := 0; i < len(s); i++ {
-		if s[i] < '0' || s[i] > '9' {
-			return false
-		}
-	}
-	return true
+	return strings.Contains(run, ":")
 }
