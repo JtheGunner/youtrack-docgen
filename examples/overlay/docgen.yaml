@@ -1,0 +1,6 @@
+collectors:
+  inventory:
+    path: ./inventory.json
+sinks:
+  markdown:
+    dir: ./out
