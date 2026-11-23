@@ -28,6 +28,8 @@ func TestDecideID(t *testing.T) {
 		{"deny wins over undecidable allow", Rules{
 			Allow: []Match{{Tags: []string{"prod"}}}, Deny: []Match{{Namespaces: []string{"shop"}}},
 		}, "kubernetes:workload:shop/deployment/web", Denied},
+		{"key the redactor would change is denied", Rules{}, "kubernetes:workload:shop/deployment/api_key=FAKE-KEY-SECRET-1", Denied},
+		{"redacted key is denied despite allow rule", Rules{Allow: []Match{{Namespaces: []string{"shop"}}}}, "kubernetes:service:shop/password=FAKE-KEY-SECRET-2", Denied},
 		{"malformed ID is undecidable", Rules{}, "not-an-id", Undecidable},
 	}
 	for _, tt := range tests {

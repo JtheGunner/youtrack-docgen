@@ -117,6 +117,17 @@ youtrack-docgen validate-config --config docgen.yaml
 
 ---
 
+## 🔒 Redaction
+
+Every entity passes the redactor before it is rendered, whatever the sink.
+
+- **Free text** (descriptions, labels, attributes, aliases): private key blocks, bearer tokens and `Authorization: Basic` headers, JWTs, AWS keys, GitHub, GitLab and Slack tokens, YouTrack permanent tokens, credentials in URLs (`scheme://user:password@host/path` becomes `[REDACTED]`), and assignments such as `password=...`, `pwd: ...`, `passphrase: ...`, `token=...` or `api_key=...` are replaced with `[REDACTED]`. Your own `redact.deny_patterns` come on top.
+  - **URL credentials fail closed:** a password may contain `@` and `/`, so the end of the credentials cannot be told from the host. A URL is therefore replaced as a whole, up to the next whitespace, when the text between `://` and the first `/` contains a `:` and the URL contains an `@`. The host disappears with it, and so does a harmless URL such as `https://host.example.com:8443/path/a@b`. A URL without a `:` in that part (`ssh://git@host/repo`) carries no password and stays readable. A scheme-relative `//user:password@host` has no scheme to find and is not redacted. A password with unencoded whitespace is only covered up to the whitespace; RFC 3986 requires such characters to be percent-encoded.
+- **Keys:** attribute, label and annotation values are dropped when the key looks secret (password, secret, token, auth, `pwd`, `passphrase`, ...) or matches `redact.secret_keys`. Environment values, Secret data and last-applied manifests are always dropped.
+- **Names and ID keys:** the name and the ID key of an entity are its article title, table cells and diagram labels, and every reference uses the key. If the redactor would change either one, the whole entity is removed, like a denied host, and so are its relations. Its article is never published; one that already exists is handled as for any removed object, also when a source was read incompletely. Removing is safer than masking, because a masked name would still leak through the key and the references.
+
+---
+
 ## ▶️ Generate
 
 `generate` runs the whole pipeline and writes the documentation as Markdown files, so you can review the result before anything touches YouTrack:

@@ -37,11 +37,17 @@ const kubernetesSource = "kubernetes"
 // source, the kind and, for Kubernetes, the namespace. A rule that needs more
 // (tags, roles, tenants, labels) is undecidable unless a field the ID does
 // carry already rules it out. Hostnames or addresses that a denied host drags
-// along are not considered.
+// along are not considered. An ID whose key the redactor would change is
+// denied.
 func (f *Filter) DecideID(id model.ID) Verdict {
 	source, kind, key, err := model.ParseID(id)
 	if err != nil {
 		return Undecidable
+	}
+	// Same rule as Apply: a key the redactor would change is removed, whatever
+	// the rules say.
+	if f.redactor.Text(key) != key {
+		return Denied
 	}
 	rules := f.rules[source]
 	known := knownFields{kind: string(kind)}
