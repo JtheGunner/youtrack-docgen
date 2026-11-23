@@ -6,9 +6,24 @@ import (
 	"unicode"
 )
 
+// The separators of a URL can be written in escaped forms: percent-encoded
+// (also more than once), as HTML entities, as JSON unicode escapes, or with
+// backslashes from JSON that was embedded one or more times. The redaction
+// matches these forms wherever it looks for the plain character.
+const (
+	slashPattern = `(?:\\*/|\\+u002[Ff]|%(?:25)*2[Ff]|&#(?:47|[xX]0*2[Ff]);|&sol;)`
+	colonPattern = `(?::|\\+u003[Aa]|%(?:25)*3[Aa]|&#(?:58|[xX]0*3[Aa]);|&colon;)`
+	atPattern    = `(?:@|\\+u0040|%(?:25)*40|&#(?:64|[xX]0*40);|&commat;)`
+)
+
 // The scheme needs no word boundary before it: "x_https://" and "1https://"
-// must not hide credentials. A JSON-escaped "https:\/\/" counts as well.
-var urlSchemeRE = regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.-]*:(?:\\?/){2}`)
+// must not hide credentials. Escaped separators count as well.
+var (
+	urlSchemeRE = regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.-]*` + colonPattern + slashPattern + slashPattern)
+	slashRE     = regexp.MustCompile(slashPattern)
+	colonRE     = regexp.MustCompile(colonPattern)
+	atRE        = regexp.MustCompile(atPattern)
+)
 
 // redactURLCredentials replaces every URL that may carry credentials with the
 // placeholder, from its scheme to the end of the whitespace-delimited token.
@@ -25,6 +40,9 @@ var urlSchemeRE = regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.-]*:(?:\\?/){2}`)
 //     (a port followed by a path containing "@") loses the whole URL.
 //   - A URL without a ":" in its authority ("scheme://user@host/path") has no
 //     password and stays readable.
+//   - Separators in a form that the patterns above do not list (for example
+//     HTML entities with leading zeros, or an unusual charset) are not
+//     recognised.
 //   - A scheme-relative URL ("//user:password@host") has no scheme to find and
 //     is not redacted.
 //   - Unencoded whitespace inside a password ends the token, so only the part
@@ -60,8 +78,8 @@ func redactURLCredentials(s string) string {
 }
 
 // tokenBounds returns the end of the whitespace-delimited token that holds
-// offset from, and the offset of the last "@" at or after from (-1 when there
-// is none).
+// offset from, and the offset of the last "@" (in any escaped form) at or after
+// from (-1 when there is none).
 // Scanning once per token keeps the redaction linear when a token holds many
 // "scheme://" occurrences.
 func tokenBounds(s string, from int) (end, lastAt int) {
@@ -70,16 +88,17 @@ func tokenBounds(s string, from int) (end, lastAt int) {
 		end = from + i
 	}
 	lastAt = -1
-	if i := strings.LastIndexByte(s[from:end], '@'); i >= 0 {
-		lastAt = from + i
+	if all := atRE.FindAllStringIndex(s[from:end], -1); len(all) > 0 {
+		lastAt = from + all[len(all)-1][0]
 	}
 	return end, lastAt
 }
 
-// authorityHasColon reports whether the text up to the first "/" holds a ":".
+// authorityHasColon reports whether the text up to the first "/" (in any
+// escaped form) holds a ":" (in any escaped form).
 func authorityHasColon(run string) bool {
-	if slash := strings.IndexByte(run, '/'); slash >= 0 {
-		run = run[:slash]
+	if loc := slashRE.FindStringIndex(run); loc != nil {
+		run = run[:loc[0]]
 	}
-	return strings.Contains(run, ":")
+	return colonRE.MatchString(run)
 }
