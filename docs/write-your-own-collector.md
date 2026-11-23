@@ -21,6 +21,7 @@ Rules every collector follows:
 
 - **Own your IDs.** Every entity ID starts with `Name()`. IDs have the form `source:kind:key`, are built with `model.NewID`, and must be stable between runs. Neither part may contain `:`.
 - **Never import another collector or a sink.** Collectors only know the model.
+- **Scope keys by cluster if you emit clusters.** A collector that models Kubernetes-like objects emits one `cluster` entity per cluster and puts the cluster name first in the key of everything below it, because names repeat across clusters. The built-in `kubernetes` collector uses `kubernetes:cluster:<cluster>`, `kubernetes:namespace:<cluster>/<namespace>` and `kubernetes:workload:<cluster>/<namespace>/<kind>/<name>`. Keys may contain `/` but not `:`. The renderer builds the `Kubernetes / <cluster> / <namespace>` articles only for entities of the source `kubernetes`; cluster entities of other sources are not rendered.
 - **Do not link across sources.** After all collectors ran, `model.Link` connects hosts of different sources that share an IP address or hostname with a `same_as` relation.
 - **Add nothing on failure.** Collect into local values first and add them to the graph at the end, so a partial view of the source never reaches the output. The NetBox collector works this way.
 - **Honour `ctx`** for every network call, and set a timeout on HTTP clients.
