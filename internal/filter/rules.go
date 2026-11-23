@@ -100,14 +100,17 @@ type Rules struct {
 	Deny  []Match `yaml:"deny"`
 }
 
-func (r Rules) permits(e model.Entity) bool {
-	if slices.ContainsFunc(r.Deny, func(m Match) bool { return m.matches(e) }) {
-		return false
-	}
-	if len(r.Allow) == 0 {
-		return true
-	}
-	return slices.ContainsFunc(r.Allow, func(m Match) bool { return m.matches(e) })
+func (r Rules) permits(e model.Entity) bool { return !r.denies(e) && r.allows(e) }
+
+// denies reports whether a deny rule matches e.
+func (r Rules) denies(e model.Entity) bool {
+	return slices.ContainsFunc(r.Deny, func(m Match) bool { return m.matches(e) })
+}
+
+// allows reports whether the allow rules let e pass: always without allow
+// rules, otherwise when one of them matches.
+func (r Rules) allows(e model.Entity) bool {
+	return len(r.Allow) == 0 || slices.ContainsFunc(r.Allow, func(m Match) bool { return m.matches(e) })
 }
 
 func anyGlob(patterns []string, values ...string) bool {

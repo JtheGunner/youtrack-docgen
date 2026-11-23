@@ -58,6 +58,9 @@ func diffYouTrack(ctx context.Context, cfg *config.Config, opts runOptions, at t
 	if err != nil {
 		return false, err
 	}
+	if err := printFilterReport(stderr, cfg.EnabledCollectors(), b.filterReport); err != nil {
+		return false, err
+	}
 	if err := printWarnings(stderr, b.linkWarnings); err != nil {
 		return false, err
 	}

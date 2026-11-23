@@ -5,11 +5,13 @@ import (
 	"maps"
 	"net/netip"
 	"net/url"
+	"path"
 	"regexp"
 	"slices"
 	"strings"
 
 	"github.com/JtheGunner/youtrack-docgen/internal/filter"
+	"github.com/JtheGunner/youtrack-docgen/internal/model"
 )
 
 var moduleName = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
@@ -30,11 +32,47 @@ type moduleSpec struct {
 	settings map[string]settingKind
 	// required lists the keys that must be set: "url", "token" or a setting.
 	required []string
+	// usesURL and usesToken tell whether the module reads its own url and
+	// token; a value for a module that does not is reported as ineffective.
+	usesURL, usesToken bool
+	// match describes which rule fields a collector provides; nil when the
+	// core does not know the entities of the module.
+	match *matchSpec
+}
+
+// matchSpec lists what the entities of one collector carry, so rule fields it
+// never fills are caught instead of silently never matching.
+type matchSpec struct {
+	kinds      []model.Kind
+	tags       bool
+	roles      bool
+	tenants    bool
+	namespaces bool
+	// labelKey reports whether the collector can emit a label with this key.
+	labelKey func(string) bool
 }
 
 var collectorSpecs = map[string]moduleSpec{
-	"netbox":     {required: []string{"url", "token"}},
-	"kubernetes": {settings: map[string]settingKind{"paths": kindPathSources}, required: []string{"paths"}},
+	"netbox": {
+		required: []string{"url", "token"}, usesURL: true, usesToken: true,
+		match: &matchSpec{
+			kinds: []model.Kind{model.KindSite, model.KindNetwork, model.KindIPAddress, model.KindHost, model.KindInterface},
+			tags:  true, roles: true, tenants: true,
+			labelKey: func(k string) bool {
+				return k == filter.LabelRole || k == filter.LabelTenant || strings.HasPrefix(k, filter.LabelTagPrefix)
+			},
+		},
+	},
+	"kubernetes": {
+		settings: map[string]settingKind{"paths": kindPathSources}, required: []string{"paths"},
+		match: &matchSpec{
+			kinds:      []model.Kind{model.KindHost, model.KindNamespace, model.KindWorkload, model.KindService, model.KindIngress},
+			namespaces: true,
+			labelKey: func(k string) bool {
+				return k == filter.LabelNamespace || strings.HasPrefix(k, "label.")
+			},
+		},
+	},
 }
 
 var sinkSpecs = map[string]moduleSpec{
@@ -109,28 +147,100 @@ func validateModules(section string, modules map[string]Module, specs map[string
 		if !m.IsEnabled() {
 			continue
 		}
-		if m.URL != "" && !validURL(m.URL) {
-			problems = append(problems, path+".url: "+urlHint)
-		} else if !allowInsecure && m.Token.IsSet() && insecureTokenURL(m.URL) {
-			problems = append(problems, path+".url: "+insecureHint)
+		spec, builtin := specs[name]
+		problems = append(problems, validateConnection(path, m, spec, builtin, allowInsecure)...)
+		if section == "collectors" {
+			problems = append(problems, validateMatches(path+".allow", m.Allow, spec.match)...)
+			problems = append(problems, validateMatches(path+".deny", m.Deny, spec.match)...)
+		} else if len(m.Allow) > 0 || len(m.Deny) > 0 {
+			problems = append(problems, path+".allow/deny: have no effect on a sink; rules apply to collectors only")
 		}
-		problems = append(problems, validateMatches(path+".allow", m.Allow)...)
-		problems = append(problems, validateMatches(path+".deny", m.Deny)...)
-		if spec, builtin := specs[name]; builtin {
+		if builtin {
 			problems = append(problems, validateBuiltin(path, m, spec)...)
 		}
 	}
 	return problems
 }
 
-func validateMatches(path string, matches []filter.Match) []string {
+// validateConnection checks url and token. A built-in module that does not
+// read them reports a set value as ineffective.
+func validateConnection(modPath string, m Module, spec moduleSpec, builtin, allowInsecure bool) []string {
+	var problems []string
+	switch {
+	case builtin && !spec.usesURL && m.URL != "":
+		problems = append(problems, modPath+".url: has no effect; this module does not use it")
+	case m.URL != "" && !validURL(m.URL):
+		problems = append(problems, modPath+".url: "+urlHint)
+	case !allowInsecure && m.Token.IsSet() && insecureTokenURL(m.URL):
+		problems = append(problems, modPath+".url: "+insecureHint)
+	}
+	if builtin && !spec.usesToken && m.Token.IsSet() {
+		problems = append(problems, modPath+".token: has no effect; this module does not use it")
+	}
+	return problems
+}
+
+// validateMatches checks every rule. spec is nil for modules whose entities
+// the core does not know; then only the kinds are checked against the model.
+func validateMatches(rulePath string, matches []filter.Match, spec *matchSpec) []string {
 	var problems []string
 	for i, m := range matches {
 		if err := m.Validate(); err != nil {
-			problems = append(problems, fmt.Sprintf("%s[%d]: %v", path, i, err))
+			problems = append(problems, fmt.Sprintf("%s[%d]: %v", rulePath, i, err))
+			continue
+		}
+		for _, msg := range checkMatchFields(m, spec) {
+			problems = append(problems, fmt.Sprintf("%s[%d]: %s", rulePath, i, msg))
 		}
 	}
 	return problems
+}
+
+// checkMatchFields reports the fields of m that can never match.
+func checkMatchFields(m filter.Match, spec *matchSpec) []string {
+	var problems []string
+	valid := filter.AllKinds()
+	if spec != nil {
+		valid = spec.kinds
+	}
+	for _, pattern := range m.Kinds {
+		if !slices.ContainsFunc(valid, func(k model.Kind) bool { return globMatches(pattern, string(k)) }) {
+			problems = append(problems, fmt.Sprintf("kinds: %q matches no kind; valid kinds: %s", pattern, kindList(valid)))
+		}
+	}
+	if spec == nil {
+		return problems
+	}
+	check := func(field string, provided bool, used bool) {
+		if used && !provided {
+			problems = append(problems, field+": this collector does not provide it, so the rule can never match")
+		}
+	}
+	check("tags", spec.tags, len(m.Tags) > 0)
+	check("roles", spec.roles, len(m.Roles) > 0)
+	check("tenants", spec.tenants, len(m.Tenants) > 0)
+	check("namespaces", spec.namespaces, len(m.Namespaces) > 0)
+	for _, key := range slices.Sorted(maps.Keys(m.Labels)) {
+		if !spec.labelKey(key) {
+			problems = append(problems, fmt.Sprintf("labels: this collector never sets a label %q, so the rule can never match", key))
+		}
+	}
+	return problems
+}
+
+func kindList(kinds []model.Kind) string {
+	names := make([]string, len(kinds))
+	for i, k := range kinds {
+		names[i] = string(k)
+	}
+	slices.Sort(names)
+	return strings.Join(names, ", ")
+}
+
+// globMatches compares case-insensitively, like the filter does.
+func globMatches(pattern, value string) bool {
+	ok, err := path.Match(strings.ToLower(pattern), strings.ToLower(value))
+	return err == nil && ok
 }
 
 func validateBuiltin(path string, m Module, spec moduleSpec) []string {

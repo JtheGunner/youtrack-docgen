@@ -53,6 +53,9 @@ func generate(ctx context.Context, cfg *config.Config, at time.Time, stdout, std
 	if err != nil {
 		return err
 	}
+	if err := printFilterReport(stderr, cfg.EnabledCollectors(), built.filterReport); err != nil {
+		return err
+	}
 	if err := printWarnings(stderr, built.linkWarnings); err != nil {
 		return err
 	}
@@ -86,6 +89,8 @@ type built struct {
 	// linkWarnings describe ambiguous host matches that were not linked. A
 	// warning that names a denied entity is dropped.
 	linkWarnings []string
+	// filterReport counts what the filter removed per collector.
+	filterReport filter.Report
 }
 
 // publishableLinkWarnings renders the link warnings from the entities that
@@ -126,7 +131,7 @@ func buildDocuments(ctx context.Context, cfg *config.Config, at time.Time) (buil
 		}
 	}
 	_, linkWarnings := model.LinkWithWarnings(graph)
-	filtered, err := flt.Apply(graph)
+	filtered, report, err := flt.ApplyWithReport(graph)
 	if err != nil {
 		return built{}, err
 	}
@@ -156,6 +161,7 @@ func buildDocuments(ctx context.Context, cfg *config.Config, at time.Time) (buil
 		root:       render.Render(filtered, render.Options{GeneratedAt: at, RootTitle: cfg.RootTitle(), Diagrams: cfg.DiagramFormat()}),
 		incomplete: incomplete, denied: denied, decideDenied: decide,
 		linkWarnings: publishableLinkWarnings(linkWarnings, kept),
+		filterReport: report,
 	}, nil
 }
 

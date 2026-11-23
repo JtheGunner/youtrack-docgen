@@ -36,7 +36,9 @@ const kubernetesSource = "kubernetes"
 // of an object that was not collected. Only what the ID carries is used: the
 // source, the kind and, for Kubernetes, the namespace. A rule that needs more
 // (tags, roles, tenants, labels) is undecidable unless a field the ID does
-// carry already rules it out. Hostnames or addresses that a denied host drags
+// carry already rules it out. Interfaces, IP addresses, networks and sites that
+// only fail the allow rules stay undecided, because an allowed host may bring
+// them along as references. Hostnames or addresses that a denied host drags
 // along are not considered. An ID whose key the redactor would change is
 // denied.
 func (f *Filter) DecideID(id model.ID) Verdict {
@@ -59,6 +61,12 @@ func (f *Filter) DecideID(id model.ID) Verdict {
 	if len(rules.Allow) > 0 {
 		allow = anyMatch(rules.Allow, known)
 	}
+	// Apply admits these kinds as references of an allowed host although no
+	// allow rule matches them. An ID cannot tell, so a failed allow match is
+	// undecided; only a deny rule denies them for certain.
+	if allow == triFalse && deny != triTrue && isReferenceKind(kind) {
+		allow = triUnknown
+	}
 	switch {
 	case deny == triTrue || allow == triFalse:
 		return Denied
@@ -66,6 +74,16 @@ func (f *Filter) DecideID(id model.ID) Verdict {
 		return Permitted
 	}
 	return Undecidable
+}
+
+// isReferenceKind reports whether an allowed host can bring entities of kind
+// along as references.
+func isReferenceKind(kind model.Kind) bool {
+	switch kind {
+	case model.KindInterface, model.KindIPAddress, model.KindNetwork, model.KindSite:
+		return true
+	}
+	return false
 }
 
 // knownFields are the match dimensions an ID carries.
