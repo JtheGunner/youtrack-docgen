@@ -122,10 +122,14 @@ func (f *Filter) deniedByRules(g *model.Graph, kind model.Kind, references map[m
 
 // deniedClusters returns the clusters that are removed whatever their
 // namespaces do: a deny rule matches them or the redactor would change their
-// identity. Their namespaces and members go with them.
+// identity. Their namespaces and members go with them. Like DecideID, only the
+// clusters of the kubernetes source get this cascade.
 func (f *Filter) deniedClusters(g *model.Graph) []model.Entity {
 	var denied []model.Entity
 	for _, c := range g.ByKind(model.KindCluster) {
+		if c.Source != kubernetesSource {
+			continue
+		}
 		if f.rules[c.Source].denies(c) || f.redactor.IdentityChanged(c) {
 			denied = append(denied, c)
 		}
@@ -135,7 +139,8 @@ func (f *Filter) deniedClusters(g *model.Graph) []model.Entity {
 
 // parentClusters returns the clusters that a surviving namespace is a
 // member_of. They stay although no allow rule matches them, so a namespace
-// never loses its parent; a deny rule still wins over them.
+// never loses its parent; a deny rule still wins over them. Only clusters of
+// the kubernetes source are kept this way.
 func (f *Filter) parentClusters(g *model.Graph, references map[model.ID]bool, deps dependents) map[model.ID]bool {
 	parents := map[model.ID]bool{}
 	survives := func(ns model.Entity) bool {
@@ -144,7 +149,7 @@ func (f *Filter) parentClusters(g *model.Graph, references map[model.ID]bool, de
 			!deps.removed[ns.ID] && !deps.namesDeniedValue(ns) && !f.redactor.IdentityChanged(ns)
 	}
 	for _, c := range g.ByKind(model.KindCluster) {
-		if f.rules[c.Source].denies(c) {
+		if c.Source != kubernetesSource || f.rules[c.Source].denies(c) {
 			continue
 		}
 		if slices.ContainsFunc(memberSources(g, c.ID, model.KindNamespace), survives) {

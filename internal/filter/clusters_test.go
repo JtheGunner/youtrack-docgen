@@ -13,7 +13,7 @@ import (
 // plain namespace as label and every cluster-scoped entity names its cluster.
 func kubeEntity(t *testing.T, kind model.Kind, key string, attrs map[string]string) model.Entity {
 	t.Helper()
-	e := entity(t, "k8s", kind, key, nil, attrs)
+	e := entity(t, kubernetesSource, kind, key, nil, attrs)
 	e.Name = key[strings.LastIndex(key, "/")+1:]
 	if kind == model.KindCluster {
 		return e
@@ -84,8 +84,10 @@ func TestDecideIDAcrossClusters(t *testing.T) {
 		{"cluster named like the namespace is no namespace", denyX, "kubernetes:workload:x/y/deployment/web", Permitted},
 		{"allow admits members in every cluster", allowX, "kubernetes:workload:b/x/deployment/web", Permitted},
 		{"allow excludes other namespaces", allowX, "kubernetes:service:a/y/web", Denied},
-		{"cluster kept when its namespaces are denied", denyX, "kubernetes:cluster:a", Permitted},
-		{"cluster kept by a namespace-kind deny", denyNamespaceX, "kubernetes:cluster:a", Permitted},
+		// The cluster article lists the names of its namespaces, so a rule
+		// that may hide a namespace leaves the cluster ID undecided.
+		{"namespace deny leaves the cluster undecided", denyX, "kubernetes:cluster:a", Undecidable},
+		{"namespace-kind deny leaves the cluster undecided", denyNamespaceX, "kubernetes:cluster:a", Undecidable},
 		{"cluster denied by a kind rule", Rules{Deny: []Match{{Kinds: []string{"cluster"}}}}, "kubernetes:cluster:a", Denied},
 		{"cluster admitted by a kind allow rule", Rules{Allow: []Match{{Kinds: []string{"cluster"}}}}, "kubernetes:cluster:a", Permitted},
 		// A cluster is kept when one of its namespaces survives, which an ID
@@ -161,14 +163,14 @@ func TestApplyRemovesMembersOfDeniedNamespaceInEveryCluster(t *testing.T) {
 		"notes": "calls billing.lab.svc and billing.lab.svc.cluster.local",
 	}))
 
-	cfg := Config{Collectors: map[string]Rules{"k8s": {Deny: []Match{{Kinds: []string{"namespace"}, Namespaces: []string{"lab"}}}}}}
+	cfg := Config{Collectors: map[string]Rules{kubernetesSource: {Deny: []Match{{Kinds: []string{"namespace"}, Namespaces: []string{"lab"}}}}}}
 	out := mustApply(t, cfg, g)
 	for _, e := range denied {
 		if _, ok := out.Entity(e.ID); ok {
 			t.Errorf("%s must be removed", e.ID)
 		}
 	}
-	for _, id := range []model.ID{"k8s:cluster:a", "k8s:cluster:b"} {
+	for _, id := range []model.ID{"kubernetes:cluster:a", "kubernetes:cluster:b"} {
 		if _, ok := out.Entity(id); !ok {
 			t.Errorf("cluster %s must stay when only its namespaces are denied", id)
 		}
@@ -194,7 +196,7 @@ func TestApplyCascadeStaysInsideTheCluster(t *testing.T) {
 	memberA := mustAdd(t, g, kubeEntity(t, model.KindService, "a/lab/api", nil))
 	memberB := mustAdd(t, g, kubeEntity(t, model.KindService, "b/lab/api", nil))
 
-	cfg := Config{Collectors: map[string]Rules{"k8s": {Deny: []Match{{Kinds: []string{"namespace"}, Labels: map[string]string{"label.stage": "test"}}}}}}
+	cfg := Config{Collectors: map[string]Rules{kubernetesSource: {Deny: []Match{{Kinds: []string{"namespace"}, Labels: map[string]string{"label.stage": "test"}}}}}}
 	out := mustApply(t, cfg, g)
 	if _, ok := out.Entity(memberA.ID); ok {
 		t.Error("member of the denied namespace must be removed")

@@ -150,6 +150,28 @@ func TestRemovedNamespaceIsMarkedStaleAndItsClusterStays(t *testing.T) {
 	}
 }
 
+func TestDisappearedClusterAndItsNamespacesAreMarkedStale(t *testing.T) {
+	api := publishedAPI(t, clusterTree(twoClusters()))
+	n := len(api.articles)
+
+	res, err := newSink(t, api).Publish(context.Background(), clusterTree(map[string][]string{"prod": {"blog", "shop"}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(api.articles) != n {
+		t.Fatalf("articles %d->%d; none may be deleted", n, len(api.articles))
+	}
+	want := []string{"kubernetes:cluster:stage", "kubernetes:namespace:stage/shop"}
+	if got := staleKeys(api); !slices.Equal(got, want) || res.Stale != len(want) {
+		t.Errorf("stale = %v (result %+v), want %v", got, res, want)
+	}
+	for _, key := range want {
+		if a := api.byKey(t, key); !strings.Contains(a.Content, "docgen:begin stale-banner") {
+			t.Errorf("%s has no stale banner:\n%s", key, a.Content)
+		}
+	}
+}
+
 func TestNamespaceReturnsBelowItsClusterAndLosesTheStaleMark(t *testing.T) {
 	api := publishedAPI(t, clusterTree(twoClusters()))
 	s := newSink(t, api)
@@ -255,16 +277,27 @@ func TestDenyCheckOfKubernetesIDsOfAnIncompleteSource(t *testing.T) {
 		oldFormat bool
 		wantStale []string
 		wantErr   error
+		// after is the tree of this run; nil means both shop articles are
+		// unpublished and both clusters are regenerated.
+		after map[string][]string
 	}{
-		{"nothing denied", kubernetesFilter(t, filter.Match{Namespaces: []string{"other"}}), false, nil, nil},
+		{"nothing denied", kubernetesFilter(t, filter.Match{Namespaces: []string{"other"}}), false, nil, nil, nil},
 		{"denied cluster-prefixed namespace", kubernetesFilter(t, filter.Match{Namespaces: []string{"shop"}}), false,
-			[]string{"kubernetes:namespace:prod/shop", "kubernetes:namespace:stage/shop"}, nil},
+			[]string{"kubernetes:namespace:prod/shop", "kubernetes:namespace:stage/shop"}, nil, nil},
 		// The old format names no cluster, so a cluster-wide effect of any
 		// namespace rule cannot be ruled out: such an ID blocks, it is neither
 		// cleaned nor silently kept.
-		{"old-format ID under a namespace deny", kubernetesFilter(t, filter.Match{Namespaces: []string{"shop"}}), true, nil, ErrDenyCleanup},
-		{"old-format ID under a rule that needs labels", kubernetesFilter(t, filter.Match{Labels: map[string]string{"team": "a"}}), true, nil, ErrDenyCleanup},
-		{"old-format ID without any deny rule", kubernetesFilter(t), true, nil, nil},
+		{"old-format ID under a namespace deny", kubernetesFilter(t, filter.Match{Namespaces: []string{"shop"}}), true, nil, ErrDenyCleanup, nil},
+		{"old-format ID under a rule that needs labels", kubernetesFilter(t, filter.Match{Labels: map[string]string{"team": "a"}}), true, nil, ErrDenyCleanup, nil},
+		{"old-format ID without any deny rule", kubernetesFilter(t), true, nil, nil, nil},
+		// The cluster article of stage is not regenerated. It lists its
+		// namespaces by name, so a rule that may hide a namespace blocks.
+		{"unregenerated cluster under a namespace deny", kubernetesFilter(t, filter.Match{Namespaces: []string{"quarantine"}}), false, nil, ErrDenyCleanup,
+			map[string][]string{"prod": {"blog", "shop"}}},
+		{"unregenerated cluster under a label deny", kubernetesFilter(t, filter.Match{Labels: map[string]string{"label.team": "a"}}), false, nil, ErrDenyCleanup,
+			map[string][]string{"prod": {"blog", "shop"}}},
+		{"unregenerated cluster under a member kind deny", kubernetesFilter(t, filter.Match{Kinds: []string{"service"}}), false, nil, nil,
+			map[string][]string{"prod": {"blog", "shop"}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -281,6 +314,9 @@ func TestDenyCheckOfKubernetesIDsOfAnIncompleteSource(t *testing.T) {
 			}
 			// Both shop articles are unpublished: the run collected nothing of them.
 			after := map[string][]string{"prod": {"blog"}, "stage": nil}
+			if tt.after != nil {
+				after = tt.after
+			}
 			_, err := newSinkWith(t, api, mod).Publish(context.Background(), clusterTree(after))
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("err = %v, want %v", err, tt.wantErr)

@@ -44,8 +44,8 @@ func clusterGraph(t *testing.T, withRelations bool, marked ...model.ID) *model.G
 }
 
 var clusterGraphIDs = []model.ID{
-	"k8s:cluster:a", "k8s:namespace:a/x", "k8s:workload:a/x/deployment/app-ax", "k8s:namespace:a/y", "k8s:workload:a/y/deployment/app-ay",
-	"k8s:cluster:b", "k8s:namespace:b/x", "k8s:workload:b/x/deployment/app-bx", "k8s:namespace:b/y", "k8s:workload:b/y/deployment/app-by",
+	"kubernetes:cluster:a", "kubernetes:namespace:a/x", "kubernetes:workload:a/x/deployment/app-ax", "kubernetes:namespace:a/y", "kubernetes:workload:a/y/deployment/app-ay",
+	"kubernetes:cluster:b", "kubernetes:namespace:b/x", "kubernetes:workload:b/x/deployment/app-bx", "kubernetes:namespace:b/y", "kubernetes:workload:b/y/deployment/app-by",
 }
 
 func keptIDs(out *model.Graph) []model.ID {
@@ -73,13 +73,13 @@ func TestApplyKeepsTheClusterOfASurvivingNamespace(t *testing.T) {
 		{
 			name:  "namespace-only allow list keeps the clusters",
 			rules: Rules{Allow: []Match{{Namespaces: []string{"x"}}}},
-			want:  []model.ID{"k8s:cluster:a", "k8s:namespace:a/x", "k8s:workload:a/x/deployment/app-ax", "k8s:cluster:b", "k8s:namespace:b/x", "k8s:workload:b/x/deployment/app-bx"},
+			want:  []model.ID{"kubernetes:cluster:a", "kubernetes:namespace:a/x", "kubernetes:workload:a/x/deployment/app-ax", "kubernetes:cluster:b", "kubernetes:namespace:b/x", "kubernetes:workload:b/x/deployment/app-bx"},
 		},
 		{
 			name:   "allowed namespace in one cluster keeps only that cluster",
 			rules:  Rules{Allow: []Match{marker}},
-			marked: []model.ID{"k8s:namespace:a/x", "k8s:workload:a/x/deployment/app-ax"},
-			want:   []model.ID{"k8s:cluster:a", "k8s:namespace:a/x", "k8s:workload:a/x/deployment/app-ax"},
+			marked: []model.ID{"kubernetes:namespace:a/x", "kubernetes:workload:a/x/deployment/app-ax"},
+			want:   []model.ID{"kubernetes:cluster:a", "kubernetes:namespace:a/x", "kubernetes:workload:a/x/deployment/app-ax"},
 		},
 		{
 			name:  "allow list drops a cluster without surviving namespace",
@@ -88,7 +88,7 @@ func TestApplyKeepsTheClusterOfASurvivingNamespace(t *testing.T) {
 		{
 			name:  "denying every namespace keeps the clusters without an allow list",
 			rules: Rules{Deny: []Match{{Kinds: []string{"namespace"}}}},
-			want:  []model.ID{"k8s:cluster:a", "k8s:cluster:b"},
+			want:  []model.ID{"kubernetes:cluster:a", "kubernetes:cluster:b"},
 		},
 		{
 			name:  "cluster kind deny removes its namespaces and members",
@@ -101,8 +101,8 @@ func TestApplyKeepsTheClusterOfASurvivingNamespace(t *testing.T) {
 		{
 			name:   "deny of one cluster keeps the other",
 			rules:  Rules{Deny: []Match{{Kinds: []string{"cluster"}, Labels: map[string]string{"marker": "yes"}}}},
-			marked: []model.ID{"k8s:cluster:a"},
-			want:   []model.ID{"k8s:cluster:b", "k8s:namespace:b/x", "k8s:workload:b/x/deployment/app-bx", "k8s:namespace:b/y", "k8s:workload:b/y/deployment/app-by"},
+			marked: []model.ID{"kubernetes:cluster:a"},
+			want:   []model.ID{"kubernetes:cluster:b", "kubernetes:namespace:b/x", "kubernetes:workload:b/x/deployment/app-bx", "kubernetes:namespace:b/y", "kubernetes:workload:b/y/deployment/app-by"},
 		},
 	}
 	for _, tt := range tests {
@@ -111,7 +111,7 @@ func TestApplyKeepsTheClusterOfASurvivingNamespace(t *testing.T) {
 				continue // admission of a cluster as parent follows its member_of relations
 			}
 			t.Run(tt.name, func(t *testing.T) {
-				out := mustApply(t, Config{Collectors: map[string]Rules{"k8s": tt.rules}}, clusterGraph(t, withRelations, tt.marked...))
+				out := mustApply(t, Config{Collectors: map[string]Rules{kubernetesSource: tt.rules}}, clusterGraph(t, withRelations, tt.marked...))
 				if got := keptIDs(out); !slices.Equal(got, tt.want) {
 					t.Errorf("relations %v: kept = %v, want %v", withRelations, got, tt.want)
 				}

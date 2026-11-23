@@ -47,6 +47,8 @@ const kubernetesSource = "kubernetes"
 // namespace rule decides that namespace in every cluster. A Kubernetes cluster
 // lives in no namespace and follows kind rules only; Apply keeps it as the
 // parent of a surviving namespace, so a failed allow match leaves it undecided.
+// A deny rule that may hide one of its namespaces also leaves it undecided,
+// because the cluster article names them.
 func (f *Filter) DecideID(id model.ID) Verdict {
 	source, kind, key, err := model.ParseID(id)
 	if err != nil {
@@ -54,6 +56,15 @@ func (f *Filter) DecideID(id model.ID) Verdict {
 	}
 	verdict := f.decideKey(source, kind, key)
 	if source != kubernetesSource || verdict == Denied {
+		return verdict
+	}
+	if kind == model.KindCluster {
+		// The cluster article lists the names of its namespaces and counts
+		// their members. If it was not regenerated, a rule that may hide one of
+		// them could leave a denied name in it.
+		if mayDenyClusterContent(f.rules[source]) {
+			return worse(verdict, Undecidable)
+		}
 		return verdict
 	}
 	parts, found := splitKubernetesKey(kind, key)
@@ -93,6 +104,16 @@ func (f *Filter) decideClusterDeny(source, cluster string) Verdict {
 		return Undecidable
 	}
 	return Permitted
+}
+
+// mayDenyClusterContent reports whether a deny rule may remove a namespace or
+// change what a cluster article shows of its namespaces: a rule with
+// namespaces or labels, or one whose kinds match the namespace kind.
+func mayDenyClusterContent(rules Rules) bool {
+	return slices.ContainsFunc(rules.Deny, func(m Match) bool {
+		return len(m.Namespaces) > 0 || len(m.Labels) > 0 ||
+			(len(m.Kinds) > 0 && anyGlob(m.Kinds, string(model.KindNamespace)))
+	})
 }
 
 // worse returns the stricter of two verdicts: Denied over Undecidable over

@@ -8,7 +8,7 @@ import (
 	"github.com/JtheGunner/youtrack-docgen/internal/model"
 )
 
-var denyLabNamespace = Config{Collectors: map[string]Rules{"k8s": {Deny: []Match{{Kinds: []string{"namespace"}, Namespaces: []string{"lab"}}}}}}
+var denyLabNamespace = Config{Collectors: map[string]Rules{kubernetesSource: {Deny: []Match{{Kinds: []string{"namespace"}, Namespaces: []string{"lab"}}}}}}
 
 // A namespace that a kind rule denies also denies the members that only exist
 // as an ID (an article of an object that was not collected).
@@ -60,7 +60,7 @@ func TestApplyScrubsMembersOfDeniedNamespaceFromFreeText(t *testing.T) {
 	mustAdd(t, g, kubeEntity(t, model.KindWorkload, "prod/app/deployment/web", map[string]string{"notes": text}))
 
 	out := mustApply(t, denyLabNamespace, g)
-	web, ok := out.Entity("k8s:workload:prod/app/deployment/web")
+	web, ok := out.Entity("kubernetes:workload:prod/app/deployment/web")
 	if !ok {
 		t.Fatal("the workload of the other namespace must stay")
 	}
@@ -97,11 +97,11 @@ func TestApplyKeepsValuesOwnedByKeptEntities(t *testing.T) {
 	}))
 
 	out := mustApply(t, denyLabNamespace, g)
-	web, _ := out.Entity("k8s:workload:prod/app/deployment/web")
+	web, _ := out.Entity("kubernetes:workload:prod/app/deployment/web")
 	if got, want := web.Attrs["notes"], "served on shared.example.com at 192.0.2.80 by "+Placeholder; got != want {
 		t.Errorf("notes = %q, want %q", got, want)
 	}
-	kept, _ := out.Entity("k8s:ingress:prod/app/shared")
+	kept, _ := out.Entity("kubernetes:ingress:prod/app/shared")
 	if len(kept.Addresses) != 1 || len(kept.Aliases) != 1 {
 		t.Errorf("the owner must keep its own address and alias: %+v", kept)
 	}
