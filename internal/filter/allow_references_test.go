@@ -286,3 +286,64 @@ func TestAllowReferencesOnlyComeFromSurvivingHosts(t *testing.T) {
 		})
 	}
 }
+
+// The cascade can remove an interface or an IP below a surviving host. What
+// hangs only below it must not be admitted as a reference either.
+func TestAllowReferencesOnlyDescendFromSurvivingInterfacesAndIPs(t *testing.T) {
+	const secretKey = "api_key=FAKE-KEY-SECRET-1"
+	tests := []struct {
+		name    string
+		nicKey  string
+		ipKey   string
+		denyIP  bool
+		wantNet bool
+	}{
+		{name: "removed IP", nicKey: "web01/eth0", ipKey: secretKey},
+		{name: "removed interface", nicKey: secretKey, ipKey: "192.0.2.10/24"},
+		{name: "intact chain keeps its network", nicKey: "web01/eth0", ipKey: "192.0.2.10/24", wantNet: true},
+		{name: "deny wins over the reference", nicKey: "web01/eth0", ipKey: "192.0.2.10/24", denyIP: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			g := model.NewGraph()
+			add := func(e model.Entity) model.Entity {
+				t.Helper()
+				if err := g.AddEntity(e); err != nil {
+					t.Fatal(err)
+				}
+				return e
+			}
+			net := add(entity(t, "netbox", model.KindNetwork, "192.0.2.0/24", nil, nil))
+			host := add(entity(t, "netbox", model.KindHost, "web01", map[string]string{LabelTagPrefix + "documented": "true"}, nil))
+			nic := add(entity(t, "netbox", model.KindInterface, tc.nicKey, nil, nil))
+			ip := add(entity(t, "netbox", model.KindIPAddress, tc.ipKey, nil, nil))
+			for _, r := range []model.Relation{
+				{From: nic.ID, To: host.ID, Kind: model.RelMemberOf},
+				{From: ip.ID, To: nic.ID, Kind: model.RelMemberOf},
+				{From: ip.ID, To: net.ID, Kind: model.RelMemberOf},
+			} {
+				if err := g.AddRelation(r); err != nil {
+					t.Fatal(err)
+				}
+			}
+			rules := Rules{Allow: []Match{{Tags: []string{"documented"}}}}
+			if tc.denyIP {
+				rules.Deny = []Match{{Kinds: []string{"ipaddress"}}}
+			}
+			f, err := New(Config{Collectors: map[string]Rules{"netbox": rules}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			out, err := f.Apply(g)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, ok := out.Entity(net.ID); ok != tc.wantNet {
+				t.Errorf("network emitted = %v, want %v", ok, tc.wantNet)
+			}
+			if _, ok := out.Entity(host.ID); !ok {
+				t.Error("the allowed host must stay")
+			}
+		})
+	}
+}

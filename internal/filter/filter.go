@@ -118,17 +118,17 @@ func (f *Filter) deniedByRules(g *model.Graph, kind model.Kind, references map[m
 }
 
 // settleReferences computes the allowed-host references together with the
-// dependents of the denied entities. Whether a host survives depends on those
+// dependents of the denied entities. Whether a host, interface or IP survives depends on those
 // dependents, and the dependents depend on which IPs are references, so it
 // starts with every allowed host and drops the references of hosts the cascade
-// removes until nothing changes. The set only shrinks, so this terminates.
+// removes (and what hangs below removed interfaces and IPs) until nothing changes. The set only shrinks, so this terminates.
 func (f *Filter) settleReferences(g *model.Graph) (map[model.ID]bool, dependents) {
 	deniedHosts := f.deniedHosts(g)
 	references := f.allowedReferences(g, func(model.Entity) bool { return true })
 	for {
 		deps := newDependents(g, deniedHosts, f.deniedByRules(g, model.KindIPAddress, references), f.deniedByRules(g, model.KindNamespace, references))
-		next := f.allowedReferences(g, func(host model.Entity) bool {
-			return !deps.removed[host.ID] && !deps.namesDeniedValue(host) && !f.redactor.IdentityChanged(host)
+		next := f.allowedReferences(g, func(e model.Entity) bool {
+			return !deps.removed[e.ID] && !deps.namesDeniedValue(e) && !f.redactor.IdentityChanged(e)
 		})
 		if len(next) == len(references) {
 			return next, deps
@@ -145,7 +145,7 @@ func (f *Filter) settleReferences(g *model.Graph) (map[model.ID]bool, dependents
 func (f *Filter) allowedReferences(g *model.Graph, survives func(model.Entity) bool) map[model.ID]bool {
 	refs := map[model.ID]bool{}
 	admit := func(e model.Entity) bool {
-		if f.rules[e.Source].denies(e) {
+		if f.rules[e.Source].denies(e) || !survives(e) {
 			return false
 		}
 		refs[e.ID] = true
