@@ -187,3 +187,14 @@ func TestRedactURLCredentialsIsLinearOnHostileInput(t *testing.T) {
 		t.Fatalf("scan took %v", d)
 	}
 }
+
+// The escaped forms use the slower pattern; it must stay linear as well.
+func TestRedactURLCredentialsIsLinearOnHostileEscapedInput(t *testing.T) {
+	start := time.Now()
+	_ = redactURLCredentials(strings.Repeat("a:%2F%2F", 10000) + "x")
+	_ = redactURLCredentials(strings.Repeat("a:&#47;&#47;b%3Ac ", 5000))
+	_ = redactURLCredentials(strings.Repeat("a://b%40", 10000))
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("scan took %v", d)
+	}
+}

@@ -19,11 +19,24 @@ const (
 // The scheme needs no word boundary before it: "x_https://" and "1https://"
 // must not hide credentials. Escaped separators count as well.
 var (
-	urlSchemeRE    = regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.-]*` + colonPattern + slashPattern + slashPattern)
-	literalSlashRE = regexp.MustCompile(`\\*/`)
-	colonRE        = regexp.MustCompile(colonPattern)
-	atRE           = regexp.MustCompile(atPattern)
+	urlSchemeRE   = regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.-]*` + colonPattern + slashPattern + slashPattern)
+	plainSchemeRE = regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.-]*://`)
+	colonRE       = regexp.MustCompile(colonPattern)
+	atRE          = regexp.MustCompile(atPattern)
 )
+
+// escapeChars are the characters that start an escaped separator form. Text
+// without any of them can only hold the plain "://", "@" and ":", which the
+// cheaper plain patterns find with the same result.
+const escapeChars = `%&\`
+
+// schemeLocations returns the offsets of every "scheme://" in s.
+func schemeLocations(s string) [][]int {
+	if !strings.ContainsAny(s, escapeChars) {
+		return plainSchemeRE.FindAllStringIndex(s, -1)
+	}
+	return urlSchemeRE.FindAllStringIndex(s, -1)
+}
 
 // redactURLCredentials replaces every URL that may carry credentials with the
 // placeholder, from its scheme to the end of the whitespace-delimited token.
@@ -49,7 +62,7 @@ var (
 //     before the whitespace is covered. RFC 3986 requires such characters to be
 //     percent-encoded.
 func redactURLCredentials(s string) string {
-	locs := urlSchemeRE.FindAllStringIndex(s, -1)
+	locs := schemeLocations(s)
 	if len(locs) == 0 {
 		return s
 	}
@@ -87,9 +100,16 @@ func tokenBounds(s string, from int) (end, lastAt int) {
 	if i := strings.IndexFunc(s[from:], unicode.IsSpace); i >= 0 {
 		end = from + i
 	}
+	token := s[from:end]
 	lastAt = -1
-	if all := atRE.FindAllStringIndex(s[from:end], -1); len(all) > 0 {
-		lastAt = from + all[len(all)-1][0]
+	if i := strings.LastIndexByte(token, '@'); i >= 0 {
+		lastAt = from + i
+	}
+	if strings.ContainsAny(token, escapeChars) {
+		// An escaped at sign can lie behind the last plain one.
+		if all := atRE.FindAllStringIndex(token, -1); len(all) > 0 {
+			lastAt = max(lastAt, from+all[len(all)-1][0])
+		}
 	}
 	return end, lastAt
 }
@@ -99,8 +119,12 @@ func tokenBounds(s string, from int) (end, lastAt int) {
 // escaped one ("%2F", "&#47;") may be part of the user name, and cutting there
 // would hide a password that follows. Redacting too much is the accepted failure.
 func authorityHasColon(run string) bool {
-	if loc := literalSlashRE.FindStringIndex(run); loc != nil {
-		run = run[:loc[0]]
+	if i := strings.IndexByte(run, '/'); i >= 0 {
+		// A backslash before the slash belongs to the separator.
+		run = strings.TrimRight(run[:i], `\`)
 	}
-	return colonRE.MatchString(run)
+	if strings.IndexByte(run, ':') >= 0 {
+		return true
+	}
+	return strings.ContainsAny(run, escapeChars) && colonRE.MatchString(run)
 }
