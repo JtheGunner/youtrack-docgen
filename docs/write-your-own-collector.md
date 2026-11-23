@@ -67,7 +67,7 @@ type Factory func(Settings) (Collector, error)
 type Settings struct {
 	URL     string         // the "url" key
 	Token   Secret         // the "token" key, usually expanded from ${ENV}
-	Options map[string]any // every other key of the block, as decoded from YAML
+	Options map[string]any // keys other than url, token, enabled, allow and deny, as decoded from YAML
 }
 ```
 
@@ -177,7 +177,7 @@ go test -race ./...
 
 ## Wire it in
 
-The block under `collectors:` in `docgen.yaml` selects the collector by name. Its keys other than `url`, `token` and `enabled` arrive in `Settings.Options`:
+The block under `collectors:` in `docgen.yaml` selects the collector by name. Its keys other than `url`, `token`, `enabled`, `allow` and `deny` arrive in `Settings.Options`:
 
 ```yaml
 collectors:

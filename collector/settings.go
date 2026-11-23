@@ -6,6 +6,9 @@ const secretMask = "[REDACTED]"
 // marshalling it prints a mask; only Value returns the value. The zero value
 // is an unset secret.
 //
+// A Secret that holds a value is compared by pointer, so == against another
+// Secret is not meaningful; use IsSet, or reflect.DeepEqual to compare values.
+//
 // The value sits behind a pointer, so even a struct that embeds a Secret in an
 // unexported field prints an address instead of the credential.
 type Secret struct {
@@ -49,14 +52,16 @@ func (s Secret) MarshalText() ([]byte, error) { return []byte(s.String()), nil }
 // Settings is the configuration of one collector block in docgen.yaml.
 //
 // Allow and deny rules are not part of it: the filter applies them centrally
-// to the entities of every collector.
+// to the entities of every collector. The url, token, enabled, allow and deny
+// keys are declared by the configuration; every other key lands in Options.
 type Settings struct {
 	// URL is the url key of the block.
 	URL string
 	// Token is the token key of the block, usually expanded from ${ENV}.
 	Token Secret
-	// Options holds the module-specific keys of the block, exactly as decoded
-	// from YAML. It is nil when the block has none.
+	// Options holds the keys of the block other than url, token, enabled,
+	// allow and deny, exactly as decoded from YAML. It is nil when the block
+	// has none. Its values are not masked: credentials belong in Token.
 	Options map[string]any
 }
 
