@@ -54,7 +54,7 @@ collectors:
     deny:
       - tags: [lab]
   kubernetes:
-    paths: [%s, %s]
+    paths: [{path: %s, cluster: test}, {path: %s, cluster: test}]
     deny:
       - namespaces: [quarantine]
 sinks:

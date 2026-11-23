@@ -79,7 +79,7 @@ collectors:
     url: %s
     token: ${NETBOX_TOKEN}
   kubernetes:
-    paths: [%s, %s, %s]
+    paths: [{path: %s, cluster: test}, {path: %s, cluster: test}, {path: %s, cluster: test}]
 sinks:
   markdown:
     dir: %s
@@ -166,7 +166,7 @@ collectors:
     url: %s
     token: ${NETBOX_TOKEN}
   kubernetes:
-    paths: [%s, %s]
+    paths: [{path: %s, cluster: test}, {path: %s, cluster: test}]
 sinks:
   markdown:
     dir: %s

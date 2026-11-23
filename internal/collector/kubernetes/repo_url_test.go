@@ -27,8 +27,8 @@ func collectFromModule(t *testing.T, paths []any) *model.Graph {
 
 func TestRepoURLIsAttachedToObjectsOfItsPathOnly(t *testing.T) {
 	g := collectFromModule(t, []any{
-		map[string]any{"path": "testdata/nodes", "repo_url": repoURL},
-		"testdata/manifests",
+		map[string]any{"path": "testdata/nodes", "cluster": "test", "repo_url": repoURL},
+		map[string]any{"path": "testdata/manifests", "cluster": "test"},
 	})
 
 	for _, id := range []model.ID{"kubernetes:host:node-a", "kubernetes:host:node-lost"} {
@@ -50,7 +50,7 @@ func TestRepoURLIsAttachedToObjectsOfItsPathOnly(t *testing.T) {
 }
 
 func TestRepoURLOnWorkloadsServicesAndIngresses(t *testing.T) {
-	g := collectFromModule(t, []any{map[string]any{"path": fixtures, "repo_url": repoURL}})
+	g := collectFromModule(t, []any{map[string]any{"path": fixtures, "cluster": "test", "repo_url": repoURL}})
 	seen := 0
 	for _, k := range []model.Kind{model.KindWorkload, model.KindService, model.KindIngress} {
 		for _, e := range g.ByKind(k) {

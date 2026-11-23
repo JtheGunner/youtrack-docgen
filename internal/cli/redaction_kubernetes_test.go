@@ -60,7 +60,7 @@ spec:
 func k8sFixturePaths(t *testing.T) string {
 	t.Helper()
 	k8s := filepath.Join("..", "collector", "kubernetes", "testdata")
-	return fmt.Sprintf("[%s, %s]", filepath.Join(k8s, "manifests", "apps", "web.yaml"), writeSecretManifest(t))
+	return fmt.Sprintf("[{path: %s, cluster: test}, {path: %s, cluster: test}]", filepath.Join(k8s, "manifests", "apps", "web.yaml"), writeSecretManifest(t))
 }
 
 func TestGenerateKubernetesFixturesLeakNoSecret(t *testing.T) {

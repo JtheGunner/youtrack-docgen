@@ -15,7 +15,7 @@ youtrack:
   project: INFRA
 collectors:
   kubernetes:
-    paths: [./k8s]
+    paths: [{path: ./k8s, cluster: test}]
   netbox:
     url: https://netbox.example.com
     token: ${NETBOX_TOKEN}

@@ -43,11 +43,12 @@ func New(m config.Module) (*Collector, error) {
 	return &Collector{paths: sources, warnings: os.Stderr}, nil
 }
 
-// NewFromPaths builds a collector that reads the given files and directories.
+// NewFromPaths builds a collector that reads the given files and directories
+// as one cluster named "test".
 func NewFromPaths(paths ...string) *Collector {
 	sources := make([]config.PathSource, len(paths))
 	for i, p := range paths {
-		sources[i] = config.PathSource{Path: p}
+		sources[i] = config.PathSource{Path: p, Cluster: "test"}
 	}
 	return &Collector{paths: sources, warnings: os.Stderr}
 }

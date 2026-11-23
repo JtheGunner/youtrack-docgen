@@ -43,7 +43,7 @@ collectors:
     token: ${NETBOX_TOKEN}
     %s
   kubernetes:
-    paths: [%s]
+    paths: [{path: %s, cluster: test}]
 sinks:
   markdown:
     dir: %s

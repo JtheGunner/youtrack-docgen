@@ -35,7 +35,7 @@ func kubernetesOnlyRun(t *testing.T, files map[string]string) (cfg string, yt *f
 	}}
 	yt.nextID = 900
 	cfg = "youtrack:\n  url: " + yt.srv.URL + "\n  token: ${YOUTRACK_TOKEN}\n  project: INFRA\n" +
-		"collectors:\n  kubernetes:\n    paths: [" + dir + "]\nsinks:\n  youtrack: {}\n"
+		"collectors:\n  kubernetes:\n    paths: [{path: " + dir + ", cluster: test}]\nsinks:\n  youtrack: {}\n"
 	return cfg, yt
 }
 

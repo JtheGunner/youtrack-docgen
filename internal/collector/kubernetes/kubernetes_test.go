@@ -242,7 +242,9 @@ func TestNew(t *testing.T) {
 		settings map[string]any
 		wantErr  bool
 	}{
-		{"valid", map[string]any{"paths": []any{"./k8s"}}, false},
+		{"valid", map[string]any{"paths": []any{map[string]any{"path": "./k8s", "cluster": "test"}}}, false},
+		{"plain string entry", map[string]any{"paths": []any{"./k8s"}}, true},
+		{"missing cluster", map[string]any{"paths": []any{map[string]any{"path": "./k8s"}}}, true},
 		{"missing", nil, true},
 		{"empty list", map[string]any{"paths": []any{}}, true},
 		{"not a list", map[string]any{"paths": "./k8s"}, true},
