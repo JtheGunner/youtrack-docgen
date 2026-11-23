@@ -120,6 +120,79 @@ func TestRenderGolden(t *testing.T) {
 	golden.Assert(t, "tree", dump(root))
 }
 
+func TestRenderMermaidGolden(t *testing.T) {
+	root := Render(fixture(t), Options{GeneratedAt: generatedAt, Diagrams: DiagramMermaid})
+	golden.Assert(t, "tree_mermaid", dump(root))
+}
+
+func TestRootTitle(t *testing.T) {
+	tests := []struct {
+		name, title, want string
+	}{
+		{"default when unset", "", DefaultRootTitle},
+		{"default when blank", "  \t", DefaultRootTitle},
+		{"configured title", "Platform docs", "Platform docs"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := Render(model.NewGraph(), Options{GeneratedAt: generatedAt, RootTitle: tt.title})
+			if root.Title != tt.want {
+				t.Errorf("title = %q, want %q", root.Title, tt.want)
+			}
+		})
+	}
+}
+
+func TestOnlyHostDocumentsCarryManualNotes(t *testing.T) {
+	root := Render(fixture(t), Options{GeneratedAt: generatedAt})
+	root.Walk(func(d Document) {
+		isHost := strings.HasPrefix(d.ID, "netbox:host:") || strings.HasPrefix(d.ID, "k8s:host:")
+		if isHost != (d.Notes != nil) {
+			t.Errorf("document %s: notes present = %v, want %v", d.ID, d.Notes != nil, isHost)
+		}
+		if d.Notes == nil {
+			return
+		}
+		for _, s := range d.Sections {
+			if s.ID == d.Notes.ID {
+				t.Errorf("document %s: notes are also a generated section", d.ID)
+			}
+		}
+	})
+}
+
+func TestRepositoryLinkInHostLinks(t *testing.T) {
+	g := model.NewGraph()
+	for _, e := range []model.Entity{
+		{ID: "netbox:host:node1", Kind: model.KindHost, Source: "netbox", Name: "node1"},
+		{
+			ID: "kubernetes:host:node1", Kind: model.KindHost, Source: "kubernetes", Name: "node1",
+			Attrs: map[string]string{model.AttrRepoURL: "https://user:" + fakePassword + "@git.example.com/ops/cluster.git?x=" + fakeQuery},
+		},
+		{ID: "netbox:host:lone", Kind: model.KindHost, Source: "netbox", Name: "lone"},
+	} {
+		if err := g.AddEntity(e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := g.AddRelation(model.Relation{From: "kubernetes:host:node1", To: "netbox:host:node1", Kind: model.RelSameAs}); err != nil {
+		t.Fatal(err)
+	}
+	root := Render(g, Options{GeneratedAt: generatedAt})
+	node := findDoc(t, root, "netbox:host:node1").Markdown()
+	if want := "Repository for kubernetes: https://git.example.com/ops/cluster.git"; !strings.Contains(node, want) {
+		t.Errorf("links lack %q:\n%s", want, node)
+	}
+	for _, secret := range []string{fakePassword, fakeQuery} {
+		if strings.Contains(node, secret) {
+			t.Errorf("repository link leaks %q", secret)
+		}
+	}
+	if lone := findDoc(t, root, "netbox:host:lone").Markdown(); strings.Contains(lone, "Repository") {
+		t.Errorf("host without a repository shows a link:\n%s", lone)
+	}
+}
+
 func TestRenderEmptyGraphGolden(t *testing.T) {
 	root := Render(model.NewGraph(), Options{GeneratedAt: generatedAt})
 	golden.Assert(t, "empty", dump(root))

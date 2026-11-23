@@ -18,16 +18,9 @@
 
 ## Diagram
 
-```mermaid
-flowchart LR
-    n0["srv01.example.com"]
-    n1["srv01.example.com eth0"]
-    n1 -->|member_of| n0
-    n2{{"192.0.2.0/24"}}
-    n0 -->|in_network| n2
-    n3["Example HQ"]
-    n0 -->|member_of| n3
-```
+- srv01.example.com eth0 member\_of srv01.example.com
+- srv01.example.com in\_network 192.0.2.0/24
+- srv01.example.com member\_of Example HQ
 
 ## Runs here
 

@@ -17,14 +17,8 @@
 
 ## Diagram
 
-```mermaid
-flowchart LR
-    n0["vm01.example.com"]
-    n1["vm01.example.com ens3"]
-    n1 -->|member_of| n0
-    n2{{"192.0.2.0/24"}}
-    n0 -->|in_network| n2
-```
+- vm01.example.com ens3 member\_of vm01.example.com
+- vm01.example.com in\_network 192.0.2.0/24
 
 ## Runs here
 

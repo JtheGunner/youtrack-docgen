@@ -158,7 +158,7 @@ func (r *renderer) serviceDiagrams(svcs []model.Entity) []Block {
 	var blocks []Block
 	for _, s := range svcs {
 		if d, ok := r.entityDiagram(s); ok {
-			blocks = append(blocks, Paragraph(s.Name+" ("+s.Source+")"), d)
+			blocks = append(blocks, Paragraph(s.Name+" ("+s.Source+")"), r.diagramBlock(d))
 		}
 	}
 	return blocks
@@ -169,9 +169,9 @@ func (r *renderer) serviceDiagrams(svcs []model.Entity) []Block {
 func (r *renderer) networkMap() Document {
 	blocks := []Block{Paragraph("No network data is known.")}
 	if d, note, ok := r.networkDiagram(); ok {
-		blocks = []Block{d}
+		blocks = []Block{r.diagramBlock(d)}
 		if note != "" {
-			blocks = []Block{Paragraph(note), d}
+			blocks = []Block{Paragraph(note), r.diagramBlock(d)}
 		}
 	}
 	doc := r.overview(NetworkMapID, "Network diagram", nil, r.g.ByKind(model.KindHost), r.g.ByKind(model.KindNetwork))

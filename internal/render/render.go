@@ -20,8 +20,17 @@ const (
 	NetworkMapID   = "overview:network-diagram"
 )
 
+// DefaultRootTitle is the title of the root document when Options.RootTitle
+// is empty.
+const DefaultRootTitle = "Infrastructure documentation"
+
 // Options configure Render.
 type Options struct {
+	// RootTitle is the title of the root document. Empty means
+	// DefaultRootTitle.
+	RootTitle string
+	// Diagrams selects how diagrams appear. Empty means DiagramText.
+	Diagrams DiagramFormat
 	// GeneratedAt is stamped into every document. It is injected so output is
 	// deterministic in tests.
 	GeneratedAt time.Time
@@ -36,9 +45,13 @@ type Options struct {
 // "role" label). Every other attribute or label never reaches a document, and
 // URLs are stripped of credentials, query and fragment.
 func Render(g *model.Graph, opts Options) Document {
-	r := &renderer{g: g, at: opts.GeneratedAt.UTC(), nets: indexNetworks(g)}
+	r := &renderer{g: g, at: opts.GeneratedAt.UTC(), nets: indexNetworks(g), diagrams: opts.Diagrams}
 
-	root := Document{ID: RootID, Title: "Infrastructure documentation"}
+	title := strings.TrimSpace(opts.RootTitle)
+	if title == "" {
+		title = DefaultRootTitle
+	}
+	root := Document{ID: RootID, Title: title}
 	root.Children = append(root.Children, r.vlans(), r.ipAllocation(), r.services(), r.networkMap())
 	hosts := g.ByKind(model.KindHost)
 	for _, h := range hosts {
@@ -60,6 +73,8 @@ type renderer struct {
 	g    *model.Graph
 	at   time.Time
 	nets []network
+	// diagrams is the requested diagram format; empty means DiagramText.
+	diagrams DiagramFormat
 }
 
 type network struct {

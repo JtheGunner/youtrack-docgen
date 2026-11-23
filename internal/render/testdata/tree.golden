@@ -62,23 +62,12 @@ Generated at 2025-01-02T03:04:05Z from k8s, netbox.
 
 cache \(k8s\)
 
-```mermaid
-flowchart LR
-    n0("cache")
-    n1["db01"]
-    n1 -->|exposes| n0
-```
+- db01 exposes cache
 
 shop \(k8s\)
 
-```mermaid
-flowchart LR
-    n0("shop")
-    n1["db01"]
-    n0 -->|depends_on| n1
-    n2["web01"]
-    n0 -->|runs_on| n2
-```
+- shop depends\_on db01
+- shop runs\_on web01
 
 ## Generated
 
@@ -89,18 +78,10 @@ Generated at 2025-01-02T03:04:05Z from k8s.
 
 ## Network diagram
 
-```mermaid
-flowchart LR
-    n0{{"servers 10.0.10.0/24"}}
-    n1["web01"]
-    n0 --- n1
-    n2["web01"]
-    n0 --- n2
-    n3{{"databases 10.0.20.0/24"}}
-    n4["db01"]
-    n3 --- n4
-    n5{{"management 192.0.2.0/24"}}
-```
+- servers 10.0.10.0/24 - web01
+- servers 10.0.10.0/24 - web01
+- databases 10.0.20.0/24 - db01
+- management 192.0.2.0/24
 
 ## Generated
 
@@ -123,14 +104,8 @@ Generated at 2025-01-02T03:04:05Z from k8s, netbox.
 
 ## Diagram
 
-```mermaid
-flowchart LR
-    n0["web01"]
-    n1["web01"]
-    n0 -->|same_as| n1
-    n2{{"servers"}}
-    n0 -->|in_network| n2
-```
+- web01 same\_as web01
+- web01 in\_network servers
 
 ## Runs here
 
@@ -170,18 +145,10 @@ Generated at 2025-01-02T03:04:05Z from k8s, netbox.
 
 ## Diagram
 
-```mermaid
-flowchart LR
-    n0["db01"]
-    n1("cache")
-    n0 -->|exposes| n1
-    n2("shop")
-    n2 -->|depends_on| n0
-    n3["web01"]
-    n3 -->|depends_on| n0
-    n4{{"databases"}}
-    n0 -->|in_network| n4
-```
+- db01 exposes cache
+- shop depends\_on db01
+- web01 depends\_on db01
+- db01 in\_network databases
 
 ## Runs here
 
@@ -230,20 +197,11 @@ Generated at 2025-01-02T03:04:05Z from netbox.
 
 ## Diagram
 
-```mermaid
-flowchart LR
-    n0["web01"]
-    n1["web01"]
-    n1 -->|same_as| n0
-    n2("shop")
-    n2 -->|runs_on| n0
-    n3["db01"]
-    n0 -->|depends_on| n3
-    n4["eth0"]
-    n4 -->|member_of| n0
-    n5{{"servers"}}
-    n0 -->|in_network| n5
-```
+- web01 same\_as web01
+- shop runs\_on web01
+- web01 depends\_on db01
+- eth0 member\_of web01
+- web01 in\_network servers
 
 ## Runs here
 

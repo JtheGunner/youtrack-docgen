@@ -187,6 +187,7 @@ func (b *builder) addNode(o parsed) error {
 		return err
 	}
 	e := b.Entities[id]
+	mapbuild.SetAttr(e, model.AttrRepoURL, o.repoURL)
 	for _, a := range o.Status.Addresses {
 		switch a.Type {
 		case "InternalIP", "ExternalIP":
@@ -368,4 +369,5 @@ func addManifestLabels(e *model.Entity, labels map[string]string) {
 func applyLabels(e *model.Entity, o parsed, ns string) {
 	e.Labels["namespace"] = ns
 	addManifestLabels(e, o.Metadata.Labels)
+	mapbuild.SetAttr(e, model.AttrRepoURL, o.repoURL)
 }

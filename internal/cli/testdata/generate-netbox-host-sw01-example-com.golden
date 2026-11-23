@@ -14,14 +14,8 @@ No IP addresses are known.
 
 ## Diagram
 
-```mermaid
-flowchart LR
-    n0["sw01.example.com"]
-    n1["sw01.example.com mgmt0"]
-    n1 -->|member_of| n0
-    n2["Example HQ"]
-    n0 -->|member_of| n2
-```
+- sw01.example.com mgmt0 member\_of sw01.example.com
+- sw01.example.com member\_of Example HQ
 
 ## Runs here
 

@@ -20,6 +20,7 @@ type settingKind int
 const (
 	kindString settingKind = iota
 	kindStringList
+	kindPathSources
 )
 
 // moduleSpec describes what the core checks for a built-in module. Modules
@@ -33,7 +34,7 @@ type moduleSpec struct {
 
 var collectorSpecs = map[string]moduleSpec{
 	"netbox":     {required: []string{"url", "token"}},
-	"kubernetes": {settings: map[string]settingKind{"paths": kindStringList}, required: []string{"paths"}},
+	"kubernetes": {settings: map[string]settingKind{"paths": kindPathSources}, required: []string{"paths"}},
 }
 
 var sinkSpecs = map[string]moduleSpec{
@@ -49,6 +50,10 @@ func (c *Config) validate() []string {
 		problems = append(problems, c.validateYouTrack()...)
 	} else if c.YouTrack.URL != "" && !validURL(c.YouTrack.URL) {
 		problems = append(problems, "youtrack.url: "+urlHint)
+	}
+
+	if !c.DiagramFormat().Valid() {
+		problems = append(problems, "diagrams: must be \"text\" or \"mermaid\"")
 	}
 
 	if _, err := filter.NewRedactor(c.Redact); err != nil {
@@ -156,6 +161,10 @@ func checkSetting(v any, kind settingKind) string {
 	case kindString:
 		if s, ok := v.(string); !ok || s == "" {
 			return "must be a non-empty string"
+		}
+	case kindPathSources:
+		if _, err := ParsePathSources(v); err != nil {
+			return err.Error()
 		}
 	case kindStringList:
 		list, ok := v.([]any)

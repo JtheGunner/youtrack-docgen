@@ -234,6 +234,11 @@ func (b *opBuilder) document(d render.Document, parentKey string) error {
 			return nil
 		}
 		content := buildContent(key, blocks)
+		if d.Notes != nil {
+			// Outside any marker: later runs only replace marked blocks, so
+			// the notes stay as written.
+			content += "\n" + d.Notes.Markdown()
+		}
 		b.ops = append(b.ops, op{
 			kind: opCreate, key: key, parentKey: parentKey, title: d.Title, content: content,
 			diff: diff.Unified("/dev/null", "b/"+key, "", articleText(d.Title, parentKey, content, false), diffContext),

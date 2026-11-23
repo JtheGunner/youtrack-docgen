@@ -327,7 +327,7 @@ func TestGenerateRendersWhatTheNetBoxCollectorDelivers(t *testing.T) {
 			"- Source record in netbox: https://netbox.example.com/virtualization/virtual-machines/1/",
 		}},
 		{"overview-network-diagram.md", []string{
-			`n1{{"servers 192.0.2.0/24"}}`, `n2["srv01.example.com"]`, "n1 --- n2", `n3["vm01.example.com"]`, "n1 --- n3",
+			"- servers 192.0.2.0/24 - srv01.example.com", "- servers 192.0.2.0/24 - vm01.example.com",
 		}},
 	}
 	for _, tt := range tests {

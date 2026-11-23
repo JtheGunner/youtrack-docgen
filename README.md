@@ -35,7 +35,7 @@ Collectors and sinks never depend on each other. They only share the model, so a
 
 Every host article has a **Diagram** section with its direct relations (`runs_on`, `exposes`, `depends_on`, `same_as`, ...) and its networks. The Services overview has one diagram per service, and a **Network diagram** overview shows each network with its hosts. Without any network prefix it shows the IP addresses per host instead. Diagrams are capped for readability and are built only from the filtered graph, so denied entities never appear.
 
-Diagrams are written as fenced `mermaid` code blocks. This assumes nothing about Mermaid support: where the target renders Mermaid the block becomes a drawing, and everywhere else it stays readable as plain text. There is no switch for this yet.
+By default a diagram is written as a plain list of its relations, one per line (`web01 depends_on db01`). That reads the same in every target. Set `diagrams: mermaid` in `docgen.yaml` to write fenced `mermaid` code blocks instead; use it when your target draws Mermaid.
 
 ---
 
@@ -78,6 +78,7 @@ The tool reads `docgen.yaml`. Every collector and sink has its own block, so eac
 
 ```yaml
 allow_insecure_http: false    # optional: accept http:// URLs on non-loopback hosts (see below)
+diagrams: text                 # optional: "text" (default, a list of relations) or "mermaid" (a mermaid code block)
 youtrack:                      # connection, used by the youtrack sink
   url: https://youtrack.example.com
   token: ${YOUTRACK_TOKEN}
@@ -90,13 +91,16 @@ collectors:
     allow: [{ tags: [documented] }]       # keep only entities matching one rule
     deny:  [{ roles: [lab] }]             # drop entities matching any rule; deny wins
   kubernetes:
-    paths: [./kubernetes-config]
+    paths:
+      - ./kubernetes-config
+      - path: ./gitops                                  # an entry can also be a map ...
+        repo_url: https://git.example.com/ops/gitops    # ... with the repository it comes from (optional)
 redact:                        # optional, adds to the built-in secret patterns
   deny_patterns: ['CORP-[A-Z]+-\d+']   # regexes removed from free text
   secret_keys: ['internal-.*']         # attribute/annotation keys whose value is dropped
 sinks:
   youtrack:
-    root_article: Infrastructure
+    root_article: Infrastructure   # optional: title of the root article (default: "Infrastructure documentation")
   markdown:
     enabled: false             # modules can be switched off individually
     dir: ./out
@@ -149,6 +153,7 @@ The `kubernetes` collector reads plain YAML manifests from the files and directo
 - **Supported:** `Namespace`, `Node`, `Deployment`, `StatefulSet`, `DaemonSet`, `Job`, `CronJob`, `Service`, `Ingress`, and `List` wrappers around them. Other kinds (CRDs, `Kustomization`, `Secret`, ...) are ignored without looking at their `spec`.
 - **Directories** are walked in lexical order. Hidden directories and non-YAML files are skipped. A symlinked path is resolved; symlinked directories below it are not followed.
 - **Labels:** `metadata.labels` is copied to the entity with a `label.` prefix, so `labels` allow/deny rules match them as `label.<key>` (for example `labels: { label.team: payments }`). The prefix keeps a manifest from spoofing the reserved dimensions `namespace`, `role`, `tenant` and `tag.*`. The `namespace` label is always the object's namespace. Annotations, Secret data, environment values and container arguments are never read. Node labels are not read.
+- **Repository link:** an entry of `paths` may be a map with `path` and an optional `repo_url` (an `http(s)` URL). The URL is attached to the objects read from that path, and the **Links** section of a host article shows it as `Repository for kubernetes: <url>`. Without `repo_url` no repository link appears. Credentials, query and fragment are stripped from the URL before it is shown.
 - **Not rendered:** Helm templates and Kustomize overlays are not rendered. Point `paths` at rendered output (for example from `helm template` or `kustomize build`). Files that are not valid YAML, such as templates containing `{{ }}`, and documents with an unexpected shape, such as JSON6902 patches, are skipped with a warning naming the file; the run continues.
 - **Duplicates:** if the same object (kind, namespace, name) appears more than once, for example a Kustomize base and an overlay patch, the first one in path order and lexical file order wins. Later ones are skipped with a warning.
 - **Warnings** go to standard error. A configured path that yields no objects at all produces a warning.
@@ -182,6 +187,8 @@ youtrack-docgen publish --config docgen.yaml
 - Only articles of that project are read, changed or marked. Articles of other projects are never touched.
 - Articles are created or updated, never deleted. Only the blocks between the `docgen` markers are replaced; text you add outside them stays.
 - The markers are HTML comments: `<!-- docgen:doc <key> -->` names the document, and `<!-- docgen:begin <section> hash=… -->` to `<!-- docgen:end <section> -->` wraps one generated section. They are still recognised after an editor changed line endings or spacing.
+- A newly created host article ends with a **Manual notes** section outside the markers, as a visible place for your own text. It is written once, when the article is created; later runs never change it, and existing articles do not gain it.
+- The root article is titled `sinks.youtrack.root_article`, or "Infrastructure documentation" when that is not set. The setting also titles the root document of `generate`.
 - A generated section that the tool no longer produces is removed from its article, and so is a second copy of a section.
 - Do not remove the `docgen:doc` line. An article without it that carries the title of a generated document is left untouched, no second article is created, and a warning names the line to restore. The same protects a manual article that happens to have the title of a document. The title is the only link left: if the title was changed too, a new article is created, and the old one is reported when it still holds generated sections.
 - If you delete one marker of a section by hand, the other one stays as plain text and the section is written again at the end of the article. Your text is never treated as part of a section: a begin marker is only paired with an end marker before the next begin marker of the same section. The run warns about the article; remove the leftover marker line to silence it.

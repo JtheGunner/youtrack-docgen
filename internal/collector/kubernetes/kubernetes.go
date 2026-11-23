@@ -21,7 +21,7 @@ const Source = "kubernetes"
 
 // Collector implements collector.Collector for Kubernetes manifests.
 type Collector struct {
-	paths    []string
+	paths    []config.PathSource
 	warnings io.Writer
 	// incomplete holds the reasons the last Collect skipped something that may
 	// exist in the sources.
@@ -29,30 +29,27 @@ type Collector struct {
 }
 
 // New builds a collector from the "kubernetes" collector module config. The
-// "paths" setting lists the files and directories holding YAML manifests.
+// "paths" setting lists the files and directories holding YAML manifests; an
+// entry may carry a repo_url, which is attached to the objects read from it.
 func New(m config.Module) (*Collector, error) {
 	raw, ok := m.Settings["paths"]
 	if !ok {
 		return nil, errors.New("kubernetes: paths is required")
 	}
-	list, ok := raw.([]any)
-	if !ok || len(list) == 0 {
-		return nil, errors.New("kubernetes: paths must be a non-empty list of strings")
+	sources, err := config.ParsePathSources(raw)
+	if err != nil {
+		return nil, fmt.Errorf("kubernetes: paths: %w", err)
 	}
-	paths := make([]string, 0, len(list))
-	for _, item := range list {
-		p, ok := item.(string)
-		if !ok || p == "" {
-			return nil, errors.New("kubernetes: paths must be a non-empty list of strings")
-		}
-		paths = append(paths, p)
-	}
-	return NewFromPaths(paths...), nil
+	return &Collector{paths: sources, warnings: os.Stderr}, nil
 }
 
 // NewFromPaths builds a collector that reads the given files and directories.
 func NewFromPaths(paths ...string) *Collector {
-	return &Collector{paths: paths, warnings: os.Stderr}
+	sources := make([]config.PathSource, len(paths))
+	for i, p := range paths {
+		sources[i] = config.PathSource{Path: p}
+	}
+	return &Collector{paths: sources, warnings: os.Stderr}
 }
 
 // WithWarnings sends warnings about skipped files, skipped documents and empty

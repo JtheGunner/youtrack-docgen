@@ -9,6 +9,9 @@ const (
 	// AttrURL is the absolute http(s) URL of the entity's record in its
 	// source, shown as a link in the article.
 	AttrURL = "url"
+	// AttrRepoURL is the absolute http(s) URL of the repository an entity's
+	// definition comes from, shown as a link in the article.
+	AttrRepoURL = "repo_url"
 	// AttrFQDN is the fully qualified domain name of a host.
 	AttrFQDN = "fqdn"
 	// AttrDNSName is the DNS name registered for an IP address.

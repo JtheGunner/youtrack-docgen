@@ -1,0 +1,23 @@
+# Services
+
+## Services
+
+| Service | Runs on | Addresses | Source |
+| --- | --- | --- | --- |
+| cache | db01 | - | k8s |
+| shop | web01 | 10.96.0.10 | k8s |
+
+## Service diagrams
+
+cache \(k8s\)
+
+- db01 exposes cache
+
+shop \(k8s\)
+
+- shop depends\_on db01
+- shop runs\_on web01
+
+## Generated
+
+Generated at 2025-01-02T03:04:05Z from k8s.
