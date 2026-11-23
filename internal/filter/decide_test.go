@@ -3,7 +3,7 @@ package filter
 import (
 	"testing"
 
-	"github.com/JtheGunner/youtrack-docgen/internal/model"
+	"github.com/JtheGunner/youtrack-docgen/model"
 )
 
 func TestDecideID(t *testing.T) {

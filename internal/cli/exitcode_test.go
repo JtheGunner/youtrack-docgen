@@ -104,7 +104,7 @@ func TestSignalsAbortGenerate(t *testing.T) {
 			root := newRootCmd(&stdout, &stderr, time.Now)
 			root.SetArgs([]string{"generate", "--config", writeConfig(t, generateConfig(srv.URL, out, ""))})
 			done := make(chan error, 1)
-			go func() { done <- executeWithSignals(root) }()
+			go func() { done <- RunWithSignals(root) }()
 
 			select {
 			case <-started:

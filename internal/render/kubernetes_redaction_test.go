@@ -11,8 +11,8 @@ import (
 	"github.com/JtheGunner/youtrack-docgen/internal/collector/kubernetes"
 	"github.com/JtheGunner/youtrack-docgen/internal/config"
 	"github.com/JtheGunner/youtrack-docgen/internal/filter"
-	"github.com/JtheGunner/youtrack-docgen/internal/model"
 	"github.com/JtheGunner/youtrack-docgen/internal/render"
+	"github.com/JtheGunner/youtrack-docgen/model"
 )
 
 func dumpTree(root render.Document) string {

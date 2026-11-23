@@ -2,13 +2,13 @@
 
 A collector reads one data source and adds what it finds to the neutral model. Everything after that (linking, filtering, redaction, rendering, publishing) is shared, so a new source only has to produce entities and relations.
 
-> [!IMPORTANT]
-> The `collector` and `model` packages live under `internal/`. Go only lets code inside this module import them. See [Overlay pattern](overlay-pattern.md) for what that means for collectors that live outside this repository.
+> [!NOTE]
+> `model`, `collector` and `docgen` are public packages, so a collector can live in this repository or in a separate module. See [Overlay pattern](overlay-pattern.md) for the second case.
 
 ## The interface
 
 ```go
-// internal/collector/collector.go
+// collector/collector.go
 type Collector interface {
 	// Name is the source name used as the first component of entity IDs.
 	Name() string
@@ -38,9 +38,9 @@ Rules every collector follows:
 
 - `Graph.AddEntity` rejects an ID whose source or kind does not match the entity, an empty name, and duplicates.
 - `Graph.AddRelation` rejects unknown kinds, self-relations, and relations whose ends are not in the graph yet. Add entities first, then relations.
-- **Labels** are what allow/deny rules match on: `role`, `tenant`, `namespace`, one `tag.<slug>` = `true` per tag, and any custom key. Use the constants `model.LabelTagPrefix` and `model.LabelTenant` from `internal/model/labels.go`, and `filter.LabelRole` and `filter.LabelNamespace` from `internal/filter/rules.go`.
+- **Labels** are what allow/deny rules match on: `role`, `tenant`, `namespace`, one `tag.<slug>` = `true` per tag, and any custom key. Use the constants `model.LabelTagPrefix` and `model.LabelTenant` from `model/labels.go`; the keys `role` and `namespace` are plain strings.
 - **Attrs** are free-form strings shown in the article. Keys that look like secrets (`password`, `token`, `api-key`, ...) and the prefixes `env.`, `secret.` and `secretdata.` are redacted by the filter. Put sensitive data under those names so redaction applies.
-- **Rendered attributes** have fixed keys. Use the constants in `internal/model/attrs.go`; an attribute under another key is carried along but never shown in a table, a diagram or a link.
+- **Rendered attributes** have fixed keys. Use the constants in `model/attrs.go`; an attribute under another key is carried along but never shown in a table, a diagram or a link.
 
   | Constant | Key | Entity | Shown as |
   |---|---|---|---|
@@ -56,9 +56,29 @@ Rules every collector follows:
   A network without a prefix that other networks are a `member_of` (a VLAN) is shown through those networks: each takes the VLAN's name unless it has a name of its own.
 - **Aliases and Addresses** are repeated as plain text in the article, so YouTrack search finds them.
 
+## Settings and factory
+
+The command line builds a collector through a `collector.Factory` registered under the name of its block below `collectors:` in `docgen.yaml`. The factory receives the block as `collector.Settings`:
+
+```go
+// collector/settings.go
+type Factory func(Settings) (Collector, error)
+
+type Settings struct {
+	URL     string         // the "url" key
+	Token   Secret         // the "token" key, usually expanded from ${ENV}
+	Options map[string]any // keys other than url, token, enabled, allow and deny, as decoded from YAML
+}
+```
+
+- `Token` is a `collector.Secret`. Printing, logging or marshalling it shows `[REDACTED]`; call `Token.Value()` only to build an outgoing request.
+- `Options` values are **not** masked. Put credentials in `token`, never in an option.
+- The collector the factory returns must report the registered name from `Name()`.
+- A collector may also implement `collector.CompletenessReporter`; see `collector/collector.go`.
+
 ## A minimal collector
 
-This collector reads a JSON file with a list of hosts. It is a sketch to show the shape; the file format is made up.
+This collector reads a JSON file with a list of hosts. It is a sketch to show the shape; the file format is made up. The runnable version is [`examples/overlay`](../examples/overlay).
 
 ```go
 package inventory
@@ -66,11 +86,13 @@ package inventory
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/netip"
 	"os"
 
-	"github.com/JtheGunner/youtrack-docgen/internal/model"
+	"github.com/JtheGunner/youtrack-docgen/collector"
+	"github.com/JtheGunner/youtrack-docgen/model"
 )
 
 // Source is the source name used in every entity ID of this collector.
@@ -78,7 +100,14 @@ const Source = "inventory"
 
 type Collector struct{ path string }
 
-func New(path string) *Collector { return &Collector{path: path} }
+// New is the collector.Factory: it reads the "path" option of the block.
+func New(s collector.Settings) (collector.Collector, error) {
+	path, ok := s.Options["path"].(string)
+	if !ok || path == "" {
+		return nil, errors.New(`inventory: option "path" must be a non-empty string`)
+	}
+	return &Collector{path: path}, nil
+}
 
 func (*Collector) Name() string { return Source }
 
@@ -143,19 +172,35 @@ Follow the conventions of the existing collectors (see `internal/collector/netbo
 - **Redaction:** seed a fake secret in the fixture (for example a `password` attribute or a bearer token in a description) and assert it does not appear in the rendered output. Any collector change needs this test.
 
 ```text
-go test -race ./internal/collector/inventory/...
+go test -race ./...
 ```
 
 ## Wire it in
 
-Today the command line builds its collectors in `buildCollectors` in `internal/cli/generate.go`, with one `case` per collector name. A collector inside this repository adds its case there. Its settings come from the matching block under `collectors:` in `docgen.yaml`:
+The block under `collectors:` in `docgen.yaml` selects the collector by name. Its keys other than `url`, `token`, `enabled`, `allow` and `deny` arrive in `Settings.Options`:
 
 ```yaml
 collectors:
   inventory:
-    path: ./inventory.json   # collector-specific setting, read from Module.Settings
+    path: ./inventory.json   # read from Settings.Options["path"]
 ```
 
-`validate-config` accepts any collector name. `generate` stops with an error for a collector it has no `case` for. Set `enabled: false` to skip one.
+There are two routes to register the factory.
 
-Collectors for NetBox are the reference: [`internal/collector/netbox`](../internal/collector/netbox).
+**In an overlay (a separate module).** Register it on an app and run that app from your own `main`:
+
+```go
+app := docgen.New()
+if err := app.Register(inventory.Source, inventory.New); err != nil {
+	log.Fatal(err)
+}
+app.Main()
+```
+
+`Register` rejects an invalid name, a nil factory, a duplicate, and the names of the built-in collectors. See [Overlay pattern](overlay-pattern.md).
+
+**Inside this repository.** Built-in collectors are registered through the same mechanism. Add an entry to `BuiltinCollectors` in `internal/cli/collectors.go`, keyed by the collector's `Source` constant. Built-in collectors also get strict settings checks in `validate-config`; see `internal/config`.
+
+For both routes, `validate-config` accepts any collector name, and `generate`, `diff` and `publish` stop with the list of registered names when a block names a collector that is not registered. Set `enabled: false` to skip a block.
+
+NetBox is the reference collector: [`internal/collector/netbox`](../internal/collector/netbox).

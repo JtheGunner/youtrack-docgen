@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/JtheGunner/youtrack-docgen/internal/model"
+	"github.com/JtheGunner/youtrack-docgen/model"
 )
 
 // clusterGraph holds clusters a and b, each with namespaces x and y and one

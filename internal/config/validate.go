@@ -11,10 +11,14 @@ import (
 	"strings"
 
 	"github.com/JtheGunner/youtrack-docgen/internal/filter"
-	"github.com/JtheGunner/youtrack-docgen/internal/model"
+	"github.com/JtheGunner/youtrack-docgen/model"
 )
 
 var moduleName = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
+
+// ValidModuleName reports whether name is a valid collector or sink name:
+// lowercase letters, digits, "-" and "_", starting with a letter.
+func ValidModuleName(name string) bool { return moduleName.MatchString(name) }
 
 // settingKind is the expected shape of a module-specific setting.
 type settingKind int
@@ -140,7 +144,7 @@ func validateModules(section string, modules map[string]Module, specs map[string
 		m := modules[name]
 		path := joinPath(section, name)
 
-		if !moduleName.MatchString(name) {
+		if !ValidModuleName(name) {
 			problems = append(problems, path+`: invalid module name (use lowercase letters, digits, "-" and "_", starting with a letter)`)
 			continue
 		}

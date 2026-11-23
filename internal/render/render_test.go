@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JtheGunner/youtrack-docgen/internal/model"
 	"github.com/JtheGunner/youtrack-docgen/internal/testutil/golden"
+	"github.com/JtheGunner/youtrack-docgen/model"
 )
 
 var generatedAt = time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC)

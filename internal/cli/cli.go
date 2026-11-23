@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/signal"
 	"strings"
@@ -14,19 +15,31 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/JtheGunner/youtrack-docgen/collector"
 	"github.com/JtheGunner/youtrack-docgen/internal/config"
 	"github.com/JtheGunner/youtrack-docgen/internal/version"
 )
 
 const defaultConfigPath = "docgen.yaml"
 
-// NewRootCmd builds the command tree. Output goes to stdout and stderr so
-// tests can capture it.
+// NewRootCmd builds the command tree with the built-in collectors. Output goes
+// to stdout and stderr so tests can capture it.
 func NewRootCmd(stdout, stderr io.Writer) *cobra.Command {
 	return newRootCmd(stdout, stderr, time.Now)
 }
 
+// NewRootCmdWithCollectors builds the command tree with the given collector
+// factories, keyed by collector name. The map is copied, so later changes to
+// it do not reach the commands.
+func NewRootCmdWithCollectors(stdout, stderr io.Writer, factories map[string]collector.Factory) *cobra.Command {
+	return newRootCmdWithCollectors(stdout, stderr, time.Now, maps.Clone(factories))
+}
+
 func newRootCmd(stdout, stderr io.Writer, now func() time.Time) *cobra.Command {
+	return newRootCmdWithCollectors(stdout, stderr, now, BuiltinCollectors())
+}
+
+func newRootCmdWithCollectors(stdout, stderr io.Writer, now func() time.Time, factories map[string]collector.Factory) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "youtrack-docgen",
 		Short:         "Generate infrastructure documentation for the YouTrack Knowledge Base",
@@ -37,7 +50,7 @@ func newRootCmd(stdout, stderr io.Writer, now func() time.Time) *cobra.Command {
 	root.SetVersionTemplate("youtrack-docgen {{.Version}}\n")
 	root.SetOut(stdout)
 	root.SetErr(stderr)
-	root.AddCommand(newValidateConfigCmd(), newGenerateCmd(now), newDiffCmd(now), newPublishCmd(now))
+	root.AddCommand(newValidateConfigCmd(), newGenerateCmd(now, factories), newDiffCmd(now, factories), newPublishCmd(now, factories))
 	return root
 }
 
@@ -76,20 +89,22 @@ const exitCodeChanges = 2
 // command prints nothing for it and only the exit status carries the result.
 var errChanges = errors.New("the knowledge base differs from the generated documentation")
 
-// Execute runs the command line with the process streams. SIGINT and SIGTERM
-// cancel the context of the running command, so a collection stops and no
-// output file stays half-written.
-func Execute(stdout, stderr io.Writer) error {
-	return executeWithSignals(NewRootCmd(stdout, stderr))
-}
-
-func executeWithSignals(root *cobra.Command) error {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+// RunWithSignals executes root. SIGINT and SIGTERM cancel the context of the
+// running command, so a collection stops and no output file stays
+// half-written.
+func RunWithSignals(root *cobra.Command) error {
+	ctx, stop := SignalContext(context.Background())
 	defer stop()
 	return root.ExecuteContext(ctx)
 }
 
-// ExitCode maps an error returned by Execute to the process exit status: 0 for
+// SignalContext returns a context that SIGINT and SIGTERM cancel, and the
+// function that stops listening for them.
+func SignalContext(parent context.Context) (context.Context, context.CancelFunc) {
+	return signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
+}
+
+// ExitCode maps an error returned by RunWithSignals to the process exit status: 0 for
 // none, 2 when `diff --exit-code` found differences, 1 for every other error.
 func ExitCode(err error) int {
 	switch {

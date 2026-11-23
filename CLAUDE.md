@@ -5,14 +5,14 @@ Go CLI that collects infrastructure data (NetBox, Kubernetes manifests) into a n
 ## Public-repo rules
 
 - No internal hostnames, domains, IPs, tenant names, or real tokens anywhere: code, tests, fixtures, docs, examples. Fixtures are synthetic (`example.com`, RFC 5737/1918 ranges).
-- Site-specific logic never lands here. It lives in a private repository (see `docs/overlay-pattern.md`). The `collector` and `model` packages are under `internal/`, so today such code needs a private fork or a patch series; a public collector API is not yet available.
+- Site-specific logic never lands here. It lives in a private overlay module built against the public API: `model`, `collector` and `docgen` (see `docs/overlay-pattern.md`). Everything under `internal/` is not public API.
 - Redaction is a hard requirement: any change to a collector or renderer needs a test proving seeded fake secrets never reach a sink.
 
 ## Architecture
 
 Pipeline: `collector` -> `model` -> `filter` (allow/deny, redaction) -> `render` -> `sink`.
 
-- `internal/model` is the stable center. Collectors and sinks never import each other.
+- `model` is the stable center. Collectors and sinks never import each other.
 - Renderers produce sink-neutral `Document` trees; YouTrack specifics live only in `internal/sink/youtrack`.
 - Entity IDs are stable (`source:kind:key`); cross-source linking happens after collection, not inside collectors.
 

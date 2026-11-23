@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/JtheGunner/youtrack-docgen/internal/model"
+	"github.com/JtheGunner/youtrack-docgen/model"
 )
 
 // Label keys that collectors use for the well-known match dimensions.

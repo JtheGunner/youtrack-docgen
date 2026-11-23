@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/JtheGunner/youtrack-docgen/internal/collector/mapbuild"
-	"github.com/JtheGunner/youtrack-docgen/internal/model"
+	"github.com/JtheGunner/youtrack-docgen/model"
 )
 
 const (

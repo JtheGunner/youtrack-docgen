@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JtheGunner/youtrack-docgen/internal/model"
+	"github.com/JtheGunner/youtrack-docgen/model"
 )
 
 func mustApply(t *testing.T, cfg Config, g *model.Graph) *model.Graph {

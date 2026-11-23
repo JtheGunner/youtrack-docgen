@@ -4,7 +4,7 @@ import (
 	"slices"
 	"strconv"
 
-	"github.com/JtheGunner/youtrack-docgen/internal/model"
+	"github.com/JtheGunner/youtrack-docgen/model"
 )
 
 // kubernetesSource is the source name of the Kubernetes collector. Only its

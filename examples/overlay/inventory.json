@@ -1,0 +1,14 @@
+[
+  {
+    "hostname": "web-01.example.com",
+    "address": "192.0.2.10",
+    "role": "web",
+    "aliases": ["www.example.com"]
+  },
+  {
+    "hostname": "db-01.example.com",
+    "address": "198.51.100.20",
+    "role": "database",
+    "aliases": []
+  }
+]

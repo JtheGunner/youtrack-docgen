@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/JtheGunner/youtrack-docgen/internal/model"
+	"github.com/JtheGunner/youtrack-docgen/model"
 )
 
 // The article of a cluster lists the names of its namespaces and counts their

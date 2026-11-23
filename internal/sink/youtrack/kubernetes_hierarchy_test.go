@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"github.com/JtheGunner/youtrack-docgen/internal/filter"
-	"github.com/JtheGunner/youtrack-docgen/internal/model"
 	"github.com/JtheGunner/youtrack-docgen/internal/render"
+	"github.com/JtheGunner/youtrack-docgen/model"
 )
 
 // clusterTree is the overview root with one cluster document per entry of

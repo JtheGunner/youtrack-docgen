@@ -8,7 +8,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/JtheGunner/youtrack-docgen/internal/model"
+	"github.com/JtheGunner/youtrack-docgen/model"
 )
 
 // deniedHosts collects the hosts that the rules exclude, keyed by ID, so that
