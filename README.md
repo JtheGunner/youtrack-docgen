@@ -277,8 +277,8 @@ youtrack-docgen publish --dry-run --config docgen.yaml
 | | Guide | What it covers |
 |---|---|---|
 | ⏰ | [Scheduled runs](docs/scheduled-runs.md) | Run the tool from cron or CI; examples in [`examples/`](examples) |
-| 🔌 | [Write your own collector](docs/write-your-own-collector.md) | The `Collector` interface, the model, testing, wiring |
-| 🧩 | [Overlay pattern](docs/overlay-pattern.md) | Keep site-specific collectors in a private repository |
+| 🔌 | [Write your own collector](docs/write-your-own-collector.md) | The `Collector` interface, settings and factory, the model, testing, wiring |
+| 🧩 | [Overlay pattern](docs/overlay-pattern.md) | Build a binary with private collectors from the public `model`, `collector` and `docgen` packages; see [`examples/overlay`](examples/overlay) |
 
 ---
 
