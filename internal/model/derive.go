@@ -14,6 +14,8 @@ const (
 //   - Ingress -> Service: an ingress that routes_to a service depends on it.
 //   - Service -> Workload: a service that routes_to a workload depends on it.
 //   - Workload -> Host: a workload that runs_on a host depends on it.
+//   - Host -> Host: a host that runs_on another host (a virtual machine on its
+//     hypervisor) depends on it.
 //   - Host -> Cluster: a virtual machine (type "vm") depends on the cluster of
 //     its source that is named by its "cluster" attribute.
 //
@@ -40,7 +42,8 @@ func DeriveDependencies(g *Graph) int {
 		switch {
 		case rel.Kind == RelRoutesTo && from.Kind == KindIngress && to.Kind == KindService,
 			rel.Kind == RelRoutesTo && from.Kind == KindService && to.Kind == KindWorkload,
-			rel.Kind == RelRunsOn && from.Kind == KindWorkload && to.Kind == KindHost:
+			rel.Kind == RelRunsOn && from.Kind == KindWorkload && to.Kind == KindHost,
+			rel.Kind == RelRunsOn && from.Kind == KindHost && to.Kind == KindHost:
 			add(from.ID, to.ID)
 		}
 	}

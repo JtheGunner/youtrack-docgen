@@ -563,3 +563,26 @@ func TestCollectTimeoutYieldsAClearErrorWithoutTheToken(t *testing.T) {
 		t.Errorf("graph has %d entities after a timeout, want 0", n)
 	}
 }
+
+// A virtual machine that NetBox places on a device runs on that device's host.
+// A VM without a device, or one whose device is not a known host, has no such
+// relation.
+func TestCollectPlacesVirtualMachinesOnTheirHypervisor(t *testing.T) {
+	g := collectFixtures(t)
+	vm, hypervisor := model.ID("netbox:host:vm01.example.com"), model.ID("netbox:host:srv01.example.com")
+
+	var runsOn []model.Relation
+	for _, rel := range g.RelationsFrom(vm) {
+		if rel.Kind == model.RelRunsOn {
+			runsOn = append(runsOn, rel)
+		}
+	}
+	if len(runsOn) != 1 || runsOn[0].To != hypervisor {
+		t.Fatalf("runs_on of the VM = %v, want one relation to %s", runsOn, hypervisor)
+	}
+	for _, rel := range g.RelationsFrom(hypervisor) {
+		if rel.Kind == model.RelRunsOn {
+			t.Errorf("a device must not run on anything: %v", rel)
+		}
+	}
+}

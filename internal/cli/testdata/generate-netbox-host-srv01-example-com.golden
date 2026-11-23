@@ -18,13 +18,17 @@
 
 ## Diagram
 
+- vm01.example.com depends\_on srv01.example.com
+- vm01.example.com runs\_on srv01.example.com
 - srv01.example.com eth0 member\_of srv01.example.com
 - srv01.example.com in\_network 192.0.2.0/24
 - srv01.example.com member\_of Example HQ
 
 ## Runs here
 
-Nothing is known to run here.
+| Name | Kind | Addresses | Source |
+| --- | --- | --- | --- |
+| vm01.example.com | host | 192.0.2.20 | netbox |
 
 ## Depends on
 
@@ -32,7 +36,9 @@ Not known: no source reports what this host depends on.
 
 ## Needed by
 
-Not known: no source reports anything that depends on this host.
+| Name | Kind | Addresses | Source |
+| --- | --- | --- | --- |
+| vm01.example.com | host | 192.0.2.20 | netbox |
 
 ## Links
 

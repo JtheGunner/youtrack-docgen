@@ -158,12 +158,15 @@ func (d *dependents) buildNameRE() {
 // that the rules exclude.
 func newDependents(g *model.Graph, denied map[model.ID]model.Entity, deniedIPs, deniedNamespaces []model.Entity) dependents {
 	d := dependents{removed: map[model.ID]bool{}, addrs: map[netip.Addr]bool{}}
+	var members []model.Entity
 	for _, ns := range deniedNamespaces {
-		d.removeNamespaceMembers(g, ns)
+		members = append(members, d.removeNamespaceMembers(g, ns)...)
 	}
 	for _, ip := range deniedIPs {
 		d.addAddresses(ip)
+		d.addIPNames(ip)
 	}
+	d.addMemberValues(g, members, denied, deniedIPs)
 	for _, h := range denied {
 		d.removed[h.ID] = true
 		d.names = append(d.names, h.Name, shortName(h.Name))
@@ -203,6 +206,7 @@ func newDependents(g *model.Graph, denied map[model.ID]model.Entity, deniedIPs, 
 		if (denies > 0 || d.namesDenied(ip)) && others == 0 {
 			d.removed[ip.ID] = true
 			d.addAddresses(ip)
+			d.addIPNames(ip)
 		}
 	}
 	d.buildNameRE()
@@ -211,16 +215,24 @@ func newDependents(g *model.Graph, denied map[model.ID]model.Entity, deniedIPs, 
 
 // removeNamespaceMembers marks the workloads, services and ingresses of a
 // denied namespace as removed: through their member_of relation and, for
-// objects of the same source, through the namespace in their key.
-func (d dependents) removeNamespaceMembers(g *model.Graph, ns model.Entity) {
+// objects of the same source, through the namespace in their key. It returns
+// the members it marked.
+func (d dependents) removeNamespaceMembers(g *model.Graph, ns model.Entity) []model.Entity {
+	var members []model.Entity
+	mark := func(e model.Entity) {
+		if !d.removed[e.ID] {
+			d.removed[e.ID] = true
+			members = append(members, e)
+		}
+	}
 	for _, rel := range g.RelationsTo(ns.ID) {
-		if rel.Kind == model.RelMemberOf {
-			d.removed[rel.From] = true
+		if member, ok := g.Entity(rel.From); ok && rel.Kind == model.RelMemberOf {
+			mark(member)
 		}
 	}
 	_, _, nsKey, err := model.ParseID(ns.ID)
 	if err != nil {
-		return
+		return members
 	}
 	for _, kind := range []model.Kind{model.KindWorkload, model.KindService, model.KindIngress} {
 		for _, e := range g.ByKind(kind) {
@@ -229,11 +241,102 @@ func (d dependents) removeNamespaceMembers(g *model.Graph, ns model.Entity) {
 			}
 			if _, _, key, err := model.ParseID(e.ID); err == nil {
 				if keyNS, found := namespaceFromKey(kind, key); found && keyNS == nsKey {
-					d.removed[e.ID] = true
+					mark(e)
 				}
 			}
 		}
 	}
+	return members
+}
+
+// clusterDomains are the suffixes under which a Kubernetes service name
+// resolves inside a cluster, below "<name>.<namespace>".
+var clusterDomains = []string{"", ".svc", ".svc.cluster.local"}
+
+// addMemberValues records what identifies the removed members of denied
+// namespaces in free text: their names, their cluster-internal DNS names, their
+// hosts and their addresses. A value that an entity which stays also owns
+// (its name, an alias or an address) is not recorded: removing it would damage
+// that entity's own text.
+func (d *dependents) addMemberValues(g *model.Graph, members []model.Entity, deniedHosts map[model.ID]model.Entity, deniedIPs []model.Entity) {
+	if len(members) == 0 {
+		return
+	}
+	owned := ownedValues(g, d.removed, deniedHosts, deniedIPs)
+	for _, m := range members {
+		var names []string
+		if _, _, key, err := model.ParseID(m.ID); err == nil {
+			ns, _ := namespaceFromKey(m.Kind, key)
+			name := key[strings.LastIndex(key, "/")+1:]
+			names = append(names, m.Name)
+			if len(name) >= minShortNameLen {
+				names = append(names, name)
+			}
+			if name != "" && ns != "" {
+				for _, suffix := range clusterDomains {
+					names = append(names, name+"."+ns+suffix)
+				}
+			}
+		}
+		names = append(names, m.Aliases...)
+		for _, name := range names {
+			if !owned[strings.ToLower(strings.TrimSpace(name))] {
+				d.names = append(d.names, name)
+			}
+		}
+		for _, addr := range m.Addresses {
+			if !owned[addr.Unmap().WithZone("").String()] {
+				d.addAddress(addr)
+			}
+		}
+	}
+}
+
+// ownedValues returns the lower-cased names, aliases and addresses of every
+// entity that is not removed with its namespace, a denied host or a denied IP.
+// Those are scrubbed anyway or are the denied value itself.
+func ownedValues(g *model.Graph, removed map[model.ID]bool, deniedHosts map[model.ID]model.Entity, deniedIPs []model.Entity) map[string]bool {
+	skip := map[model.ID]bool{}
+	for id := range removed {
+		skip[id] = true
+	}
+	for id := range deniedHosts {
+		skip[id] = true
+	}
+	for _, ip := range deniedIPs {
+		skip[ip.ID] = true
+	}
+	owned := map[string]bool{}
+	add := func(s string) {
+		if s = strings.ToLower(strings.TrimSpace(s)); s != "" {
+			owned[s] = true
+		}
+	}
+	for _, kind := range allKinds {
+		for _, e := range g.ByKind(kind) {
+			if skip[e.ID] {
+				continue
+			}
+			add(e.Name)
+			for _, a := range e.Aliases {
+				add(a)
+			}
+			for _, a := range e.Addresses {
+				add(a.Unmap().WithZone("").String())
+			}
+			if _, _, key, err := model.ParseID(e.ID); err == nil {
+				add(key[strings.LastIndex(key, "/")+1:])
+			}
+		}
+	}
+	return owned
+}
+
+// addIPNames records the DNS name and aliases of a removed IP entity, so a host
+// that carries them as an alias does not keep them.
+func (d *dependents) addIPNames(ip model.Entity) {
+	d.names = append(d.names, ip.Attrs[model.AttrDNSName])
+	d.names = append(d.names, ip.Aliases...)
 }
 
 // addAddresses records the addresses of a removed IP entity: its name is the

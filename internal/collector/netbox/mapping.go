@@ -265,6 +265,12 @@ func (b *builder) addMachines(ms []machine, family string) error {
 		if m.Site != nil {
 			b.relateIf(e.ID, b.sites, m.Site.ID, model.RelMemberOf)
 		}
+		if family == famVM && m.Device != nil {
+			// Devices are mapped before virtual machines, so the hypervisor is known.
+			if hypervisor, ok := b.hosts[objRef{famDevice, m.Device.ID}]; ok {
+				b.Relate(e.ID, hypervisor, model.RelRunsOn)
+			}
+		}
 	}
 	return nil
 }
