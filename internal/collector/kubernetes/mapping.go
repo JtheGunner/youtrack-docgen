@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -261,11 +262,35 @@ func (b *builder) nodeHost(name string) (model.ID, error) {
 func images(t podTemplate) []string {
 	var out []string
 	for _, c := range append(slices.Clone(t.Spec.InitContainers), t.Spec.Containers...) {
-		if c.Image != "" && !slices.Contains(out, c.Image) {
-			out = append(out, c.Image)
+		img, ok := sanitizeImage(c.Image)
+		if ok && !slices.Contains(out, img) {
+			out = append(out, img)
 		}
 	}
 	return out
+}
+
+var (
+	imageSchemeRE    = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.-]*://`)
+	imagePlausibleRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]*(@[A-Za-z0-9]+:[A-Fa-f0-9]{32,})?$`)
+)
+
+// sanitizeImage removes what must not appear in an image reference: a scheme
+// and userinfo (everything through the last "@" before the first "/"). A
+// digest ("@sha256:...") comes after the path and is kept. A reference that
+// is not plausible afterwards is dropped (ok is false) instead of being
+// passed on, because it may carry a credential in an unexpected form.
+func sanitizeImage(ref string) (string, bool) {
+	ref = imageSchemeRE.ReplaceAllString(strings.TrimSpace(ref), "")
+	if slash := strings.Index(ref, "/"); slash >= 0 {
+		if at := strings.LastIndex(ref[:slash], "@"); at >= 0 {
+			ref = ref[at+1:]
+		}
+	}
+	if !imagePlausibleRE.MatchString(ref) {
+		return "", false
+	}
+	return ref, true
 }
 
 func (b *builder) addService(o parsed) error {

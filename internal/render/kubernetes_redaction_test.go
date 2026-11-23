@@ -60,6 +60,12 @@ spec:
       containers:
         - name: web
           image: registry.example.com/shop/web:1.4.0
+        - name: sidecar
+          image: FAKE-SECRET-IMGUSER-11:FAKE-SECRET-IMGPASS-12@registry.example.com/shop/sidecar:2
+        - name: proxy
+          image: https://FAKE-SECRET-IMGTOKEN-13@registry.example.com/shop/proxy:3
+        - name: odd
+          image: registry.example.com/shop/odd:1?token=FAKE-SECRET-IMGQUERY-14
           args: ["--api-key=FAKE-SECRET-ARG-5"]
           env:
             - name: API_TOKEN
@@ -129,6 +135,11 @@ spec:
 			seen++
 		}
 	})
+	for _, want := range []string{"registry.example.com/shop/sidecar:2", "registry.example.com/shop/proxy:3"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("sanitized image %q is missing", want)
+		}
+	}
 	if seen != 4 { // two clusters, two namespaces
 		t.Fatalf("rendered %d kubernetes documents, want 4:\n%s", seen, out)
 	}
