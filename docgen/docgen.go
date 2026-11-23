@@ -10,6 +10,7 @@ import (
 	"github.com/JtheGunner/youtrack-docgen/collector"
 	"github.com/JtheGunner/youtrack-docgen/internal/cli"
 	"github.com/JtheGunner/youtrack-docgen/internal/config"
+	"github.com/spf13/cobra"
 )
 
 // App is the youtrack-docgen command line with a set of registered
@@ -63,22 +64,24 @@ func (a *App) register(name string, f collector.Factory) error {
 // writes to stdout and stderr. Cancelling ctx stops a running collection.
 // Use ExitCode to map the returned error to a process exit status.
 func (a *App) Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	return a.newRoot(args, stdout, stderr).ExecuteContext(ctx)
+}
+
+func (a *App) newRoot(args []string, stdout, stderr io.Writer) *cobra.Command {
 	root := cli.NewRootCmdWithCollectors(stdout, stderr, maps.Clone(a.factories))
 	if args == nil {
 		// cobra falls back to os.Args for nil args.
 		args = []string{}
 	}
 	root.SetArgs(args)
-	return root.ExecuteContext(ctx)
+	return root
 }
 
 // Main runs the App with the process arguments and streams. SIGINT and
 // SIGTERM cancel the running command. It exits the process with the status
 // ExitCode returns for the result.
 func (a *App) Main() {
-	ctx, stop := cli.SignalContext(context.Background())
-	err := a.Run(ctx, os.Args[1:], os.Stdout, os.Stderr)
-	stop()
+	err := cli.RunWithSignals(a.newRoot(os.Args[1:], os.Stdout, os.Stderr))
 	os.Exit(ExitCode(err))
 }
 

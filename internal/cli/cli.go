@@ -89,14 +89,10 @@ const exitCodeChanges = 2
 // command prints nothing for it and only the exit status carries the result.
 var errChanges = errors.New("the knowledge base differs from the generated documentation")
 
-// Execute runs the command line with the process streams. SIGINT and SIGTERM
-// cancel the context of the running command, so a collection stops and no
-// output file stays half-written.
-func Execute(stdout, stderr io.Writer) error {
-	return executeWithSignals(NewRootCmd(stdout, stderr))
-}
-
-func executeWithSignals(root *cobra.Command) error {
+// RunWithSignals executes root. SIGINT and SIGTERM cancel the context of the
+// running command, so a collection stops and no output file stays
+// half-written.
+func RunWithSignals(root *cobra.Command) error {
 	ctx, stop := SignalContext(context.Background())
 	defer stop()
 	return root.ExecuteContext(ctx)
@@ -108,7 +104,7 @@ func SignalContext(parent context.Context) (context.Context, context.CancelFunc)
 	return signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 }
 
-// ExitCode maps an error returned by Execute to the process exit status: 0 for
+// ExitCode maps an error returned by RunWithSignals to the process exit status: 0 for
 // none, 2 when `diff --exit-code` found differences, 1 for every other error.
 func ExitCode(err error) int {
 	switch {
