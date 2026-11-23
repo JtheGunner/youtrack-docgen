@@ -11,7 +11,7 @@ import (
 
 	"github.com/JtheGunner/youtrack-docgen/internal/collector/mapbuild"
 	"github.com/JtheGunner/youtrack-docgen/internal/diff"
-	"github.com/JtheGunner/youtrack-docgen/internal/model"
+	"github.com/JtheGunner/youtrack-docgen/model"
 )
 
 // objRef identifies a NetBox object by API family and numeric ID.

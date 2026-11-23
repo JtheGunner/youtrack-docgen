@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JtheGunner/youtrack-docgen/internal/model"
+	"github.com/JtheGunner/youtrack-docgen/model"
 )
 
 var denyLabNamespace = Config{Collectors: map[string]Rules{kubernetesSource: {Deny: []Match{{Kinds: []string{"namespace"}, Namespaces: []string{"lab"}}}}}}

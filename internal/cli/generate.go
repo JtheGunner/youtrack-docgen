@@ -9,15 +9,15 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/JtheGunner/youtrack-docgen/internal/collector"
+	"github.com/JtheGunner/youtrack-docgen/collector"
 	"github.com/JtheGunner/youtrack-docgen/internal/collector/kubernetes"
 	"github.com/JtheGunner/youtrack-docgen/internal/collector/netbox"
 	"github.com/JtheGunner/youtrack-docgen/internal/config"
 	"github.com/JtheGunner/youtrack-docgen/internal/filter"
-	"github.com/JtheGunner/youtrack-docgen/internal/model"
 	"github.com/JtheGunner/youtrack-docgen/internal/render"
 	"github.com/JtheGunner/youtrack-docgen/internal/sink"
 	"github.com/JtheGunner/youtrack-docgen/internal/sink/markdown"
+	"github.com/JtheGunner/youtrack-docgen/model"
 )
 
 func newGenerateCmd(now func() time.Time) *cobra.Command {

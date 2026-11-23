@@ -7,9 +7,9 @@ import (
 	"strings"
 
 	"github.com/JtheGunner/youtrack-docgen/internal/diff"
-	"github.com/JtheGunner/youtrack-docgen/internal/model"
 	"github.com/JtheGunner/youtrack-docgen/internal/render"
 	"github.com/JtheGunner/youtrack-docgen/internal/sink/youtrack/client"
+	"github.com/JtheGunner/youtrack-docgen/model"
 )
 
 // DefaultMaxStaleRatio is the share of managed articles a single run may mark

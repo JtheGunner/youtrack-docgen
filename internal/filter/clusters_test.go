@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JtheGunner/youtrack-docgen/internal/model"
+	"github.com/JtheGunner/youtrack-docgen/model"
 )
 
 // kubeEntity builds an entity the way the Kubernetes collector writes it: the

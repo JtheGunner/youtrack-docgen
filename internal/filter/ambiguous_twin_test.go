@@ -3,7 +3,7 @@ package filter
 import (
 	"testing"
 
-	"github.com/JtheGunner/youtrack-docgen/internal/model"
+	"github.com/JtheGunner/youtrack-docgen/model"
 )
 
 // A Kubernetes node that matches two NetBox hosts is not linked to either, but

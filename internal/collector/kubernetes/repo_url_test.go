@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/JtheGunner/youtrack-docgen/internal/config"
-	"github.com/JtheGunner/youtrack-docgen/internal/model"
+	"github.com/JtheGunner/youtrack-docgen/model"
 )
 
 const repoURL = "https://git.example.com/ops/cluster"

@@ -4,7 +4,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/JtheGunner/youtrack-docgen/internal/model"
+	"github.com/JtheGunner/youtrack-docgen/model"
 )
 
 // Verdict is the outcome of checking an entity ID against the rules.

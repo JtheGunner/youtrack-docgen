@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JtheGunner/youtrack-docgen/internal/model"
+	"github.com/JtheGunner/youtrack-docgen/model"
 )
 
 func TestRedactorTextCredentialForms(t *testing.T) {

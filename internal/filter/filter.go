@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/JtheGunner/youtrack-docgen/internal/model"
+	"github.com/JtheGunner/youtrack-docgen/model"
 )
 
 // Config is the filter configuration: allow/deny rules per collector (keyed by

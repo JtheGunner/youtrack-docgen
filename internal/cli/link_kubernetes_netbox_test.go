@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/JtheGunner/youtrack-docgen/internal/config"
-	"github.com/JtheGunner/youtrack-docgen/internal/model"
+	"github.com/JtheGunner/youtrack-docgen/model"
 )
 
 // linkNetBoxDevices are the synthetic NetBox hosts the Kubernetes fixtures

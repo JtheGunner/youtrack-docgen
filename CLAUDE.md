@@ -12,7 +12,7 @@ Go CLI that collects infrastructure data (NetBox, Kubernetes manifests) into a n
 
 Pipeline: `collector` -> `model` -> `filter` (allow/deny, redaction) -> `render` -> `sink`.
 
-- `internal/model` is the stable center. Collectors and sinks never import each other.
+- `model` is the stable center. Collectors and sinks never import each other.
 - Renderers produce sink-neutral `Document` trees; YouTrack specifics live only in `internal/sink/youtrack`.
 - Entity IDs are stable (`source:kind:key`); cross-source linking happens after collection, not inside collectors.
 

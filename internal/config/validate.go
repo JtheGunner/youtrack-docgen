@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/JtheGunner/youtrack-docgen/internal/filter"
-	"github.com/JtheGunner/youtrack-docgen/internal/model"
+	"github.com/JtheGunner/youtrack-docgen/model"
 )
 
 var moduleName = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)

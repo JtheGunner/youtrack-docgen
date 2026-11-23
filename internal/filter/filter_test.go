@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JtheGunner/youtrack-docgen/internal/model"
+	"github.com/JtheGunner/youtrack-docgen/model"
 )
 
 // Obviously fake secrets seeded into the fixtures.
