@@ -15,6 +15,10 @@ cache \(k8s\)
 
 shop \(k8s\)
 
+- shop depends\_on shop
+- shop routes\_to shop
+- shop depends\_on shop-app
+- shop routes\_to shop-app
 - shop depends\_on db01
 - shop runs\_on web01
 

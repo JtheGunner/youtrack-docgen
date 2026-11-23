@@ -21,6 +21,8 @@
 
 - web01 same\_as web01
 - shop runs\_on web01
+- shop-app depends\_on web01
+- shop-app runs\_on web01
 - web01 depends\_on db01
 - eth0 member\_of web01
 - web01 in\_network servers
@@ -30,6 +32,7 @@
 | Name | Kind | Addresses | Source |
 | --- | --- | --- | --- |
 | shop | service | 10.96.0.10 | k8s |
+| shop-app | workload | - | k8s |
 
 ## Depends on
 
@@ -39,7 +42,9 @@
 
 ## Needed by
 
-Nothing is known to depend on this host.
+| Name | Kind | Addresses | Source |
+| --- | --- | --- | --- |
+| shop-app | workload | - | k8s |
 
 ## Links
 

@@ -111,6 +111,11 @@ sinks:
 - **The YouTrack client retries transient failures.** Reads and idempotent writes are retried up to 5 times with exponential backoff (at most 30 seconds per wait) on HTTP 429, 502, 503, 504 and network errors; `Retry-After` is honored as seconds or as an HTTP date. Creating an article or tag is retried on 429 only, so a retry can never create a duplicate. Error messages never contain the token, even if the server echoes it.
 - **Unknown keys are errors.** Typos in the top level, in `youtrack`, and in the settings of the built-in modules (`netbox`, `kubernetes`, `youtrack`, `markdown`) are caught. Modules with another name, such as one from a private overlay, keep their own settings unchecked.
 - **Allow/deny rules** are lists. A rule can combine `kinds`, `tags`, `roles`, `tenants`, `namespaces` and `labels` (all must match); values are case-insensitive globs. An empty rule is an error.
+- **What a deny rule also removes:** a denied entity appears in no form in the output, and nothing in the output or in a warning names it.
+  - **Host:** its interfaces and the IP addresses that belong only to it, its same-machine twins from other sources, its name and aliases, its short name (the first label of a fully qualified name), its addresses in every notation, and the reverse-DNS names (`in-addr.arpa`, `ip6.arpa`) of those addresses are removed from every other entity. An entity that is itself named after one of them is removed.
+  - **IP address entity:** the address is removed from every host, interface and text, together with its reverse-DNS name.
+  - **Namespace:** its workloads, services and ingresses are removed with their relations.
+  - **Known limitation:** a short name is only removed from free text if it is at least 4 characters long and stands at word boundaries (`lab01` goes, `lab011` and `lab01-eth0` stay). Shorter, generic short names such as `db` or `web` are not removed. A side effect: an object whose own name contains a removed short name (for example a namespace `lab01`) is removed too.
 - **A disabled module still needs its variables.** Use `${VAR:-}` for a token you do not set while the module is off.
 
 Check a config without running anything:
@@ -172,6 +177,17 @@ After collection, hosts of different sources are matched and Kubernetes objects 
 
 > [!NOTE]
 > A workload that is not pinned to a node is not placed on any host. Without `Node` manifests the cluster says nothing about where it runs, and the tool does not guess. Host articles say "Nothing is known to run here" in that case; it does not mean that nothing runs there.
+
+### Derived dependencies
+
+After the filter has run, `depends_on` relations are derived from the filtered graph only, so a rejected entity never shows up in a dependency. Exactly these edges are derived, and they are not chained:
+
+- **Ingress -> Service:** an ingress that routes to a service depends on it.
+- **Service -> Workload:** a service whose selector matches a workload depends on it.
+- **Workload -> Host:** a workload that runs on a host depends on it.
+- **VM -> Cluster:** a NetBox virtual machine depends on the cluster entity of its source that its `cluster` attribute names. The NetBox collector does not emit cluster entities yet, so this edge only appears once a source provides them.
+
+Host articles list these under **Depends on** and **Needed by**, and the diagrams draw them. An empty section reads "Not known", not "none": no source can state that nothing depends on a host.
 
 ---
 

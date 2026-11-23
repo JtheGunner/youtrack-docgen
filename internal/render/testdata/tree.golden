@@ -66,6 +66,10 @@ cache \(k8s\)
 
 shop \(k8s\)
 
+- shop depends\_on shop
+- shop routes\_to shop
+- shop depends\_on shop-app
+- shop routes\_to shop-app
 - shop depends\_on db01
 - shop runs\_on web01
 
@@ -104,20 +108,26 @@ Generated at 2025-01-02T03:04:05Z from k8s, netbox.
 
 ## Diagram
 
+- shop-app depends\_on web01
+- shop-app runs\_on web01
 - web01 same\_as web01
 - web01 in\_network servers
 
 ## Runs here
 
-Nothing is known to run here.
+| Name | Kind | Addresses | Source |
+| --- | --- | --- | --- |
+| shop-app | workload | - | k8s |
 
 ## Depends on
 
-No dependencies are known.
+Not known: no source reports what this host depends on.
 
 ## Needed by
 
-Nothing is known to depend on this host.
+| Name | Kind | Addresses | Source |
+| --- | --- | --- | --- |
+| shop-app | workload | - | k8s |
 
 ## Links
 
@@ -158,7 +168,7 @@ Generated at 2025-01-02T03:04:05Z from k8s, netbox.
 
 ## Depends on
 
-No dependencies are known.
+Not known: no source reports what this host depends on.
 
 ## Needed by
 
@@ -199,6 +209,8 @@ Generated at 2025-01-02T03:04:05Z from netbox.
 
 - web01 same\_as web01
 - shop runs\_on web01
+- shop-app depends\_on web01
+- shop-app runs\_on web01
 - web01 depends\_on db01
 - eth0 member\_of web01
 - web01 in\_network servers
@@ -208,6 +220,7 @@ Generated at 2025-01-02T03:04:05Z from netbox.
 | Name | Kind | Addresses | Source |
 | --- | --- | --- | --- |
 | shop | service | 10.96.0.10 | k8s |
+| shop-app | workload | - | k8s |
 
 ## Depends on
 
@@ -217,7 +230,9 @@ Generated at 2025-01-02T03:04:05Z from netbox.
 
 ## Needed by
 
-Nothing is known to depend on this host.
+| Name | Kind | Addresses | Source |
+| --- | --- | --- | --- |
+| shop-app | workload | - | k8s |
 
 ## Links
 
