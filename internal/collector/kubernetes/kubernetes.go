@@ -1,6 +1,6 @@
 // Package kubernetes reads workloads, services, ingresses and namespaces from
 // Kubernetes manifests on disk (Git checkouts or rendered Kustomize/Helm
-// output) into the neutral model. It never talks to a cluster and never maps
+// output) into the neutral model, one cluster entity per configured cluster. It never talks to a cluster and never maps
 // Secret manifests, environment values or annotations.
 package kubernetes
 
@@ -70,13 +70,13 @@ func (*Collector) Name() string { return Source }
 func (c *Collector) Collect(ctx context.Context, g *model.Graph) error {
 	c.incomplete = nil
 	r := &reporter{warn: c.warn}
-	objects, err := readObjects(ctx, c.paths, r)
+	objects, clusters, err := readObjects(ctx, c.paths, r)
 	c.incomplete = r.incomplete
 	if err != nil {
 		return err
 	}
 	b := newBuilder()
-	if err := b.build(objects); err != nil {
+	if err := b.build(clusters, objects); err != nil {
 		return fmt.Errorf("kubernetes: %w", err)
 	}
 	return b.Commit(g)

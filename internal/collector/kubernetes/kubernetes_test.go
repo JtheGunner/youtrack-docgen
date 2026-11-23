@@ -48,34 +48,34 @@ func TestCollectMapsEntities(t *testing.T) {
 		aliases   []string
 		addresses []string
 	}{
-		{id: "kubernetes:namespace:shop", name: "shop"},
-		{id: "kubernetes:namespace:default", name: "default"},
+		{id: "kubernetes:namespace:test/shop", name: "shop"},
+		{id: "kubernetes:namespace:test/default", name: "default"},
 		{
-			id: "kubernetes:workload:shop/deployment/web", name: "web",
+			id: "kubernetes:workload:test/shop/deployment/web", name: "web",
 			attrs: map[string]string{
 				"kind": "Deployment", "namespace": "shop", "replicas": "3",
 				"images": "registry.example.com/shop/migrate:1.4.0, registry.example.com/shop/web:1.4.0",
 			},
 		},
 		{
-			id: "kubernetes:workload:default/statefulset/db", name: "db",
+			id: "kubernetes:workload:test/default/statefulset/db", name: "db",
 			attrs: map[string]string{"kind": "StatefulSet", "replicas": "1", "images": "registry.example.com/shop/db:16"},
 		},
 		{
-			id: "kubernetes:workload:default/cronjob/backup", name: "backup",
+			id: "kubernetes:workload:test/default/cronjob/backup", name: "backup",
 			attrs: map[string]string{"kind": "CronJob", "schedule": "0 3 * * *", "images": "registry.example.com/shop/backup:2"},
 		},
 		{
-			id: "kubernetes:service:shop/web", name: "web",
+			id: "kubernetes:service:test/shop/web", name: "web",
 			attrs:     map[string]string{"type": "ClusterIP", "ports": "80/TCP->8080"},
 			addresses: []string{"10.96.0.20"},
 		},
 		{
-			id: "kubernetes:service:default/db", name: "db",
+			id: "kubernetes:service:test/default/db", name: "db",
 			attrs: map[string]string{"ports": "5432/TCP"},
 		},
 		{
-			id: "kubernetes:ingress:shop/web", name: "web",
+			id: "kubernetes:ingress:test/shop/web", name: "web",
 			attrs:   map[string]string{"class": "nginx", "hosts": "shop.example.com, www.shop.example.com"},
 			aliases: []string{"shop.example.com", "www.shop.example.com"},
 		},
@@ -107,7 +107,7 @@ func TestCollectMapsEntities(t *testing.T) {
 		})
 	}
 	for kind, want := range map[model.Kind]int{
-		model.KindNamespace: 2, model.KindWorkload: 3, model.KindService: 2, model.KindIngress: 1,
+		model.KindCluster: 1, model.KindNamespace: 2, model.KindWorkload: 3, model.KindService: 2, model.KindIngress: 1,
 	} {
 		if got := len(g.ByKind(kind)); got != want {
 			t.Errorf("%s entities = %d, want %d", kind, got, want)
@@ -118,12 +118,14 @@ func TestCollectMapsEntities(t *testing.T) {
 func TestCollectMapsRelations(t *testing.T) {
 	g := collect(t, fixtures)
 	want := []model.Relation{
-		{From: "kubernetes:ingress:shop/web", To: "kubernetes:namespace:shop", Kind: model.RelMemberOf},
-		{From: "kubernetes:ingress:shop/web", To: "kubernetes:service:shop/web", Kind: model.RelRoutesTo},
-		{From: "kubernetes:service:shop/web", To: "kubernetes:namespace:shop", Kind: model.RelMemberOf},
-		{From: "kubernetes:service:shop/web", To: "kubernetes:workload:shop/deployment/web", Kind: model.RelRoutesTo},
-		{From: "kubernetes:service:default/db", To: "kubernetes:workload:default/statefulset/db", Kind: model.RelRoutesTo},
-		{From: "kubernetes:workload:shop/deployment/web", To: "kubernetes:namespace:shop", Kind: model.RelMemberOf},
+		{From: "kubernetes:namespace:test/shop", To: "kubernetes:cluster:test", Kind: model.RelMemberOf},
+		{From: "kubernetes:namespace:test/default", To: "kubernetes:cluster:test", Kind: model.RelMemberOf},
+		{From: "kubernetes:ingress:test/shop/web", To: "kubernetes:namespace:test/shop", Kind: model.RelMemberOf},
+		{From: "kubernetes:ingress:test/shop/web", To: "kubernetes:service:test/shop/web", Kind: model.RelRoutesTo},
+		{From: "kubernetes:service:test/shop/web", To: "kubernetes:namespace:test/shop", Kind: model.RelMemberOf},
+		{From: "kubernetes:service:test/shop/web", To: "kubernetes:workload:test/shop/deployment/web", Kind: model.RelRoutesTo},
+		{From: "kubernetes:service:test/default/db", To: "kubernetes:workload:test/default/statefulset/db", Kind: model.RelRoutesTo},
+		{From: "kubernetes:workload:test/shop/deployment/web", To: "kubernetes:namespace:test/shop", Kind: model.RelMemberOf},
 	}
 	have := map[model.Relation]bool{}
 	for _, r := range g.Relations() {
@@ -138,7 +140,7 @@ func TestCollectMapsRelations(t *testing.T) {
 		}
 	}
 	// The ingress backend "missing" has no manifest, so only one routes_to exists.
-	if got := len(g.RelationsFrom("kubernetes:ingress:shop/web")); got != 2 {
+	if got := len(g.RelationsFrom("kubernetes:ingress:test/shop/web")); got != 2 {
 		t.Errorf("ingress relations = %d, want 2", got)
 	}
 }
@@ -282,8 +284,8 @@ func TestCollectMapsNodesAndPinnedWorkloads(t *testing.T) {
 	}
 
 	wantRuns := map[model.ID]model.ID{
-		"kubernetes:workload:shop/deployment/api":   "kubernetes:host:node-a",
-		"kubernetes:workload:shop/deployment/batch": "kubernetes:host:node-ghost",
+		"kubernetes:workload:test/shop/deployment/api":   "kubernetes:host:node-a",
+		"kubernetes:workload:test/shop/deployment/batch": "kubernetes:host:node-ghost",
 	}
 	for w, h := range wantRuns {
 		rel := model.Relation{From: w, To: h, Kind: model.RelRunsOn}
@@ -292,7 +294,7 @@ func TestCollectMapsNodesAndPinnedWorkloads(t *testing.T) {
 		}
 	}
 
-	svc, _ := g.Entity("kubernetes:service:shop/edge")
+	svc, _ := g.Entity("kubernetes:service:test/shop/edge")
 	if got := svc.Attrs[model.AttrExternalIPs]; got != "192.0.2.21" {
 		t.Errorf("external_ips = %q, want only the valid external IP", got)
 	}
@@ -349,11 +351,11 @@ func TestCollectToleratesGitOpsInputs(t *testing.T) {
 	})
 	g, warnings := collectWithWarnings(t, dir)
 
-	web, ok := g.Entity("kubernetes:workload:shop/deployment/web")
+	web, ok := g.Entity("kubernetes:workload:test/shop/deployment/web")
 	if !ok || web.Attrs["replicas"] != "2" {
 		t.Errorf("first duplicate must win: %+v", web)
 	}
-	quoted, ok := g.Entity("kubernetes:workload:default/deployment/quoted")
+	quoted, ok := g.Entity("kubernetes:workload:test/default/deployment/quoted")
 	if !ok || quoted.Attrs["replicas"] != "3" {
 		t.Errorf("string replicas = %+v", quoted)
 	}
@@ -382,7 +384,7 @@ func TestCollectFollowsSymlinkedRoot(t *testing.T) {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
 	g, warnings := collectWithWarnings(t, link)
-	if _, ok := g.Entity("kubernetes:workload:shop/deployment/web"); !ok {
+	if _, ok := g.Entity("kubernetes:workload:test/shop/deployment/web"); !ok {
 		t.Errorf("symlinked path yielded no objects; warnings:\n%s", warnings)
 	}
 }
@@ -407,7 +409,7 @@ func labelManifests() string {
 
 func TestCollectTakesOverLabelsAndLabelRulesFilter(t *testing.T) {
 	g, _ := collectWithWarnings(t, writeTree(t, map[string]string{"d.yaml": labelManifests()}))
-	web, _ := g.Entity("kubernetes:workload:shop/deployment/web")
+	web, _ := g.Entity("kubernetes:workload:test/shop/deployment/web")
 	if web.Labels["label.team"] != "payments" || web.Labels["namespace"] != "shop" {
 		t.Errorf("labels = %v", web.Labels)
 	}
@@ -422,10 +424,10 @@ func TestCollectTakesOverLabelsAndLabelRulesFilter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := out.Entity("kubernetes:workload:shop/deployment/batch"); ok {
+	if _, ok := out.Entity("kubernetes:workload:test/shop/deployment/batch"); ok {
 		t.Error("label deny rule did not drop the batch workload")
 	}
-	if _, ok := out.Entity("kubernetes:workload:shop/deployment/web"); !ok {
+	if _, ok := out.Entity("kubernetes:workload:test/shop/deployment/web"); !ok {
 		t.Error("label deny rule dropped the wrong workload")
 	}
 }
@@ -518,7 +520,7 @@ func TestCollectSkipsNamespaceWithoutName(t *testing.T) {
 
 func TestCollectReadsLoadBalancerIPs(t *testing.T) {
 	g := collect(t, filepath.Join("testdata", "linking"))
-	svc, ok := g.Entity("kubernetes:service:shop/lb")
+	svc, ok := g.Entity("kubernetes:service:test/shop/lb")
 	if !ok {
 		t.Fatal("service shop/lb missing")
 	}

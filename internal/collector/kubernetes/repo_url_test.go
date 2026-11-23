@@ -40,7 +40,7 @@ func TestRepoURLIsAttachedToObjectsOfItsPathOnly(t *testing.T) {
 			t.Errorf("%s repo_url = %q, want %q", id, got, repoURL)
 		}
 	}
-	web, ok := g.Entity("kubernetes:workload:shop/deployment/web")
+	web, ok := g.Entity("kubernetes:workload:test/shop/deployment/web")
 	if !ok {
 		t.Fatal("workload from the plain path missing")
 	}

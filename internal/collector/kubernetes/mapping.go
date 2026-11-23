@@ -27,22 +27,30 @@ var workloadKinds = map[string]bool{
 	"CronJob":     true,
 }
 
+// attrCluster names the cluster a namespace, workload, service or ingress
+// belongs to.
+const attrCluster = "cluster"
+
+// Every map below that is keyed by namespace uses the cluster-scoped
+// "cluster/namespace" key, so equal names in different clusters never meet.
 type builder struct {
 	*mapbuild.Builder
 
-	namespaces map[string]model.ID
-	declared   map[string]bool // namespaces with their own manifest
+	clusters   map[string]model.ID
+	namespaces map[string]model.ID // cluster/namespace -> namespace ID
+	declared   map[string]bool     // namespaces with their own manifest
 	nodes      map[string]model.ID
 	nodeSeen   map[string]bool // nodes with their own manifest
 	// podLabels holds the pod template labels per workload, for service selectors.
 	podLabels map[model.ID]map[string]string
-	workloads map[string][]model.ID // namespace -> workload IDs
-	services  map[string]model.ID   // namespace/name -> service ID
+	workloads map[string][]model.ID // cluster/namespace -> workload IDs
+	services  map[string]model.ID   // cluster/namespace/name -> service ID
 }
 
 func newBuilder() *builder {
 	return &builder{
 		Builder:    mapbuild.New(Source),
+		clusters:   map[string]model.ID{},
 		namespaces: map[string]model.ID{},
 		declared:   map[string]bool{},
 		nodes:      map[string]model.ID{},
@@ -53,11 +61,18 @@ func newBuilder() *builder {
 	}
 }
 
-func (b *builder) build(objects []parsed) error {
+// build maps the objects. clusters are the clusters to create even when none
+// of their objects lives in a namespace.
+func (b *builder) build(clusters []string, objects []parsed) error {
+	for _, name := range clusters {
+		if _, err := b.addCluster(name); err != nil {
+			return err
+		}
+	}
 	// Namespaces first so every namespaced object can link to its namespace.
 	for _, o := range objects {
 		if o.Kind == "Namespace" {
-			id, err := b.addNamespace(o.Metadata.Name, true)
+			id, err := b.addNamespace(o.cluster, o.Metadata.Name, true)
 			if err != nil {
 				return err
 			}
@@ -96,47 +111,72 @@ func (b *builder) build(objects []parsed) error {
 	return nil
 }
 
-// addNamespace creates the namespace once. An explicit Namespace manifest may
-// follow an implicit one created from a referencing object; it is then a no-op.
-func (b *builder) addNamespace(name string, explicit bool) (model.ID, error) {
-	if name == "" {
-		return "", errors.New("namespace manifest has no name")
-	}
-	if id, ok := b.namespaces[name]; ok {
-		if explicit && b.declared[name] {
-			return "", fmt.Errorf("%w: namespace %s", model.ErrDuplicateEntity, name)
-		}
-		b.declared[name] = b.declared[name] || explicit
+// addCluster creates the cluster once. It carries only its name: no label,
+// attribute or address of a manifest reaches it.
+func (b *builder) addCluster(name string) (model.ID, error) {
+	if id, ok := b.clusters[name]; ok {
 		return id, nil
 	}
-	e, err := b.Add(model.KindNamespace, name, name)
+	e, err := b.Add(model.KindCluster, name, name)
 	if err != nil {
 		return "", err
 	}
-	b.declared[name] = explicit
-	b.namespaces[name] = e.ID
+	b.clusters[name] = e.ID
 	return e.ID, nil
 }
 
-func (b *builder) namespaceOf(o parsed) (string, model.ID, error) {
-	ns := o.Metadata.Namespace
+// addNamespace creates the namespace once per cluster, as a member of the
+// cluster. An explicit Namespace manifest may follow an implicit one created
+// from a referencing object; it is then a no-op.
+func (b *builder) addNamespace(cluster, name string, explicit bool) (model.ID, error) {
+	if name == "" {
+		return "", errors.New("namespace manifest has no name")
+	}
+	key := cluster + "/" + name
+	if id, ok := b.namespaces[key]; ok {
+		if explicit && b.declared[key] {
+			return "", fmt.Errorf("%w: namespace %s", model.ErrDuplicateEntity, name)
+		}
+		b.declared[key] = b.declared[key] || explicit
+		return id, nil
+	}
+	clusterID, err := b.addCluster(cluster)
+	if err != nil {
+		return "", err
+	}
+	e, err := b.Add(model.KindNamespace, key, name)
+	if err != nil {
+		return "", err
+	}
+	e.Labels["namespace"] = name
+	e.Attrs[attrCluster] = cluster
+	b.Relate(e.ID, clusterID, model.RelMemberOf)
+	b.declared[key] = explicit
+	b.namespaces[key] = e.ID
+	return e.ID, nil
+}
+
+// namespaceOf returns the plain namespace of o, its cluster-scoped key and
+// the ID of its namespace, which it creates implicitly if needed.
+func (b *builder) namespaceOf(o parsed) (ns, nsKey string, id model.ID, err error) {
+	ns = o.Metadata.Namespace
 	if ns == "" {
 		ns = defaultNamespace
 	}
-	id, err := b.addNamespace(ns, false)
-	return ns, id, err
+	id, err = b.addNamespace(o.cluster, ns, false)
+	return ns, o.cluster + "/" + ns, id, err
 }
 
 func (b *builder) addWorkload(o parsed) error {
 	if o.Metadata.Name == "" {
 		return fmt.Errorf("%s manifest has no name", o.Kind)
 	}
-	ns, nsID, err := b.namespaceOf(o)
+	ns, nsKey, nsID, err := b.namespaceOf(o)
 	if err != nil {
 		return err
 	}
 	kind := strings.ToLower(o.Kind)
-	e, err := b.Add(model.KindWorkload, ns+"/"+kind+"/"+o.Metadata.Name, o.Metadata.Name)
+	e, err := b.Add(model.KindWorkload, nsKey+"/"+kind+"/"+o.Metadata.Name, o.Metadata.Name)
 	if err != nil {
 		return fmt.Errorf("%s %s/%s: %w", o.Kind, ns, o.Metadata.Name, err)
 	}
@@ -160,7 +200,7 @@ func (b *builder) addWorkload(o parsed) error {
 		}
 		b.Relate(e.ID, nodeID, model.RelRunsOn)
 	}
-	b.workloads[ns] = append(b.workloads[ns], e.ID)
+	b.workloads[nsKey] = append(b.workloads[nsKey], e.ID)
 	b.Relate(e.ID, nsID, model.RelMemberOf)
 	return nil
 }
@@ -232,11 +272,11 @@ func (b *builder) addService(o parsed) error {
 	if o.Metadata.Name == "" {
 		return errors.New("service manifest has no name")
 	}
-	ns, nsID, err := b.namespaceOf(o)
+	ns, nsKey, nsID, err := b.namespaceOf(o)
 	if err != nil {
 		return err
 	}
-	e, err := b.Add(model.KindService, ns+"/"+o.Metadata.Name, o.Metadata.Name)
+	e, err := b.Add(model.KindService, nsKey+"/"+o.Metadata.Name, o.Metadata.Name)
 	if err != nil {
 		return fmt.Errorf("service %s/%s: %w", ns, o.Metadata.Name, err)
 	}
@@ -262,12 +302,12 @@ func (b *builder) addService(o parsed) error {
 		}
 		e.Addresses = append(e.Addresses, addr)
 	}
-	b.services[ns+"/"+o.Metadata.Name] = e.ID
+	b.services[nsKey+"/"+o.Metadata.Name] = e.ID
 	b.Relate(e.ID, nsID, model.RelMemberOf)
 	if len(o.serviceSelector) == 0 {
 		return nil
 	}
-	for _, wid := range b.workloads[ns] {
+	for _, wid := range b.workloads[nsKey] {
 		if subset(o.serviceSelector, b.podLabels[wid]) {
 			b.Relate(e.ID, wid, model.RelRoutesTo)
 		}
@@ -301,11 +341,11 @@ func (b *builder) addIngress(o parsed) error {
 	if o.Metadata.Name == "" {
 		return errors.New("ingress manifest has no name")
 	}
-	ns, nsID, err := b.namespaceOf(o)
+	ns, nsKey, nsID, err := b.namespaceOf(o)
 	if err != nil {
 		return err
 	}
-	e, err := b.Add(model.KindIngress, ns+"/"+o.Metadata.Name, o.Metadata.Name)
+	e, err := b.Add(model.KindIngress, nsKey+"/"+o.Metadata.Name, o.Metadata.Name)
 	if err != nil {
 		return fmt.Errorf("ingress %s/%s: %w", ns, o.Metadata.Name, err)
 	}
@@ -344,7 +384,7 @@ func (b *builder) addIngress(o parsed) error {
 	mapbuild.SetAttr(e, "hosts", strings.Join(hosts, ", "))
 	seen := map[model.ID]bool{}
 	for _, name := range backends {
-		if id, ok := b.services[ns+"/"+name]; ok && !seen[id] {
+		if id, ok := b.services[nsKey+"/"+name]; ok && !seen[id] {
 			seen[id] = true
 			b.Relate(e.ID, id, model.RelRoutesTo)
 		}
@@ -365,9 +405,11 @@ func addManifestLabels(e *model.Entity, labels map[string]string) {
 	}
 }
 
-// applyLabels sets the namespace label and the prefixed manifest labels.
+// applyLabels sets the namespace label, the cluster attribute and the prefixed
+// manifest labels.
 func applyLabels(e *model.Entity, o parsed, ns string) {
 	e.Labels["namespace"] = ns
+	e.Attrs[attrCluster] = o.cluster
 	addManifestLabels(e, o.Metadata.Labels)
 	mapbuild.SetAttr(e, model.AttrRepoURL, o.repoURL)
 }

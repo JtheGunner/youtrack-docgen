@@ -131,3 +131,24 @@ func TestDeriveDependenciesHostOnHost(t *testing.T) {
 		t.Errorf("deriving twice added %d more", got)
 	}
 }
+
+// A Kubernetes cluster entity with the same name as a NetBox VM cluster must
+// not attract the NetBox VMs: clusters are matched by source and name.
+func TestDeriveDependenciesKeepsClusterSourcesApart(t *testing.T) {
+	g := NewGraph()
+	for _, e := range []Entity{
+		{ID: "netbox:cluster:prod", Kind: KindCluster, Source: "netbox", Name: "prod"},
+		{ID: "kubernetes:cluster:prod", Kind: KindCluster, Source: "kubernetes", Name: "prod"},
+		{ID: "netbox:host:vm1", Kind: KindHost, Source: "netbox", Name: "vm1", Attrs: map[string]string{"type": "vm", "cluster": "prod"}},
+		{ID: "kubernetes:host:node1", Kind: KindHost, Source: "kubernetes", Name: "node1", Attrs: map[string]string{"type": "kubernetes-node"}},
+	} {
+		if err := g.AddEntity(e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	DeriveDependencies(g)
+	want := []Relation{{From: "netbox:host:vm1", To: "netbox:cluster:prod", Kind: RelDependsOn}}
+	if got := dependsOn(g); len(got) != 1 || got[0] != want[0] {
+		t.Errorf("depends_on = %v, want %v", got, want)
+	}
+}

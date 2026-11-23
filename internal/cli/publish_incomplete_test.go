@@ -30,7 +30,7 @@ func kubernetesOnlyRun(t *testing.T, files map[string]string) (cfg string, yt *f
 	yt.articles = []map[string]any{{
 		"id":      "1-900",
 		"summary": "gone",
-		"content": "<!-- docgen:doc kubernetes:workload:shop/deployment/gone -->\n",
+		"content": "<!-- docgen:doc kubernetes:workload:test/shop/deployment/gone -->\n",
 		"project": map[string]any{"id": fakeProjectID},
 	}}
 	yt.nextID = 900
@@ -108,7 +108,7 @@ func TestIncompleteReadStillCleansDeniedObjects(t *testing.T) {
 func TestIncompleteReadCleansArticlesWithSecretKeys(t *testing.T) {
 	cfg, yt := kubernetesOnlyRun(t, map[string]string{"ok.yaml": incompleteTestDeployment, "bad.yaml": "a: [unclosed\n"})
 	yt.articles[0]["summary"] = "password=FAKE-KEY-SECRET-3"
-	yt.articles[0]["content"] = "<!-- docgen:doc kubernetes:workload:shop/deployment/password=FAKE-KEY-SECRET-3 -->\n"
+	yt.articles[0]["content"] = "<!-- docgen:doc kubernetes:workload:test/shop/deployment/password=FAKE-KEY-SECRET-3 -->\n"
 
 	_, stderr, err := runCLI(t, cfg, "publish", "--allow-mass-stale")
 	if err != nil {

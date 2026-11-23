@@ -1,6 +1,7 @@
 package filter
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/JtheGunner/youtrack-docgen/internal/model"
@@ -41,7 +42,9 @@ const kubernetesSource = "kubernetes"
 // them along as references. Hostnames or addresses that a denied host drags
 // along are not considered. An ID whose key the redactor would change is
 // denied. A Kubernetes member (workload, service, ingress) follows the verdict
-// of its namespace.
+// of its namespace. Rules see the plain namespace, never the cluster prefix of
+// the key, so a namespace rule decides that namespace in every cluster. A
+// Kubernetes cluster lives in no namespace and follows kind rules only.
 func (f *Filter) DecideID(id model.ID) Verdict {
 	source, kind, key, err := model.ParseID(id)
 	if err != nil {
@@ -54,11 +57,11 @@ func (f *Filter) DecideID(id model.ID) Verdict {
 	// Apply removes the members of a denied namespace with it, so an ID that
 	// names a member is denied when its namespace is, and undecided when the
 	// namespace is.
-	ns, found := namespaceFromKey(kind, key)
+	nsKey, found := namespaceKeyFromKey(kind, key)
 	if !found || kind == model.KindNamespace {
 		return verdict
 	}
-	switch f.decideKey(source, model.KindNamespace, ns) {
+	switch f.decideKey(source, model.KindNamespace, nsKey) {
 	case Denied:
 		return Denied
 	case Undecidable:
@@ -76,7 +79,12 @@ func (f *Filter) decideKey(source string, kind model.Kind, key string) Verdict {
 	}
 	rules := f.rules[source]
 	known := knownFields{kind: string(kind)}
-	if source == kubernetesSource {
+	switch {
+	case source == kubernetesSource && kind == model.KindCluster:
+		// A cluster lives in no namespace: like Apply, a namespace rule sees
+		// the empty namespace, so only kind rules decide it.
+		known.hasNamespace = true
+	case source == kubernetesSource:
 		known.namespace, known.hasNamespace = namespaceFromKey(kind, key)
 	}
 	deny := anyMatch(rules.Deny, known)
@@ -116,16 +124,50 @@ type knownFields struct {
 	hasNamespace bool
 }
 
-// namespaceFromKey returns the namespace a Kubernetes key names.
-func namespaceFromKey(kind model.Kind, key string) (string, bool) {
-	switch kind {
-	case model.KindNamespace:
-		return key, true
-	case model.KindWorkload, model.KindService, model.KindIngress:
-		ns, _, found := strings.Cut(key, "/")
-		return ns, found
+// kubernetesKeySegments is the number of "/"-separated segments of each
+// cluster-scoped Kubernetes key: cluster/namespace, cluster/namespace/kind/name
+// and cluster/namespace/name.
+var kubernetesKeySegments = map[model.Kind]int{
+	model.KindNamespace: 2,
+	model.KindWorkload:  4,
+	model.KindService:   3,
+	model.KindIngress:   3,
+}
+
+// splitKubernetesKey returns the segments of a cluster-scoped Kubernetes key.
+// A key with the wrong number of segments or an empty one is not split, so a
+// key that may be ambiguous never names a namespace.
+func splitKubernetesKey(kind model.Kind, key string) ([]string, bool) {
+	want, ok := kubernetesKeySegments[kind]
+	if !ok {
+		return nil, false
 	}
-	return "", false
+	parts := strings.Split(key, "/")
+	if len(parts) != want || slices.Contains(parts, "") {
+		return nil, false
+	}
+	return parts, true
+}
+
+// namespaceFromKey returns the plain namespace a Kubernetes key names, without
+// its cluster. Rules match the plain namespace, so a namespace rule decides the
+// namespace of that name in every cluster.
+func namespaceFromKey(kind model.Kind, key string) (string, bool) {
+	parts, ok := splitKubernetesKey(kind, key)
+	if !ok {
+		return "", false
+	}
+	return parts[1], true
+}
+
+// namespaceKeyFromKey returns the key of the namespace entity a Kubernetes
+// key lives in ("cluster/namespace"), or the key itself for a namespace.
+func namespaceKeyFromKey(kind model.Kind, key string) (string, bool) {
+	parts, ok := splitKubernetesKey(kind, key)
+	if !ok {
+		return "", false
+	}
+	return parts[0] + "/" + parts[1], true
 }
 
 // anyMatch is the OR over the matches; with no match it is false.

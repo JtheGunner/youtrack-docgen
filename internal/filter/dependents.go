@@ -215,8 +215,10 @@ func newDependents(g *model.Graph, denied map[model.ID]model.Entity, deniedIPs, 
 
 // removeNamespaceMembers marks the workloads, services and ingresses of a
 // denied namespace as removed: through their member_of relation and, for
-// objects of the same source, through the namespace in their key. It returns
-// the members it marked.
+// objects of the same source, through the cluster and namespace in their key.
+// A rule on a namespace name denies the namespace of that name in every
+// cluster, so its members go in every cluster too. It returns the members it
+// marked.
 func (d dependents) removeNamespaceMembers(g *model.Graph, ns model.Entity) []model.Entity {
 	var members []model.Entity
 	mark := func(e model.Entity) {
@@ -240,7 +242,7 @@ func (d dependents) removeNamespaceMembers(g *model.Graph, ns model.Entity) []mo
 				continue
 			}
 			if _, _, key, err := model.ParseID(e.ID); err == nil {
-				if keyNS, found := namespaceFromKey(kind, key); found && keyNS == nsKey {
+				if keyNS, found := namespaceKeyFromKey(kind, key); found && keyNS == nsKey {
 					mark(e)
 				}
 			}
@@ -266,7 +268,10 @@ func (d *dependents) addMemberValues(g *model.Graph, members []model.Entity, den
 	for _, m := range members {
 		var names []string
 		if _, _, key, err := model.ParseID(m.ID); err == nil {
-			ns, _ := namespaceFromKey(m.Kind, key)
+			ns, found := namespaceFromKey(m.Kind, key)
+			if !found {
+				ns = m.Labels[LabelNamespace]
+			}
 			name := key[strings.LastIndex(key, "/")+1:]
 			names = append(names, m.Name)
 			if len(name) >= minShortNameLen {

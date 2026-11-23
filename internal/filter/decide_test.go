@@ -13,23 +13,23 @@ func TestDecideID(t *testing.T) {
 		id    string
 		want  Verdict
 	}{
-		{"no rules permit", Rules{}, "kubernetes:workload:shop/deployment/web", Permitted},
-		{"deny by namespace", Rules{Deny: []Match{{Namespaces: []string{"shop"}}}}, "kubernetes:workload:shop/deployment/web", Denied},
-		{"other namespace permitted", Rules{Deny: []Match{{Namespaces: []string{"shop"}}}}, "kubernetes:workload:ops/deployment/web", Permitted},
-		{"namespace entity carries its name", Rules{Deny: []Match{{Namespaces: []string{"shop"}}}}, "kubernetes:namespace:shop", Denied},
-		{"deny by kind", Rules{Deny: []Match{{Kinds: []string{"service"}}}}, "kubernetes:service:shop/web", Denied},
-		{"label rule is undecidable", Rules{Deny: []Match{{Labels: map[string]string{"label.team": "x"}}}}, "kubernetes:workload:shop/deployment/web", Undecidable},
-		{"known mismatch rules a label rule out", Rules{Deny: []Match{{Kinds: []string{"ingress"}, Tags: []string{"lab"}}}}, "kubernetes:workload:shop/deployment/web", Permitted},
+		{"no rules permit", Rules{}, "kubernetes:workload:prod/shop/deployment/web", Permitted},
+		{"deny by namespace", Rules{Deny: []Match{{Namespaces: []string{"shop"}}}}, "kubernetes:workload:prod/shop/deployment/web", Denied},
+		{"other namespace permitted", Rules{Deny: []Match{{Namespaces: []string{"shop"}}}}, "kubernetes:workload:prod/ops/deployment/web", Permitted},
+		{"namespace entity carries its name", Rules{Deny: []Match{{Namespaces: []string{"shop"}}}}, "kubernetes:namespace:prod/shop", Denied},
+		{"deny by kind", Rules{Deny: []Match{{Kinds: []string{"service"}}}}, "kubernetes:service:prod/shop/web", Denied},
+		{"label rule is undecidable", Rules{Deny: []Match{{Labels: map[string]string{"label.team": "x"}}}}, "kubernetes:workload:prod/shop/deployment/web", Undecidable},
+		{"known mismatch rules a label rule out", Rules{Deny: []Match{{Kinds: []string{"ingress"}, Tags: []string{"lab"}}}}, "kubernetes:workload:prod/shop/deployment/web", Permitted},
 		{"role rule on a host is undecidable", Rules{Deny: []Match{{Roles: []string{"lab"}}}}, "kubernetes:host:web01", Undecidable},
 		{"namespace of a host is unknown", Rules{Deny: []Match{{Namespaces: []string{"shop"}}}}, "kubernetes:host:web01", Undecidable},
-		{"allow excludes by namespace", Rules{Allow: []Match{{Namespaces: []string{"shop"}}}}, "kubernetes:workload:ops/deployment/web", Denied},
-		{"allow includes by namespace", Rules{Allow: []Match{{Namespaces: []string{"shop"}}}}, "kubernetes:workload:shop/deployment/web", Permitted},
-		{"allow by tag is undecidable", Rules{Allow: []Match{{Tags: []string{"prod"}}}}, "kubernetes:workload:shop/deployment/web", Undecidable},
+		{"allow excludes by namespace", Rules{Allow: []Match{{Namespaces: []string{"shop"}}}}, "kubernetes:workload:prod/ops/deployment/web", Denied},
+		{"allow includes by namespace", Rules{Allow: []Match{{Namespaces: []string{"shop"}}}}, "kubernetes:workload:prod/shop/deployment/web", Permitted},
+		{"allow by tag is undecidable", Rules{Allow: []Match{{Tags: []string{"prod"}}}}, "kubernetes:workload:prod/shop/deployment/web", Undecidable},
 		{"deny wins over undecidable allow", Rules{
 			Allow: []Match{{Tags: []string{"prod"}}}, Deny: []Match{{Namespaces: []string{"shop"}}},
-		}, "kubernetes:workload:shop/deployment/web", Denied},
-		{"key the redactor would change is denied", Rules{}, "kubernetes:workload:shop/deployment/api_key=FAKE-KEY-SECRET-1", Denied},
-		{"redacted key is denied despite allow rule", Rules{Allow: []Match{{Namespaces: []string{"shop"}}}}, "kubernetes:service:shop/password=FAKE-KEY-SECRET-2", Denied},
+		}, "kubernetes:workload:prod/shop/deployment/web", Denied},
+		{"key the redactor would change is denied", Rules{}, "kubernetes:workload:prod/shop/deployment/api_key=FAKE-KEY-SECRET-1", Denied},
+		{"redacted key is denied despite allow rule", Rules{Allow: []Match{{Namespaces: []string{"shop"}}}}, "kubernetes:service:prod/shop/password=FAKE-KEY-SECRET-2", Denied},
 		{"malformed ID is undecidable", Rules{}, "not-an-id", Undecidable},
 	}
 	for _, tt := range tests {

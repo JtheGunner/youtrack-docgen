@@ -66,7 +66,7 @@ var collectorSpecs = map[string]moduleSpec{
 	"kubernetes": {
 		settings: map[string]settingKind{"paths": kindPathSources}, required: []string{"paths"},
 		match: &matchSpec{
-			kinds:      []model.Kind{model.KindHost, model.KindNamespace, model.KindWorkload, model.KindService, model.KindIngress},
+			kinds:      []model.Kind{model.KindCluster, model.KindHost, model.KindNamespace, model.KindWorkload, model.KindService, model.KindIngress},
 			namespaces: true,
 			labelKey: func(k string) bool {
 				return k == filter.LabelNamespace || strings.HasPrefix(k, "label.")
