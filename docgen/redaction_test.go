@@ -17,7 +17,6 @@ import (
 const (
 	fakePassword = "hunter2-example"
 	fakeBearer   = "fake0bearer0token0abcdefghijklmnop"
-	fakeAPIKey   = "fake-attribute-secret-value"
 )
 
 // seededCollector emits the given entities.
@@ -85,30 +84,43 @@ func joined(files map[string]string) string {
 	return sb.String()
 }
 
+func hasLineWith(text, prefix, substr string) bool {
+	for _, line := range strings.Split(text, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), prefix) && strings.Contains(line, substr) {
+			return true
+		}
+	}
+	return false
+}
+
 func TestRegisteredCollectorSecretsNeverReachTheSink(t *testing.T) {
 	tests := []struct {
-		name         string
-		attrs        map[string]string
-		leaks        []string
-		wantRedacted bool
+		name   string
+		labels map[string]string
+		attrs  map[string]string
+		leaks  []string
+		// wantLine is the rendered bullet prefix whose line must carry the
+		// escaped placeholder, proving the field is printed and redacted.
+		wantLine string
 	}{
 		{
 			name: "secret in description",
 			attrs: map[string]string{
 				model.AttrDescription: "managed by ops password=" + fakePassword + " and Authorization: Bearer " + fakeBearer,
 			},
-			leaks:        []string{fakePassword, fakeBearer},
-			wantRedacted: true,
+			leaks:    []string{fakePassword, fakeBearer},
+			wantLine: "- Description:",
 		},
 		{
-			name:  "secret under a secret-looking attribute key",
-			attrs: map[string]string{"api_token": fakeAPIKey, "rack": "r1"},
-			leaks: []string{fakeAPIKey},
+			name:     "secret in the role label",
+			labels:   map[string]string{"role": "web password=" + fakePassword},
+			leaks:    []string{fakePassword},
+			wantLine: "- Role:",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			files := runGenerate(t, "", []model.Entity{seededHost(t, "web01.example.com", nil, tt.attrs)})
+			files := runGenerate(t, "", []model.Entity{seededHost(t, "web01.example.com", tt.labels, tt.attrs)})
 			all := joined(files)
 			if !strings.Contains(all, "web01.example.com") {
 				t.Fatalf("host missing from output:\n%s", all)
@@ -119,8 +131,8 @@ func TestRegisteredCollectorSecretsNeverReachTheSink(t *testing.T) {
 				}
 			}
 			// The markdown sink escapes the brackets of the placeholder.
-			if tt.wantRedacted && !strings.Contains(all, `\[REDACTED\]`) {
-				t.Errorf("output has no redaction placeholder:\n%s", all)
+			if !hasLineWith(all, tt.wantLine, `\[REDACTED\]`) {
+				t.Errorf("no %q line carries the redaction placeholder:\n%s", tt.wantLine, all)
 			}
 		})
 	}
