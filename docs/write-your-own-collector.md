@@ -201,6 +201,6 @@ app.Main()
 
 **Inside this repository.** Built-in collectors are registered through the same mechanism. Add an entry to `BuiltinCollectors` in `internal/cli/collectors.go`, keyed by the collector's `Source` constant. Built-in collectors also get strict settings checks in `validate-config`; see `internal/config`.
 
-For both routes, `validate-config` accepts any collector name, and `generate` stops with the list of registered names when a block names a collector that is not registered. Set `enabled: false` to skip a block.
+For both routes, `validate-config` accepts any collector name, and `generate`, `diff` and `publish` stop with the list of registered names when a block names a collector that is not registered. Set `enabled: false` to skip a block.
 
 NetBox is the reference collector: [`internal/collector/netbox`](../internal/collector/netbox).
