@@ -56,7 +56,7 @@ func buildCollectors(cfg *config.Config, factories map[string]collector.Factory)
 		}
 		c, err := factory(settingsFromModule(cfg.Collectors[name]))
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("collector %q: %w", name, err)
 		}
 		if c == nil {
 			return nil, fmt.Errorf("collector %q: factory returned no collector", name)

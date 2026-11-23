@@ -66,12 +66,12 @@ func TestBuildCollectorsErrors(t *testing.T) {
 			want:      `collector registered as "inventory" reports the name "cmdb"`,
 		},
 		{
-			name: "factory error is returned",
+			name: "factory error is wrapped with the collector name",
 			yaml: "collectors:\n  inventory:\n    url: https://inventory.example.com\n",
 			factories: map[string]collector.Factory{"inventory": func(collector.Settings) (collector.Collector, error) {
 				return nil, errors.New("collectors.inventory: url is unreachable")
 			}},
-			want: "collectors.inventory: url is unreachable",
+			want: `collector "inventory": collectors.inventory: url is unreachable`,
 		},
 		{
 			name: "factory returns no collector",
