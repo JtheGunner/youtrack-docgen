@@ -289,11 +289,12 @@ func seededGraph(t *testing.T) *model.Graph {
 			"annotation.note":              "contact; secret: " + fakePassword,
 			"annotation.kubectl.kubernetes.io/last-applied-configuration": "{\"x\":\"harmless\"}",
 		}))
-	kube := add(entity(t, "k8s", model.KindNamespace, "kube-system", nil, nil))
+	add(entity(t, "k8s", model.KindNamespace, "kube-system", nil, nil))
+	teamA := add(entity(t, "k8s", model.KindNamespace, "team-a", nil, nil))
 
 	for _, r := range []model.Relation{
 		{From: api.ID, To: web.ID, Kind: model.RelDependsOn},
-		{From: api.ID, To: kube.ID, Kind: model.RelMemberOf},
+		{From: api.ID, To: teamA.ID, Kind: model.RelMemberOf},
 		{From: hidden.ID, To: web.ID, Kind: model.RelDependsOn},
 	} {
 		if err := g.AddRelation(r); err != nil {
@@ -329,11 +330,11 @@ func TestApplyFiltersAndRedacts(t *testing.T) {
 		}
 	}
 	slices.Sort(ids)
-	want := []string{"k8s:workload:api", "netbox:host:web01"}
+	want := []string{"k8s:namespace:team-a", "k8s:workload:api", "netbox:host:web01"}
 	if !slices.Equal(ids, want) {
 		t.Fatalf("entities = %v, want %v", ids, want)
 	}
-	if rels := out.Relations(); len(rels) != 1 || rels[0].To != "netbox:host:web01" {
+	if rels := out.Relations(); len(rels) != 2 {
 		t.Fatalf("relations = %v", rels)
 	}
 
@@ -374,8 +375,8 @@ func TestApplyWithoutRulesKeepsEverything(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := len(out.ByKind(model.KindHost)) + len(out.ByKind(model.KindWorkload)) + len(out.ByKind(model.KindNamespace)); n != 4 {
-		t.Fatalf("entities = %d, want 4", n)
+	if n := len(out.ByKind(model.KindHost)) + len(out.ByKind(model.KindWorkload)) + len(out.ByKind(model.KindNamespace)); n != 5 {
+		t.Fatalf("entities = %d, want 5", n)
 	}
 	if n := len(out.Relations()); n != 3 {
 		t.Fatalf("relations = %d, want 3", n)

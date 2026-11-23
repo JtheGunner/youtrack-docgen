@@ -30,6 +30,27 @@ func fakeTaggedLinkNetBox(t *testing.T) *httptest.Server {
 	return srv
 }
 
+// writeKeptService writes a Service whose name and namespace share nothing with
+// a denied host. Objects in the namespace "shop" do not survive a denied host
+// named shop.example.com: the short name "shop" is removed everywhere, and an
+// object whose key names it is dropped.
+func writeKeptService(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "kept-service.yaml")
+	const service = `apiVersion: v1
+kind: Service
+metadata:
+  name: edge
+  namespace: infra
+spec:
+  clusterIP: 10.96.0.10
+`
+	if err := os.WriteFile(path, []byte(service), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 // Denied hosts are referenced by Kubernetes objects through their hostnames and
 // addresses (ingress hosts, service external IPs, node pinning). None of it may
 // reach a file, stdout or stderr, while the objects themselves stay documented.
@@ -46,11 +67,11 @@ collectors:
     deny:
       - tags: [lab]
   kubernetes:
-    paths: [%s, %s]
+    paths: [%s, %s, %s]
 sinks:
   markdown:
     dir: %s
-`, srv.URL, filepath.Join(k8s, "nodes"), filepath.Join(k8s, "manifests", "apps", "web.yaml"), out)
+`, srv.URL, filepath.Join(k8s, "nodes"), filepath.Join(k8s, "manifests", "apps", "web.yaml"), writeKeptService(t), out)
 
 	stdout, stderr, err := runGenerate(t, cfg)
 	if err != nil {
@@ -116,11 +137,11 @@ collectors:
     deny:
       - tags: [lab]
   kubernetes:
-    paths: [%s, %s, %s]
+    paths: [%s, %s, %s, %s]
 sinks:
   markdown:
     dir: %s
-`, srv.URL, filepath.Join(k8s, "nodes"), filepath.Join(k8s, "manifests", "apps", "web.yaml"), manifest, out)
+`, srv.URL, filepath.Join(k8s, "nodes"), filepath.Join(k8s, "manifests", "apps", "web.yaml"), manifest, writeKeptService(t), out)
 
 	stdout, stderr, err := runGenerate(t, cfg)
 	if err != nil {

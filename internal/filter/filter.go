@@ -39,14 +39,16 @@ var allKinds = []model.Kind{
 // Apply returns a new graph holding only the permitted entities, redacted, and
 // the relations whose both ends survived. The input graph is not modified.
 // Interfaces and IP addresses that only belong to a denied host are dropped;
-// every surviving entity loses the denied hostnames and addresses, and an entity
-// that is itself named after one is dropped. An entity whose name or ID key
+// every surviving entity loses the denied hostnames, their short names (4 or
+// more characters, at word boundaries), addresses and reverse-DNS names, and a
+// denied IP entity's address is removed everywhere. The members of a denied
+// namespace are dropped. An entity that is itself named after one is dropped. An entity whose name or ID key
 // contains a secret the redactor would remove is dropped too: masking it would
 // still leak through references.
 // Sources without rules pass everything.
 func (f *Filter) Apply(g *model.Graph) (*model.Graph, error) {
 	out := model.NewGraph()
-	deps := newDependents(g, f.deniedHosts(g))
+	deps := newDependents(g, f.deniedHosts(g), f.deniedByRules(g, model.KindIPAddress), f.deniedByRules(g, model.KindNamespace))
 	for _, kind := range allKinds {
 		for _, e := range g.ByKind(kind) {
 			if !f.rules[e.Source].permits(e) || deps.removed[e.ID] || deps.namesDeniedValue(e) || f.redactor.IdentityChanged(e) {
@@ -67,4 +69,15 @@ func (f *Filter) Apply(g *model.Graph) (*model.Graph, error) {
 		}
 	}
 	return out, nil
+}
+
+// deniedByRules returns the entities of kind that the rules exclude.
+func (f *Filter) deniedByRules(g *model.Graph, kind model.Kind) []model.Entity {
+	var denied []model.Entity
+	for _, e := range g.ByKind(kind) {
+		if !f.rules[e.Source].permits(e) {
+			denied = append(denied, e)
+		}
+	}
+	return denied
 }

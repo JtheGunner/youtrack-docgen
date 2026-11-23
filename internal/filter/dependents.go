@@ -1,6 +1,7 @@
 package filter
 
 import (
+	"fmt"
 	"maps"
 	"net/netip"
 	"regexp"
@@ -99,26 +100,84 @@ type dependents struct {
 	// nameRE matches any denied hostname (names and aliases) at hostname
 	// boundaries, case-insensitively; nil when there are none.
 	nameRE *regexp.Regexp
+	// names are the denied hostnames, aliases and short names.
+	names []string
 	// addrs are the (unmapped) addresses of the denied hosts and of the IP
 	// entities removed with them.
 	addrs map[netip.Addr]bool
 }
 
-func newDependents(g *model.Graph, denied map[model.ID]model.Entity) dependents {
-	d := dependents{removed: map[model.ID]bool{}, addrs: map[netip.Addr]bool{}}
-	if len(denied) == 0 {
-		return d
+// minShortNameLen is the shortest short name (first label of a denied FQDN)
+// that is removed from free text. Shorter ones ("db", "web") are too generic:
+// removing them would damage unrelated text.
+const minShortNameLen = 4
+
+// shortName returns the first label of a dotted hostname, or "" when name is no
+// dotted hostname, is an address literal, or the label is shorter than
+// minShortNameLen.
+func shortName(name string) string {
+	label, _, dotted := strings.Cut(strings.TrimSpace(name), ".")
+	if !dotted || len(label) < minShortNameLen {
+		return ""
 	}
-	var names []string
+	if _, err := netip.ParseAddr(name); err == nil {
+		return ""
+	}
+	return label
+}
+
+// reverseNames returns the reverse-DNS name of addr (in-addr.arpa or ip6.arpa).
+func reverseNames(addr netip.Addr) []string {
+	if addr.Is4() {
+		b := addr.As4()
+		return []string{fmt.Sprintf("%d.%d.%d.%d.in-addr.arpa", b[3], b[2], b[1], b[0])}
+	}
+	if !addr.Is6() {
+		return nil
+	}
+	raw := addr.As16()
+	var nibbles []string
+	for i := len(raw) - 1; i >= 0; i-- {
+		nibbles = append(nibbles, fmt.Sprintf("%x", raw[i]&0x0f), fmt.Sprintf("%x", raw[i]>>4))
+	}
+	return []string{strings.Join(nibbles, ".") + ".ip6.arpa"}
+}
+
+// buildNameRE compiles the denied names plus the reverse-DNS names of every
+// denied address.
+func (d *dependents) buildNameRE() {
+	names := slices.Clone(d.names)
+	for addr := range d.addrs {
+		names = append(names, reverseNames(addr)...)
+	}
+	d.nameRE = boundaryRegexp(names, hostnameChars)
+}
+
+// newDependents collects what depends on the denied entities. denied are the
+// hosts, deniedIPs the IP address entities and deniedNamespaces the namespaces
+// that the rules exclude.
+func newDependents(g *model.Graph, denied map[model.ID]model.Entity, deniedIPs, deniedNamespaces []model.Entity) dependents {
+	d := dependents{removed: map[model.ID]bool{}, addrs: map[netip.Addr]bool{}}
+	for _, ns := range deniedNamespaces {
+		d.removeNamespaceMembers(g, ns)
+	}
+	for _, ip := range deniedIPs {
+		d.addAddresses(ip)
+	}
 	for _, h := range denied {
 		d.removed[h.ID] = true
-		names = append(names, h.Name)
-		names = append(names, h.Aliases...)
+		d.names = append(d.names, h.Name, shortName(h.Name))
+		for _, alias := range h.Aliases {
+			d.names = append(d.names, alias, shortName(alias))
+		}
 		for _, addr := range h.Addresses {
 			d.addAddress(addr)
 		}
 	}
-	d.nameRE = boundaryRegexp(names, hostnameChars)
+	d.buildNameRE()
+	if !d.active() {
+		return d
+	}
 
 	deniedIfaces := map[model.ID]bool{}
 	for _, nic := range g.ByKind(model.KindInterface) {
@@ -146,7 +205,35 @@ func newDependents(g *model.Graph, denied map[model.ID]model.Entity) dependents 
 			d.addAddresses(ip)
 		}
 	}
+	d.buildNameRE()
 	return d
+}
+
+// removeNamespaceMembers marks the workloads, services and ingresses of a
+// denied namespace as removed: through their member_of relation and, for
+// objects of the same source, through the namespace in their key.
+func (d dependents) removeNamespaceMembers(g *model.Graph, ns model.Entity) {
+	for _, rel := range g.RelationsTo(ns.ID) {
+		if rel.Kind == model.RelMemberOf {
+			d.removed[rel.From] = true
+		}
+	}
+	_, _, nsKey, err := model.ParseID(ns.ID)
+	if err != nil {
+		return
+	}
+	for _, kind := range []model.Kind{model.KindWorkload, model.KindService, model.KindIngress} {
+		for _, e := range g.ByKind(kind) {
+			if e.Source != ns.Source {
+				continue
+			}
+			if _, _, key, err := model.ParseID(e.ID); err == nil {
+				if keyNS, found := namespaceFromKey(kind, key); found && keyNS == nsKey {
+					d.removed[e.ID] = true
+				}
+			}
+		}
+	}
 }
 
 // addAddresses records the addresses of a removed IP entity: its name is the
@@ -174,6 +261,14 @@ func boundaryRegexp(words []string, chars string) *regexp.Regexp {
 	if len(words) == 0 {
 		return nil
 	}
+	// Go alternations are leftmost-first, so a word that is a prefix of another
+	// must come after it: longest first, ties in alphabetical order.
+	slices.SortFunc(words, func(a, b string) int {
+		if len(a) != len(b) {
+			return len(b) - len(a)
+		}
+		return strings.Compare(a, b)
+	})
 	parts := make([]string, len(words))
 	for i, w := range words {
 		parts[i] = regexp.QuoteMeta(w)
