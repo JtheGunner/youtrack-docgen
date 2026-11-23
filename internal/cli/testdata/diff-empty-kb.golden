@@ -183,7 +183,7 @@
 +Write notes here. Text outside the generated sections is kept on every run.
 --- /dev/null
 +++ b/netbox:host:srv01.example.com
-@@ -0,0 +1,66 @@
+@@ -0,0 +1,72 @@
 +Title: srv01.example.com
 +Parent: group:hosts
 +
@@ -209,18 +209,22 @@
 +| 192.0.2.10 | servers | 100 |
 +<!-- docgen:end network -->
 +
-+<!-- docgen:begin diagram hash=ba8c41039429e7e7 -->
++<!-- docgen:begin diagram hash=cd2a9c9c05bc6391 -->
 +## Diagram
 +
++- vm01.example.com depends\_on srv01.example.com
++- vm01.example.com runs\_on srv01.example.com
 +- srv01.example.com eth0 member\_of srv01.example.com
 +- srv01.example.com in\_network 192.0.2.0/24
 +- srv01.example.com member\_of Example HQ
 +<!-- docgen:end diagram -->
 +
-+<!-- docgen:begin runs-here hash=c9360d019f5fafba -->
++<!-- docgen:begin runs-here hash=fab0d332d02d55f5 -->
 +## Runs here
 +
-+Nothing is known to run here.
++| Name | Kind | Addresses | Source |
++| --- | --- | --- | --- |
++| vm01.example.com | host | 192.0.2.20 | netbox |
 +<!-- docgen:end runs-here -->
 +
 +<!-- docgen:begin depends-on hash=3480790efaf17c5c -->
@@ -229,10 +233,12 @@
 +Not known: no source reports what this host depends on.
 +<!-- docgen:end depends-on -->
 +
-+<!-- docgen:begin needed-by hash=96339e11d9b9c58e -->
++<!-- docgen:begin needed-by hash=c1d99ab6b95035d1 -->
 +## Needed by
 +
-+Not known: no source reports anything that depends on this host.
++| Name | Kind | Addresses | Source |
++| --- | --- | --- | --- |
++| vm01.example.com | host | 192.0.2.20 | netbox |
 +<!-- docgen:end needed-by -->
 +
 +<!-- docgen:begin links hash=37f3f9ad7a4456c4 -->
@@ -316,7 +322,7 @@
 +Write notes here. Text outside the generated sections is kept on every run.
 --- /dev/null
 +++ b/netbox:host:vm01.example.com
-@@ -0,0 +1,64 @@
+@@ -0,0 +1,68 @@
 +Title: vm01.example.com
 +Parent: group:hosts
 +
@@ -341,9 +347,11 @@
 +| 192.0.2.20 | servers | 100 |
 +<!-- docgen:end network -->
 +
-+<!-- docgen:begin diagram hash=544d6d094b16640c -->
++<!-- docgen:begin diagram hash=56e68977c93692e3 -->
 +## Diagram
 +
++- vm01.example.com depends\_on srv01.example.com
++- vm01.example.com runs\_on srv01.example.com
 +- vm01.example.com ens3 member\_of vm01.example.com
 +- vm01.example.com in\_network 192.0.2.0/24
 +<!-- docgen:end diagram -->
@@ -354,10 +362,12 @@
 +Nothing is known to run here.
 +<!-- docgen:end runs-here -->
 +
-+<!-- docgen:begin depends-on hash=3480790efaf17c5c -->
++<!-- docgen:begin depends-on hash=0c2acdd96ad5ed3e -->
 +## Depends on
 +
-+Not known: no source reports what this host depends on.
++| Name | Kind | Addresses | Source |
++| --- | --- | --- | --- |
++| srv01.example.com | host | 192.0.2.10 | netbox |
 +<!-- docgen:end depends-on -->
 +
 +<!-- docgen:begin needed-by hash=96339e11d9b9c58e -->

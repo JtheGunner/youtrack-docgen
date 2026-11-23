@@ -107,6 +107,7 @@ type machine struct {
 	Name        *string `json:"name"`
 	Site        *ref    `json:"site"`
 	Cluster     *ref    `json:"cluster"`
+	Device      *ref    `json:"device"` // the hypervisor of a virtual machine
 	Role        *ref    `json:"role"`
 	DeviceRole  *ref    `json:"device_role"` // NetBox < 4.0
 	Platform    *ref    `json:"platform"`

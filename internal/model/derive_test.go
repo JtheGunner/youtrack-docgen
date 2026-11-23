@@ -98,3 +98,36 @@ func TestDeriveDependenciesIgnoresOtherKinds(t *testing.T) {
 		t.Errorf("added %d relations, want 0: %v", got, dependsOn(g))
 	}
 }
+
+// A host that runs on another host depends on it: a virtual machine on its
+// hypervisor. Only host-on-host counts; chaining is not done.
+func TestDeriveDependenciesHostOnHost(t *testing.T) {
+	g := NewGraph()
+	for _, e := range []Entity{
+		{ID: "netbox:host:vm1", Kind: KindHost, Source: "netbox", Name: "vm1"},
+		{ID: "netbox:host:hv1", Kind: KindHost, Source: "netbox", Name: "hv1"},
+		{ID: "netbox:interface:hv1/eth0", Kind: KindInterface, Source: "netbox", Name: "eth0"},
+	} {
+		if err := g.AddEntity(e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, r := range []Relation{
+		{From: "netbox:host:vm1", To: "netbox:host:hv1", Kind: RelRunsOn},
+		{From: "netbox:host:vm1", To: "netbox:interface:hv1/eth0", Kind: RelRunsOn},
+	} {
+		if err := g.AddRelation(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := DeriveDependencies(g); got != 1 {
+		t.Fatalf("added = %d, want 1", got)
+	}
+	want := []Relation{{From: "netbox:host:vm1", To: "netbox:host:hv1", Kind: RelDependsOn}}
+	if got := dependsOn(g); len(got) != 1 || got[0] != want[0] {
+		t.Fatalf("depends_on = %v, want %v", got, want)
+	}
+	if got := DeriveDependencies(g); got != 0 {
+		t.Errorf("deriving twice added %d more", got)
+	}
+}
