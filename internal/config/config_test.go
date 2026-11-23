@@ -352,7 +352,7 @@ func TestParseInvalid(t *testing.T) {
 		{
 			name: "kubernetes paths must be strings",
 			yaml: "collectors:\n  kubernetes:\n    paths: [1, {a: b}]\nsinks:\n  markdown:\n    dir: ./out\n",
-			want: []string{"collectors.kubernetes.paths: must be a list of non-empty strings"},
+			want: []string{"collectors.kubernetes.paths: entry 1: must be a non-empty path or a map"},
 		},
 		{
 			name: "markdown sink needs dir",

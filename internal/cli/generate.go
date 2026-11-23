@@ -153,7 +153,7 @@ func buildDocuments(ctx context.Context, cfg *config.Config, at time.Time) (buil
 		return false, false
 	}
 	return built{
-		root:       render.Render(filtered, render.Options{GeneratedAt: at}),
+		root:       render.Render(filtered, render.Options{GeneratedAt: at, RootTitle: cfg.RootTitle(), Diagrams: cfg.DiagramFormat()}),
 		incomplete: incomplete, denied: denied, decideDenied: decide,
 		linkWarnings: publishableLinkWarnings(linkWarnings, kept),
 	}, nil

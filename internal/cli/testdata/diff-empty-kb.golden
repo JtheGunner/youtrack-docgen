@@ -92,25 +92,19 @@
 +<!-- docgen:end generated -->
 --- /dev/null
 +++ b/overview:network-diagram
-@@ -0,0 +1,25 @@
+@@ -0,0 +1,19 @@
 +Title: Network diagram
 +Parent: overview:root
 +
 +<!-- docgen:doc overview:network-diagram -->
 +
-+<!-- docgen:begin table hash=b19109a2f075f79e -->
++<!-- docgen:begin table hash=7497ccddc0635733 -->
 +## Network diagram
 +
-+```mermaid
-+flowchart LR
-+    n0{{"10.0.0.0/16"}}
-+    n1{{"servers 192.0.2.0/24"}}
-+    n2["srv01.example.com"]
-+    n1 --- n2
-+    n3["vm01.example.com"]
-+    n1 --- n3
-+    n4{{"2001:db8::/32"}}
-+```
++- servers 192.0.2.0/24 - srv01.example.com
++- servers 192.0.2.0/24 - vm01.example.com
++- 10.0.0.0/16
++- 2001:db8::/32
 +<!-- docgen:end table -->
 +
 +<!-- docgen:begin generated hash=4906562d1ceab345 -->
@@ -127,7 +121,7 @@
 +<!-- docgen:doc group:hosts -->
 --- /dev/null
 +++ b/netbox:host:device-3
-@@ -0,0 +1,55 @@
+@@ -0,0 +1,59 @@
 +Title: device-3
 +Parent: group:hosts
 +
@@ -183,9 +177,13 @@
 +
 +Generated at 2026-01-02T03:04:05Z from netbox.
 +<!-- docgen:end generated -->
++
++## Manual notes
++
++Write notes here. Text outside the generated sections is kept on every run.
 --- /dev/null
 +++ b/netbox:host:srv01.example.com
-@@ -0,0 +1,69 @@
+@@ -0,0 +1,66 @@
 +Title: srv01.example.com
 +Parent: group:hosts
 +
@@ -211,19 +209,12 @@
 +| 192.0.2.10 | servers | 100 |
 +<!-- docgen:end network -->
 +
-+<!-- docgen:begin diagram hash=7dc98db492bf1db9 -->
++<!-- docgen:begin diagram hash=ba8c41039429e7e7 -->
 +## Diagram
 +
-+```mermaid
-+flowchart LR
-+    n0["srv01.example.com"]
-+    n1["srv01.example.com eth0"]
-+    n1 -->|member_of| n0
-+    n2{{"192.0.2.0/24"}}
-+    n0 -->|in_network| n2
-+    n3["Example HQ"]
-+    n0 -->|member_of| n3
-+```
++- srv01.example.com eth0 member\_of srv01.example.com
++- srv01.example.com in\_network 192.0.2.0/24
++- srv01.example.com member\_of Example HQ
 +<!-- docgen:end diagram -->
 +
 +<!-- docgen:begin runs-here hash=c9360d019f5fafba -->
@@ -255,9 +246,13 @@
 +
 +Generated at 2026-01-02T03:04:05Z from netbox.
 +<!-- docgen:end generated -->
++
++## Manual notes
++
++Write notes here. Text outside the generated sections is kept on every run.
 --- /dev/null
 +++ b/netbox:host:sw01.example.com
-@@ -0,0 +1,63 @@
+@@ -0,0 +1,61 @@
 +Title: sw01.example.com
 +Parent: group:hosts
 +
@@ -279,17 +274,11 @@
 +No IP addresses are known.
 +<!-- docgen:end network -->
 +
-+<!-- docgen:begin diagram hash=cb7b96bb0c612d45 -->
++<!-- docgen:begin diagram hash=226e817278f00b47 -->
 +## Diagram
 +
-+```mermaid
-+flowchart LR
-+    n0["sw01.example.com"]
-+    n1["sw01.example.com mgmt0"]
-+    n1 -->|member_of| n0
-+    n2["Example HQ"]
-+    n0 -->|member_of| n2
-+```
++- sw01.example.com mgmt0 member\_of sw01.example.com
++- sw01.example.com member\_of Example HQ
 +<!-- docgen:end diagram -->
 +
 +<!-- docgen:begin runs-here hash=c9360d019f5fafba -->
@@ -321,9 +310,13 @@
 +
 +Generated at 2026-01-02T03:04:05Z from netbox.
 +<!-- docgen:end generated -->
++
++## Manual notes
++
++Write notes here. Text outside the generated sections is kept on every run.
 --- /dev/null
 +++ b/netbox:host:vm01.example.com
-@@ -0,0 +1,66 @@
+@@ -0,0 +1,64 @@
 +Title: vm01.example.com
 +Parent: group:hosts
 +
@@ -348,17 +341,11 @@
 +| 192.0.2.20 | servers | 100 |
 +<!-- docgen:end network -->
 +
-+<!-- docgen:begin diagram hash=ce1593ac3ea47738 -->
++<!-- docgen:begin diagram hash=544d6d094b16640c -->
 +## Diagram
 +
-+```mermaid
-+flowchart LR
-+    n0["vm01.example.com"]
-+    n1["vm01.example.com ens3"]
-+    n1 -->|member_of| n0
-+    n2{{"192.0.2.0/24"}}
-+    n0 -->|in_network| n2
-+```
++- vm01.example.com ens3 member\_of vm01.example.com
++- vm01.example.com in\_network 192.0.2.0/24
 +<!-- docgen:end diagram -->
 +
 +<!-- docgen:begin runs-here hash=c9360d019f5fafba -->
@@ -390,4 +377,8 @@
 +
 +Generated at 2026-01-02T03:04:05Z from netbox.
 +<!-- docgen:end generated -->
++
++## Manual notes
++
++Write notes here. Text outside the generated sections is kept on every run.
 sink youtrack (dry run): 10 to create, 0 to update, 0 unchanged, 0 to mark stale, 0 to restore

@@ -14,7 +14,20 @@ type Document struct {
 	// Sections are the generated parts of the page. Their IDs are stable so a
 	// sink can replace exactly these parts and leave manual content alone.
 	Sections []Section
+	// Notes is a placeholder section for manual text. A sink writes it once,
+	// when it creates the page, outside the generated sections, and never
+	// touches it afterwards. Nil means the page has none.
+	Notes    *Section
 	Children []Document
+}
+
+// ManualNotes returns the placeholder section for manual notes on a page.
+func ManualNotes() *Section {
+	return &Section{
+		ID:      "manual-notes",
+		Heading: "Manual notes",
+		Blocks:  []Block{Paragraph("Write notes here. Text outside the generated sections is kept on every run.")},
+	}
 }
 
 // Section is a headed group of blocks with a stable ID.

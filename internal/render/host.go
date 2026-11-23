@@ -23,7 +23,7 @@ func (r *renderer) host(h model.Entity) Document {
 		{ID: "links", Heading: "Links", Blocks: []Block{hostLinks(h, sameAs)}},
 		r.generated(sources([]model.Entity{h}, sameAs)),
 	}
-	return Document{ID: string(h.ID), Title: h.Name, Sections: sections}
+	return Document{ID: string(h.ID), Title: h.Name, Sections: sections, Notes: ManualNotes()}
 }
 
 func (r *renderer) hostSummary(h model.Entity) Block {
@@ -126,12 +126,18 @@ func hostLinks(h model.Entity, sameAs []model.Entity) Block {
 	if u := safeURL(h.Attrs[model.AttrURL]); u != "" {
 		items = append(items, "Source record in "+h.Source+": "+u)
 	}
+	if u := safeURL(h.Attrs[model.AttrRepoURL]); u != "" {
+		items = append(items, "Repository for "+h.Source+": "+u)
+	}
 	for _, e := range sameAs {
 		line := "Same machine in " + e.Source + ": " + e.Name
 		if u := safeURL(e.Attrs[model.AttrURL]); u != "" {
 			line += ", " + u
 		}
 		items = append(items, line)
+		if u := safeURL(e.Attrs[model.AttrRepoURL]); u != "" {
+			items = append(items, "Repository for "+e.Source+": "+u)
+		}
 	}
 	if len(items) == 0 {
 		return Paragraph("No links are known.")
@@ -150,7 +156,7 @@ func sortedCopy(s []string) []string {
 func (r *renderer) diagramSection(e model.Entity) Section {
 	var block Block = Paragraph("No relations are known.")
 	if d, ok := r.entityDiagram(e); ok {
-		block = d
+		block = r.diagramBlock(d)
 	}
 	return Section{ID: "diagram", Heading: "Diagram", Blocks: []Block{block}}
 }

@@ -12,6 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/JtheGunner/youtrack-docgen/internal/filter"
+	"github.com/JtheGunner/youtrack-docgen/internal/render"
 )
 
 // Config is the parsed and validated docgen.yaml.
@@ -27,6 +28,19 @@ type Config struct {
 	// AllowInsecureHTTP permits http:// URLs on non-loopback hosts for
 	// endpoints that receive a token. Loopback hosts are always allowed.
 	AllowInsecureHTTP bool `yaml:"allow_insecure_http"`
+	// Diagrams selects how diagrams are written: "text" (default, a plain list
+	// of relations) or "mermaid" (a fenced mermaid code block).
+	Diagrams string `yaml:"diagrams"`
+}
+
+// DiagramFormat returns the configured diagram format.
+func (c *Config) DiagramFormat() render.DiagramFormat { return render.DiagramFormat(c.Diagrams) }
+
+// RootTitle returns sinks.youtrack.root_article, or "" when it is not set;
+// render then applies its default title.
+func (c *Config) RootTitle() string {
+	title, _ := c.Sinks["youtrack"].Settings["root_article"].(string)
+	return title
 }
 
 // YouTrack is the connection to the YouTrack instance.

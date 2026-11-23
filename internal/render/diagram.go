@@ -28,6 +28,35 @@ const (
 type Diagram struct {
 	Language string
 	Source   string
+	// Lines is the same diagram as a plain list: one line per relation and
+	// one per node without a relation. It is what the text format shows.
+	Lines []string
+}
+
+// DiagramFormat selects how diagrams appear in the documents.
+type DiagramFormat string
+
+const (
+	// DiagramText shows a diagram as a plain list of its relations. It reads
+	// the same in every target and is the default.
+	DiagramText DiagramFormat = "text"
+	// DiagramMermaid shows a diagram as a fenced "mermaid" code block, for
+	// targets that draw Mermaid.
+	DiagramMermaid DiagramFormat = "mermaid"
+)
+
+// Valid reports whether f is a known format. The empty format is valid and
+// means DiagramText.
+func (f DiagramFormat) Valid() bool {
+	return f == "" || f == DiagramText || f == DiagramMermaid
+}
+
+// diagramBlock returns d in the requested format.
+func (r *renderer) diagramBlock(d Diagram) Block {
+	if r.diagrams == DiagramMermaid {
+		return d
+	}
+	return List(d.Lines)
 }
 
 func (d Diagram) markdown() string {
@@ -59,15 +88,35 @@ func mermaidLabel(s string) string {
 	return mermaidLabelEscaper.Replace(s)
 }
 
-// flowchart accumulates a Mermaid flowchart. Node IDs are synthetic (n0, n1,
-// ...) so entity names never reach the diagram syntax, only quoted labels.
+// plainLabel makes untrusted text a single-line, length-capped label for the
+// text format. Escaping for Markdown happens when the list is rendered.
+func plainLabel(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if runes := []rune(s); len(runes) > maxLabelRunes {
+		s = string(runes[:maxLabelRunes]) + "..."
+	}
+	return s
+}
+
+// flowchart accumulates a Mermaid flowchart and, alongside it, the plain list
+// of the same diagram. Node IDs are synthetic (n0, n1, ...) so entity names
+// never reach the diagram syntax, only quoted labels.
 type flowchart struct {
 	lines []string
 	ids   map[string]string
+	// labels maps a node ID to its plain label; order keeps declaration order.
+	labels map[string]string
+	order  []string
+	// text holds the relation lines; joined holds the nodes that have one.
+	text   []string
+	joined map[string]bool
 }
 
 func newFlowchart() *flowchart {
-	return &flowchart{lines: []string{"flowchart LR"}, ids: map[string]string{}}
+	return &flowchart{
+		lines: []string{"flowchart LR"}, ids: map[string]string{},
+		labels: map[string]string{}, joined: map[string]bool{},
+	}
 }
 
 // node declares a node once per key and returns its synthetic ID.
@@ -77,6 +126,8 @@ func (f *flowchart) node(key, label string, kind model.Kind) string {
 	}
 	id := fmt.Sprintf("n%d", len(f.ids))
 	f.ids[key] = id
+	f.labels[id] = plainLabel(label)
+	f.order = append(f.order, id)
 	text := `"` + mermaidLabel(label) + `"`
 	switch kind {
 	case model.KindNetwork:
@@ -91,6 +142,12 @@ func (f *flowchart) node(key, label string, kind model.Kind) string {
 
 // edge draws a directed edge. The label must be a fixed, trusted string.
 func (f *flowchart) edge(from, to, label string) {
+	f.joined[from], f.joined[to] = true, true
+	if label == "" {
+		f.text = append(f.text, f.labels[from]+" - "+f.labels[to])
+	} else {
+		f.text = append(f.text, f.labels[from]+" "+label+" "+f.labels[to])
+	}
 	if label == "" {
 		f.lines = append(f.lines, fmt.Sprintf("    %s --- %s", from, to))
 		return
@@ -99,7 +156,13 @@ func (f *flowchart) edge(from, to, label string) {
 }
 
 func (f *flowchart) diagram() Diagram {
-	return Diagram{Language: "mermaid", Source: strings.Join(f.lines, "\n") + "\n"}
+	lines := slices.Clone(f.text)
+	for _, id := range f.order {
+		if !f.joined[id] {
+			lines = append(lines, f.labels[id])
+		}
+	}
+	return Diagram{Language: "mermaid", Source: strings.Join(f.lines, "\n") + "\n", Lines: lines}
 }
 
 // neighbor is one entity adjacent to the subject of a per-entity diagram.

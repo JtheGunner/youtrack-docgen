@@ -1,0 +1,12 @@
+# Network diagram
+
+## Network diagram
+
+- servers 10.0.10.0/24 - web01
+- servers 10.0.10.0/24 - web01
+- databases 10.0.20.0/24 - db01
+- management 192.0.2.0/24
+
+## Generated
+
+Generated at 2025-01-02T03:04:05Z from k8s, netbox.

@@ -2,16 +2,10 @@
 
 ## Network diagram
 
-```mermaid
-flowchart LR
-    n0{{"10.0.0.0/16"}}
-    n1{{"servers 192.0.2.0/24"}}
-    n2["srv01.example.com"]
-    n1 --- n2
-    n3["vm01.example.com"]
-    n1 --- n3
-    n4{{"2001:db8::/32"}}
-```
+- servers 192.0.2.0/24 - srv01.example.com
+- servers 192.0.2.0/24 - vm01.example.com
+- 10.0.0.0/16
+- 2001:db8::/32
 
 ## Generated
 

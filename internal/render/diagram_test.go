@@ -34,19 +34,35 @@ func mustEntity(t *testing.T, g *model.Graph, id model.ID) model.Entity {
 	return e
 }
 
+// diagramFormats lists the golden name suffix and the options of each diagram
+// format. The mermaid goldens keep their original names.
+var diagramFormats = []struct {
+	suffix string
+	opts   Options
+}{
+	{"", Options{GeneratedAt: generatedAt, Diagrams: DiagramMermaid}},
+	{"_text", Options{GeneratedAt: generatedAt, Diagrams: DiagramText}},
+}
+
 func TestHostDiagramGolden(t *testing.T) {
-	root := Render(fixture(t), Options{GeneratedAt: generatedAt})
-	golden.Assert(t, "diagram_host", []byte(findDoc(t, root, "netbox:host:web01").Markdown()))
+	for _, f := range diagramFormats {
+		root := Render(fixture(t), f.opts)
+		golden.Assert(t, "diagram_host"+f.suffix, []byte(findDoc(t, root, "netbox:host:web01").Markdown()))
+	}
 }
 
 func TestServiceDiagramsGolden(t *testing.T) {
-	root := Render(fixture(t), Options{GeneratedAt: generatedAt})
-	golden.Assert(t, "diagram_services", []byte(findDoc(t, root, ServicesID).Markdown()))
+	for _, f := range diagramFormats {
+		root := Render(fixture(t), f.opts)
+		golden.Assert(t, "diagram_services"+f.suffix, []byte(findDoc(t, root, ServicesID).Markdown()))
+	}
 }
 
 func TestNetworkDiagramGolden(t *testing.T) {
-	root := Render(fixture(t), Options{GeneratedAt: generatedAt})
-	golden.Assert(t, "diagram_network", []byte(findDoc(t, root, NetworkMapID).Markdown()))
+	for _, f := range diagramFormats {
+		root := Render(fixture(t), f.opts)
+		golden.Assert(t, "diagram_network"+f.suffix, []byte(findDoc(t, root, NetworkMapID).Markdown()))
+	}
 }
 
 func TestNetworkDiagramWithoutPrefixesFallsBackToAddresses(t *testing.T) {
@@ -56,8 +72,26 @@ func TestNetworkDiagramWithoutPrefixesFallsBackToAddresses(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	root := Render(g, Options{GeneratedAt: generatedAt})
-	golden.Assert(t, "diagram_network_no_prefix", []byte(findDoc(t, root, NetworkMapID).Markdown()))
+	for _, f := range diagramFormats {
+		root := Render(g, f.opts)
+		golden.Assert(t, "diagram_network_no_prefix"+f.suffix, []byte(findDoc(t, root, NetworkMapID).Markdown()))
+	}
+}
+
+func TestDiagramFormatDefaultsToText(t *testing.T) {
+	g := fixture(t)
+	unset := dump(Render(g, Options{GeneratedAt: generatedAt}))
+	text := dump(Render(g, Options{GeneratedAt: generatedAt, Diagrams: DiagramText}))
+	if string(unset) != string(text) {
+		t.Error("the zero diagram format is not the text format")
+	}
+	if strings.Contains(string(unset), "```mermaid") {
+		t.Error("the default output contains a mermaid block")
+	}
+	mermaid := string(dump(Render(g, Options{GeneratedAt: generatedAt, Diagrams: DiagramMermaid})))
+	if !strings.Contains(mermaid, "```mermaid") {
+		t.Error("the mermaid format emits no mermaid block")
+	}
 }
 
 func TestDiagramsAreByteStable(t *testing.T) {
@@ -200,7 +234,7 @@ func TestDiagramCapsAreVisibleInTheRenderedDocuments(t *testing.T) {
 		}
 	}
 
-	root := Render(g, Options{GeneratedAt: generatedAt})
+	root := Render(g, Options{GeneratedAt: generatedAt, Diagrams: DiagramMermaid})
 
 	overview := findDoc(t, root, NetworkMapID).Markdown()
 	for _, want := range []string{

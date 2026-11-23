@@ -13,6 +13,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/JtheGunner/youtrack-docgen/internal/config"
 )
 
 // header is decoded first for every document: just enough to decide whether
@@ -148,6 +150,8 @@ type parsed struct {
 	object
 	serviceSelector map[string]string
 	origin          string
+	// repoURL is the repository of the configured path the object was read from.
+	repoURL string
 }
 
 // supportedKind reports whether the spec of kind is decoded. Every other kind
@@ -179,10 +183,11 @@ func (r *reporter) skipped(msg string) {
 // skip that may hide an object is also recorded in r.incomplete. When
 // the same object (kind, namespace, name) appears more than once, the first
 // one in path order and lexical file order wins.
-func readObjects(ctx context.Context, paths []string, r *reporter) ([]parsed, error) {
+func readObjects(ctx context.Context, paths []config.PathSource, r *reporter) ([]parsed, error) {
 	var out []parsed
 	seen := map[string]string{}
-	for _, root := range paths {
+	for _, src := range paths {
+		root := src.Path
 		files, err := manifestFiles(root)
 		if err != nil {
 			return nil, err
@@ -207,6 +212,7 @@ func readObjects(ctx context.Context, paths []string, r *reporter) ([]parsed, er
 					r.warn(fmt.Sprintf("%s: duplicate %s ignored, first defined in %s", o.origin, key, first))
 					continue
 				}
+				o.repoURL = src.RepoURL
 				seen[key] = o.origin
 				out = append(out, o)
 			}
