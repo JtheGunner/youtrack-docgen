@@ -11,7 +11,7 @@ import (
 
 func newPlanner(t *testing.T, api Reader) *Planner {
 	t.Helper()
-	p, err := NewPlanner(api, Config{ProjectID: testProjectID, ProjectQuery: "project: KB"})
+	p, err := NewPlanner(api, Config{ProjectID: testProjectID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,11 +109,11 @@ func TestPlanPropagatesReadErrors(t *testing.T) {
 }
 
 func TestNewPlannerValidates(t *testing.T) {
-	if _, err := NewPlanner(nil, Config{ProjectID: testProjectID, ProjectQuery: "project: KB"}); err == nil {
+	if _, err := NewPlanner(nil, Config{ProjectID: testProjectID}); err == nil {
 		t.Error("nil reader accepted")
 	}
-	if _, err := NewPlanner(&fakeAPI{}, Config{ProjectID: testProjectID}); err == nil {
-		t.Error("empty query accepted")
+	if _, err := NewPlanner(&fakeAPI{}, Config{}); err == nil {
+		t.Error("empty project ID accepted")
 	}
 }
 
@@ -121,8 +121,8 @@ func TestNewPlannerValidates(t *testing.T) {
 // write, whatever it does with a plan that contains stale markings.
 type searchOnly struct{ api *fakeAPI }
 
-func (r searchOnly) SearchArticles(ctx context.Context, q string) ([]client.Article, error) {
-	return r.api.SearchArticles(ctx, q)
+func (r searchOnly) ListProjectArticles(ctx context.Context, projectID string) ([]client.Article, error) {
+	return r.api.ListProjectArticles(ctx, projectID)
 }
 
 func TestPlannerNeedsNothingButReading(t *testing.T) {

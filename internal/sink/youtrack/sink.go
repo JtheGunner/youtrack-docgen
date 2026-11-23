@@ -24,7 +24,7 @@ const (
 // API is the part of the YouTrack client the sink needs.
 type API interface {
 	TagAPI
-	SearchArticles(ctx context.Context, query string) ([]client.Article, error)
+	ListProjectArticles(ctx context.Context, projectID string) ([]client.Article, error)
 	CreateArticle(ctx context.Context, n client.NewArticle) (*client.Article, error)
 	UpdateArticle(ctx context.Context, id string, u client.ArticleUpdate) (*client.Article, error)
 }
@@ -32,12 +32,9 @@ type API interface {
 // Config configures a Sink.
 type Config struct {
 	// ProjectID is the database ID of the project that owns the articles.
+	// Documents are looked up by their stable key among the articles the
+	// project listing returns; articles of any other project are ignored.
 	ProjectID string
-	// ProjectQuery is the YouTrack search query that lists every article of
-	// that project, for example "project: {KB}". Documents are looked up among
-	// these articles by their stable key; articles of any other project are
-	// ignored, whatever the query returns.
-	ProjectQuery string
 	// ActiveSources names the sources (the first part of an entity ID) that
 	// took part in the run. Only articles of these sources can be marked as
 	// stale: a collector that was switched off did not see its objects vanish.
@@ -74,8 +71,8 @@ func (c Config) maxStaleRatio() float64 {
 }
 
 func (c Config) validate() error {
-	if c.ProjectID == "" || c.ProjectQuery == "" {
-		return errors.New("youtrack sink: project ID and project query are required")
+	if c.ProjectID == "" {
+		return errors.New("youtrack sink: project ID is required")
 	}
 	if c.MaxStaleRatio < 0 || c.MaxStaleRatio > 1 {
 		return fmt.Errorf("youtrack sink: max stale ratio %v must be between 0 and 1", c.MaxStaleRatio)
@@ -180,15 +177,15 @@ func (s *Sink) index(ctx context.Context) (map[string]client.Article, *orphans, 
 
 // loadIndex reads the articles of the project and maps document keys to them.
 func loadIndex(ctx context.Context, api Reader, cfg Config) (map[string]client.Article, *orphans, error) {
-	articles, err := api.SearchArticles(ctx, cfg.ProjectQuery)
+	articles, err := api.ListProjectArticles(ctx, cfg.ProjectID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("youtrack sink: list articles: %w", err)
 	}
 	out := map[string]client.Article{}
 	lost := &orphans{byTitle: map[string]client.Article{}}
 	for _, a := range articles {
-		// The search query is only a hint. An article is ours only if the
-		// server says it belongs to the configured project.
+		// Defence in depth: an article is ours only if the server says it
+		// belongs to the configured project.
 		if a.Project == nil || a.Project.ID != cfg.ProjectID {
 			continue
 		}
