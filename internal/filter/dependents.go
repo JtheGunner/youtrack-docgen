@@ -154,11 +154,15 @@ func (d *dependents) buildNameRE() {
 }
 
 // newDependents collects what depends on the denied entities. denied are the
-// hosts, deniedIPs the IP address entities and deniedNamespaces the namespaces
-// that the rules exclude.
-func newDependents(g *model.Graph, denied map[model.ID]model.Entity, deniedIPs, deniedNamespaces []model.Entity) dependents {
+// hosts, deniedIPs the IP address entities, deniedNamespaces the namespaces
+// and deniedClusters the Kubernetes clusters that are removed whatever their
+// namespaces do.
+func newDependents(g *model.Graph, denied map[model.ID]model.Entity, deniedIPs, deniedNamespaces, deniedClusters []model.Entity) dependents {
 	d := dependents{removed: map[model.ID]bool{}, addrs: map[netip.Addr]bool{}}
 	var members []model.Entity
+	for _, c := range deniedClusters {
+		members = append(members, d.removeClusterContents(g, c)...)
+	}
 	for _, ns := range deniedNamespaces {
 		members = append(members, d.removeNamespaceMembers(g, ns)...)
 	}
@@ -245,6 +249,54 @@ func (d dependents) removeNamespaceMembers(g *model.Graph, ns model.Entity) []mo
 				if keyNS, found := namespaceKeyFromKey(kind, key); found && keyNS == nsKey {
 					mark(e)
 				}
+			}
+		}
+	}
+	return members
+}
+
+// removeClusterContents marks the namespaces of a denied cluster and their
+// workloads, services and ingresses as removed, so nothing outlives its parent:
+// through member_of relations and, for objects of the same source, through
+// the cluster in their key. It returns the workloads, services and ingresses
+// it marked; a namespace name is no value to scrub from free text.
+func (d dependents) removeClusterContents(g *model.Graph, cluster model.Entity) []model.Entity {
+	_, _, clusterKey, err := model.ParseID(cluster.ID)
+	if err != nil {
+		return nil
+	}
+	inCluster := func(e model.Entity) bool {
+		if e.Source != cluster.Source {
+			return false
+		}
+		_, _, key, err := model.ParseID(e.ID)
+		if err != nil {
+			return false
+		}
+		parts, ok := splitKubernetesKey(e.Kind, key)
+		return ok && parts[0] == clusterKey
+	}
+	var namespaces []model.Entity
+	for _, ns := range g.ByKind(model.KindNamespace) {
+		if inCluster(ns) {
+			namespaces = append(namespaces, ns)
+		}
+	}
+	for _, ns := range memberSources(g, cluster.ID, model.KindNamespace) {
+		if !inCluster(ns) {
+			namespaces = append(namespaces, ns)
+		}
+	}
+	var members []model.Entity
+	for _, ns := range namespaces {
+		d.removed[ns.ID] = true
+		members = append(members, d.removeNamespaceMembers(g, ns)...)
+	}
+	for _, kind := range []model.Kind{model.KindWorkload, model.KindService, model.KindIngress} {
+		for _, e := range g.ByKind(kind) {
+			if !d.removed[e.ID] && inCluster(e) {
+				d.removed[e.ID] = true
+				members = append(members, e)
 			}
 		}
 	}

@@ -42,9 +42,11 @@ const kubernetesSource = "kubernetes"
 // them along as references. Hostnames or addresses that a denied host drags
 // along are not considered. An ID whose key the redactor would change is
 // denied. A Kubernetes member (workload, service, ingress) follows the verdict
-// of its namespace. Rules see the plain namespace, never the cluster prefix of
-// the key, so a namespace rule decides that namespace in every cluster. A
-// Kubernetes cluster lives in no namespace and follows kind rules only.
+// of its namespace, and a namespace or member follows a deny of its cluster.
+// Rules see the plain namespace, never the cluster prefix of the key, so a
+// namespace rule decides that namespace in every cluster. A Kubernetes cluster
+// lives in no namespace and follows kind rules only; Apply keeps it as the
+// parent of a surviving namespace, so a failed allow match leaves it undecided.
 func (f *Filter) DecideID(id model.ID) Verdict {
 	source, kind, key, err := model.ParseID(id)
 	if err != nil {
@@ -54,20 +56,49 @@ func (f *Filter) DecideID(id model.ID) Verdict {
 	if source != kubernetesSource || verdict == Denied {
 		return verdict
 	}
+	parts, found := splitKubernetesKey(kind, key)
+	if !found {
+		return verdict
+	}
+	// Apply removes the namespaces and members of a denied cluster with it. A
+	// failed allow match of the cluster does not matter here: the cluster stays
+	// whenever this namespace does.
+	verdict = worse(verdict, f.decideClusterDeny(source, parts[0]))
+	if kind == model.KindNamespace {
+		return verdict
+	}
 	// Apply removes the members of a denied namespace with it, so an ID that
 	// names a member is denied when its namespace is, and undecided when the
 	// namespace is.
-	nsKey, found := namespaceKeyFromKey(kind, key)
-	if !found || kind == model.KindNamespace {
-		return verdict
-	}
-	switch f.decideKey(source, model.KindNamespace, nsKey) {
-	case Denied:
+	return worse(verdict, f.decideKey(source, model.KindNamespace, parts[0]+"/"+parts[1]))
+}
+
+// decideClusterDeny reports whether Apply removes the cluster with this key
+// whatever its namespaces do: by a deny rule or because the redactor would
+// change its key. Allow rules are not checked.
+func (f *Filter) decideClusterDeny(source, cluster string) Verdict {
+	if f.redactor.Text(cluster) != cluster {
 		return Denied
-	case Undecidable:
+	}
+	switch anyMatch(f.rules[source].Deny, knownFields{kind: string(model.KindCluster), hasNamespace: true}) {
+	case triTrue:
+		return Denied
+	case triUnknown:
 		return Undecidable
 	}
-	return verdict
+	return Permitted
+}
+
+// worse returns the stricter of two verdicts: Denied over Undecidable over
+// Permitted.
+func worse(a, b Verdict) Verdict {
+	switch {
+	case a == Denied || b == Denied:
+		return Denied
+	case a == Undecidable || b == Undecidable:
+		return Undecidable
+	}
+	return Permitted
 }
 
 // decideKey checks the rules against the fields the ID parts carry.
@@ -92,10 +123,12 @@ func (f *Filter) decideKey(source string, kind model.Kind, key string) Verdict {
 	if len(rules.Allow) > 0 {
 		allow = anyMatch(rules.Allow, known)
 	}
-	// Apply admits these kinds as references of an allowed host although no
+	// Apply admits these kinds as references of an allowed host, and a
+	// Kubernetes cluster as the parent of a surviving namespace, although no
 	// allow rule matches them. An ID cannot tell, so a failed allow match is
 	// undecided; only a deny rule denies them for certain.
-	if allow == triFalse && deny != triTrue && isReferenceKind(kind) {
+	isParentCluster := source == kubernetesSource && kind == model.KindCluster
+	if allow == triFalse && deny != triTrue && (isReferenceKind(kind) || isParentCluster) {
 		allow = triUnknown
 	}
 	switch {

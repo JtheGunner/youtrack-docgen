@@ -203,6 +203,8 @@ func TestClusterCollectionNeverLeaksSeededSecrets(t *testing.T) {
 		{},
 		{Deny: []filter.Match{{Namespaces: []string{"shop"}}}},
 		{Allow: []filter.Match{{Kinds: []string{"cluster", "namespace"}}}},
+		{Allow: []filter.Match{{Namespaces: []string{"shop"}}}},
+		{Deny: []filter.Match{{Kinds: []string{"cluster"}}}},
 	} {
 		f, err := filter.New(filter.Config{Collectors: map[string]filter.Rules{Source: rules}})
 		if err != nil {

@@ -88,7 +88,10 @@ func TestDecideIDAcrossClusters(t *testing.T) {
 		{"cluster kept by a namespace-kind deny", denyNamespaceX, "kubernetes:cluster:a", Permitted},
 		{"cluster denied by a kind rule", Rules{Deny: []Match{{Kinds: []string{"cluster"}}}}, "kubernetes:cluster:a", Denied},
 		{"cluster admitted by a kind allow rule", Rules{Allow: []Match{{Kinds: []string{"cluster"}}}}, "kubernetes:cluster:a", Permitted},
-		{"cluster not admitted by a namespace allow rule", allowX, "kubernetes:cluster:x", Denied},
+		// A cluster is kept when one of its namespaces survives, which an ID
+		// cannot tell: a failed allow match leaves it undecided.
+		{"namespace allow rule leaves the cluster undecided", allowX, "kubernetes:cluster:x", Undecidable},
+		{"cluster deny wins over its reference", Rules{Allow: []Match{{Namespaces: []string{"x"}}}, Deny: []Match{{Kinds: []string{"cluster"}}}}, "kubernetes:cluster:a", Denied},
 		{"label rule leaves the cluster undecided", Rules{Deny: []Match{{Labels: map[string]string{"label.team": "a"}}}}, "kubernetes:cluster:a", Undecidable},
 		{"old-format member key is undecided", denyX, "kubernetes:service:x/web", Undecidable},
 		{"redacted key in a cluster is denied", Rules{}, "kubernetes:service:a/x/password=FAKE-KEY-SECRET-9", Denied},
@@ -106,7 +109,7 @@ func TestDecideIDAcrossClusters(t *testing.T) {
 	}
 }
 
-// The DecideID verdict of a cluster ID matches what Apply does with the
+// A decided DecideID verdict of a cluster ID matches what Apply does with the
 // collected cluster entity.
 func TestApplyTreatsTheClusterLikeDecideID(t *testing.T) {
 	for _, rules := range []Rules{
@@ -126,7 +129,7 @@ func TestApplyTreatsTheClusterLikeDecideID(t *testing.T) {
 			t.Fatal(err)
 		}
 		_, kept := out.Entity(cluster.ID)
-		if verdict := f.DecideID(cluster.ID); (verdict == Permitted) != kept || verdict == Undecidable {
+		if verdict := f.DecideID(cluster.ID); verdict != Undecidable && (verdict == Permitted) != kept {
 			t.Errorf("rules %+v: Apply kept = %v, DecideID = %v", rules, kept, verdict)
 		}
 	}
