@@ -294,6 +294,11 @@ func TestDenyCheckOfKubernetesIDsOfAnIncompleteSource(t *testing.T) {
 			if got := staleKeys(api); !slices.Equal(got, tt.wantStale) {
 				t.Errorf("stale = %v, want %v", got, tt.wantStale)
 			}
+			if len(tt.wantStale) == 0 {
+				if got := api.writeCalls(); len(got) != before {
+					t.Errorf("new write calls although nothing is denied: %v", got[before:])
+				}
+			}
 		})
 	}
 }
