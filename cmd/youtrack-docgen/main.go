@@ -2,14 +2,8 @@
 // publishes it to the YouTrack Knowledge Base.
 package main
 
-import (
-	"os"
-
-	"github.com/JtheGunner/youtrack-docgen/internal/cli"
-)
+import "github.com/JtheGunner/youtrack-docgen/docgen"
 
 func main() {
-	if err := cli.Execute(os.Stdout, os.Stderr); err != nil {
-		os.Exit(cli.ExitCode(err))
-	}
+	docgen.Main()
 }
