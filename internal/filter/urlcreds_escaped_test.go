@@ -33,6 +33,11 @@ func TestRedactorURLCredentialsWithEscapedSeparators(t *testing.T) {
 		{"encoded scheme colon", "dsn https%3A%2F%2Fadmin:" + secret + "@db.example.com/app"},
 		{"json unicode escapes", `dsn https:\u002f\u002fadmin:` + secret + `@db.example.com/app`},
 		{"json unicode escaped colon and at", `dsn https://admin\u003a` + secret + `\u0040db.example.com/app`},
+		{"percent encoded slash in user name", "dsn https://org%2Fuser:" + secret + "@db.example.com/app"},
+		{"entity slash in user name", "dsn https://org&#47;user:" + secret + "@db.example.com/app"},
+		{"hex entity slash in user name", "dsn https://org&#x2F;user:" + secret + "@db.example.com/app"},
+		{"json unicode slash in user name", `dsn https://org\u002fuser:` + secret + `@db.example.com/app`},
+		{"escaped scheme with encoded slash in user name", "dsn https:%2F%2Forg%2Fuser:" + secret + "@db.example.com/app"},
 		{"everything encoded", "dsn https%3A%2F%2Fadmin%3A" + secret + "%40db.example.com%2Fapp"},
 	}
 	for _, tt := range tests {

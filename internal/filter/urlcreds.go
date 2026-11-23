@@ -19,10 +19,10 @@ const (
 // The scheme needs no word boundary before it: "x_https://" and "1https://"
 // must not hide credentials. Escaped separators count as well.
 var (
-	urlSchemeRE = regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.-]*` + colonPattern + slashPattern + slashPattern)
-	slashRE     = regexp.MustCompile(slashPattern)
-	colonRE     = regexp.MustCompile(colonPattern)
-	atRE        = regexp.MustCompile(atPattern)
+	urlSchemeRE    = regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.-]*` + colonPattern + slashPattern + slashPattern)
+	literalSlashRE = regexp.MustCompile(`\\*/`)
+	colonRE        = regexp.MustCompile(colonPattern)
+	atRE           = regexp.MustCompile(atPattern)
 )
 
 // redactURLCredentials replaces every URL that may carry credentials with the
@@ -94,10 +94,12 @@ func tokenBounds(s string, from int) (end, lastAt int) {
 	return end, lastAt
 }
 
-// authorityHasColon reports whether the text up to the first "/" (in any
-// escaped form) holds a ":" (in any escaped form).
+// authorityHasColon reports whether the text up to the first literal "/" holds
+// a ":" (in any escaped form). Only a literal slash ends the authority: an
+// escaped one ("%2F", "&#47;") may be part of the user name, and cutting there
+// would hide a password that follows. Redacting too much is the accepted failure.
 func authorityHasColon(run string) bool {
-	if loc := slashRE.FindStringIndex(run); loc != nil {
+	if loc := literalSlashRE.FindStringIndex(run); loc != nil {
 		run = run[:loc[0]]
 	}
 	return colonRE.MatchString(run)
