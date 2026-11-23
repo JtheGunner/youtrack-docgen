@@ -38,7 +38,8 @@ type Options struct {
 
 // Render builds the document tree for g: a root document whose children are
 // the VLAN, IP allocation and service overviews followed by one document per
-// host, sorted by host ID.
+// host, sorted by host ID, and one document per Kubernetes cluster with its
+// namespaces as children.
 //
 // Only an explicit set of entity fields is rendered (name, aliases, addresses,
 // the attributes named by the model.Attr constants and the
@@ -57,6 +58,10 @@ func Render(g *model.Graph, opts Options) Document {
 	for _, h := range hosts {
 		root.Children = append(root.Children, r.host(h))
 	}
+	clusters := kubernetesClusters(g)
+	for _, c := range clusters {
+		root.Children = append(root.Children, r.cluster(c))
+	}
 
 	index := List{}
 	for _, c := range root.Children {
@@ -64,7 +69,7 @@ func Render(g *model.Graph, opts Options) Document {
 	}
 	root.Sections = []Section{
 		{ID: "contents", Heading: "Contents", Blocks: []Block{index}},
-		r.generated(sources(hosts, g.ByKind(model.KindNetwork), g.ByKind(model.KindService))),
+		r.generated(sources(hosts, g.ByKind(model.KindNetwork), g.ByKind(model.KindService), clusters)),
 	}
 	return root
 }
