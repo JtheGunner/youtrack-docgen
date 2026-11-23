@@ -40,12 +40,35 @@ const kubernetesSource = "kubernetes"
 // only fail the allow rules stay undecided, because an allowed host may bring
 // them along as references. Hostnames or addresses that a denied host drags
 // along are not considered. An ID whose key the redactor would change is
-// denied.
+// denied. A Kubernetes member (workload, service, ingress) follows the verdict
+// of its namespace.
 func (f *Filter) DecideID(id model.ID) Verdict {
 	source, kind, key, err := model.ParseID(id)
 	if err != nil {
 		return Undecidable
 	}
+	verdict := f.decideKey(source, kind, key)
+	if source != kubernetesSource || verdict == Denied {
+		return verdict
+	}
+	// Apply removes the members of a denied namespace with it, so an ID that
+	// names a member is denied when its namespace is, and undecided when the
+	// namespace is.
+	ns, found := namespaceFromKey(kind, key)
+	if !found || kind == model.KindNamespace {
+		return verdict
+	}
+	switch f.decideKey(source, model.KindNamespace, ns) {
+	case Denied:
+		return Denied
+	case Undecidable:
+		return Undecidable
+	}
+	return verdict
+}
+
+// decideKey checks the rules against the fields the ID parts carry.
+func (f *Filter) decideKey(source string, kind model.Kind, key string) Verdict {
 	// Same rule as Apply: a key the redactor would change is removed, whatever
 	// the rules say.
 	if f.redactor.Text(key) != key {
