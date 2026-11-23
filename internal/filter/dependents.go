@@ -261,6 +261,14 @@ func boundaryRegexp(words []string, chars string) *regexp.Regexp {
 	if len(words) == 0 {
 		return nil
 	}
+	// Go alternations are leftmost-first, so a word that is a prefix of another
+	// must come after it: longest first, ties in alphabetical order.
+	slices.SortFunc(words, func(a, b string) int {
+		if len(a) != len(b) {
+			return len(b) - len(a)
+		}
+		return strings.Compare(a, b)
+	})
 	parts := make([]string, len(words))
 	for i, w := range words {
 		parts[i] = regexp.QuoteMeta(w)

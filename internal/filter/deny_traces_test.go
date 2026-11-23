@@ -167,3 +167,29 @@ func TestApplyRemovesMembersOfDeniedNamespace(t *testing.T) {
 		t.Errorf("relations = %v, want only the member_of of the kept workload", rels)
 	}
 }
+
+// A denied short name that is a prefix of another denied name must not leave
+// the rest of the longer name behind, whatever order the names are listed in.
+func TestBoundaryRegexpPrefersTheLongestName(t *testing.T) {
+	tests := []struct {
+		name  string
+		words []string
+		text  string
+		want  string
+	}{
+		{"short name first", []string{"lab01", "lab01.example.com"}, "see lab01.example.com now", "see X now"},
+		{"long name first", []string{"lab01.example.com", "lab01"}, "see lab01.example.com now", "see X now"},
+		{"short name first with alias", []string{"lab01", "lab01-alias.example.com"}, "at lab01-alias.example.com and lab01", "at X and X"},
+		{"short name alone still matches", []string{"lab01", "lab01.example.com"}, "only lab01 here", "only X here"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			re := boundaryRegexp(tc.words, hostnameChars)
+			d := dependents{nameRE: re}
+			got := strings.ReplaceAll(d.scrubText(tc.text), Placeholder, "X")
+			if got != tc.want {
+				t.Errorf("scrubText(%q) = %q, want %q", tc.text, got, tc.want)
+			}
+		})
+	}
+}
