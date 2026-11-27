@@ -325,7 +325,7 @@ The token needs these permissions in the target project. They are derived from t
 | Create Article | Creating articles, including sub-articles |
 | Update Article | Updating generated sections, stale banners and restores |
 
-docgen needs no Delete Article permission. Tags such as `docgen-stale` are created and attached with the same token, so the account must be allowed to create tags and use them.
+docgen needs no Delete Article permission. Tags such as `docgen-stale` are created, attached and removed with the same token, so the account must be allowed to create tags and use them. The documentation names only Read Article for attaching a tag and nothing for removing one, so whether Update Article is also required is unverified.
 
 > [!NOTE]
 > The article list comes from `GET /api/admin/projects/{id}/articles`. The YouTrack documentation names no permission for it. It has been confirmed to work with an administrator token only. If a token with just the permissions above gets a 403 on the list call, grant it Update Project on that project, or report the missing minimum so this section can be corrected.
