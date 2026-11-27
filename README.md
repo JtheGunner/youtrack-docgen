@@ -314,6 +314,22 @@ go test ./internal/sink/youtrack -run TestIntegration -v
 
 docgen never deletes articles, so the test cannot either. Its articles are titled `docgen-it-<run id>` and `docgen-it-<run id>-child`; the test logs them at the end, and you remove them by hand.
 
+### Token permissions
+
+The token needs these permissions in the target project. They are derived from the [YouTrack permissions reference](https://www.jetbrains.com/help/youtrack/server/youtrack-permissions-reference.html) and the [REST API reference](https://www.jetbrains.com/help/youtrack/devportal/resource-api-articles.html); they have not been checked with a restricted account.
+
+| Permission | Used for |
+|---|---|
+| Read Project Basic | Resolving the project; required to see its articles |
+| Read Article | Listing and reading articles, reading and attaching tags |
+| Create Article | Creating articles, including sub-articles |
+| Update Article | Updating generated sections, stale banners and restores |
+
+docgen needs no Delete Article permission. Tags such as `docgen-stale` are created, attached and removed with the same token, so the account must be allowed to create tags and use them. The documentation names only Read Article for attaching a tag and nothing for removing one, so whether Update Article is also required is unverified.
+
+> [!NOTE]
+> The article list comes from `GET /api/admin/projects/{id}/articles`. The YouTrack documentation names no permission for it. It has been confirmed to work with an administrator token only. If a token with just the permissions above gets a 403 on the list call, grant it Update Project on that project, or report the missing minimum so this section can be corrected.
+
 ---
 
 ## 📜 License
