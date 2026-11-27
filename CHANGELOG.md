@@ -19,4 +19,5 @@ All notable changes to this project are documented here. The format follows
 ### Changed
 
 - The YouTrack sink lists the articles of a project through the documented `GET /api/admin/projects/{id}/articles` endpoint instead of the undocumented `query` parameter of `GET /api/articles`. Project names with spaces no longer need quoting. The integration test also covers stale marking and restore, and the `YOUTRACK_IT_PROJECT_QUERY` variable is no longer used.
+- The README lists the token permissions the YouTrack sink needs, and notes that the project article listing is only confirmed with an administrator token.
 - Breaking: the `model` and `collector` packages moved out of `internal/` (`.../internal/model` is now `.../model`, `.../internal/collector` is now `.../collector`). Forks that imported them through a patch series must update their imports. The API is v0.x and may change; breaking changes are listed here.
